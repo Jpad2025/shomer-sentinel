@@ -1,0 +1,1458 @@
+{% extends "base.html" %}
+{% set active_module = "protector" %}
+{% block page_title %}Protector — Gestión de Respaldos{% endblock %}
+
+{% block extra_styles %}
+.page-header { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); background:var(--sidebar); padding:16px 24px; flex-wrap:wrap; gap:12px; }
+.page-header-left { display:flex; align-items:center; gap:16px; }
+.page-header-left h1 { font-size:18px; font-weight:700; color:var(--text); }
+.page-header-left p  { font-size:12px; color:var(--muted); margin-top:2px; }
+.repo-badge { display:flex; align-items:center; gap:6px; border-radius:20px; padding:4px 12px; font-size:12px; font-weight:600; }
+.repo-ok   { background:rgba(34,197,94,0.15);  color:var(--online); }
+.repo-warn { background:rgba(245,158,11,0.15); color:var(--warning); }
+.repo-err  { background:rgba(220,38,38,0.15);  color:var(--offline); }
+.repo-badge svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; }
+.header-btns { display:flex; gap:10px; }
+/* Botones header migrados a .btn .btn-blue/btn-outline del sistema unificado en base.html */
+.btn-hdr svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; }
+
+.stat-grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px; }
+.sc { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; }
+.sc-row { display:flex; align-items:center; gap:12px; }
+.sc-row svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; }
+.sc-val { font-size:22px; font-weight:700; }
+.sc-lbl { font-size:12px; color:var(--muted); margin-top:2px; }
+.sc.teal   { border-color:rgba(13,110,110,0.3); }  .sc.teal   svg,.sc.teal   .sc-val { color:var(--teal); }
+.sc.green  { border-color:rgba(34,197,94,0.3); }   .sc.green  svg,.sc.green  .sc-val { color:var(--online); }
+.sc.blue   { border-color:rgba(59,130,246,0.3); }  .sc.blue   svg,.sc.blue   .sc-val { color:var(--blue); }
+.sc.purple { border-color:rgba(139,92,246,0.3); }  .sc.purple svg,.sc.purple .sc-val { color:#8b5cf6; }
+
+.protector-body { display:flex; gap:16px; overflow:hidden; }
+.protector-main { flex:1; overflow:hidden; }
+.table-wrap { background:var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.table-head-bar { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border); }
+.table-head-bar h3 { font-size:13px; font-weight:600; color:var(--text); }
+.table-scroll { overflow-x:auto; max-height:calc(100vh - 350px); overflow-y:auto; }
+table { width:100%; border-collapse:collapse; }
+thead tr { background:var(--sidebar); border-bottom:1px solid var(--border); }
+thead th { padding:10px 14px; text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); white-space:nowrap; }
+tbody tr { border-bottom:1px solid var(--border); transition:background 0.15s; }
+tbody tr:hover { background:rgba(30,42,58,0.3); }
+tbody tr:last-child { border-bottom:none; }
+td { padding:10px 14px; font-size:13px; color:var(--text); }
+.snap-id { color:#06b6d4; font-family:monospace; font-weight:600; }
+.snap-size { font-weight:700; color:var(--text); }
+.status-complete { background:rgba(34,197,94,0.15);  color:var(--online);  border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; }
+.status-partial  { background:rgba(245,158,11,0.15); color:var(--warning); border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; }
+.td-actions { display:flex; align-items:center; gap:6px; justify-content:flex-end; }
+/* .btn-restore y .btn-delete migrados a .btn .btn-outline/btn-red .btn-sm del sistema unificado.
+   Clases mantenidas como marcador para selectores JS (#btn-delete-${sid}, etc.) */
+.btn-restore svg,.btn-delete svg { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:2; }
+
+.logs-panel { width:320px; min-width:320px; background:var(--sidebar); border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; overflow:hidden; transition: width 0.2s ease, min-width 0.2s ease; }
+.logs-panel.collapsed { width:44px; min-width:44px; }
+.logs-panel.collapsed .logs-body,
+.logs-panel.collapsed h3,
+.logs-panel.collapsed .logs-count { display:none; }
+.logs-panel.collapsed .logs-header { padding:12px; justify-content:center; border-bottom:none; }
+.logs-header { display:flex; align-items:center; gap:8px; padding:12px 16px; border-bottom:1px solid var(--border); cursor:pointer; user-select:none; }
+.logs-header:hover { background: rgba(30,42,58,0.4); }
+.logs-header svg { width:14px; height:14px; color:var(--online); fill:none; stroke:currentColor; stroke-width:2; }
+.logs-header h3 { font-size:13px; font-weight:600; color:var(--text); flex:1; }
+.logs-count { background:var(--border); border-radius:20px; padding:2px 8px; font-size:11px; color:var(--muted); }
+.logs-body { flex:1; overflow-y:auto; padding:8px; font-family:monospace; font-size:11px; }
+.log-entry { display:flex; gap:6px; padding:5px 8px; border-radius:4px; margin-bottom:2px; flex-wrap:wrap; }
+.log-info    { background:rgba(59,130,246,0.08); }
+.log-success { background:rgba(34,197,94,0.08); }
+.log-warning { background:rgba(245,158,11,0.08); }
+.log-error   { background:rgba(220,38,38,0.08); }
+.log-time { color:var(--muted); flex-shrink:0; }
+.log-src { font-weight:700; flex-shrink:0; }
+.log-src.info    { color:var(--blue); }
+.log-src.success { color:var(--online); }
+.log-src.warning { color:var(--warning); }
+.log-src.error   { color:var(--offline); }
+.log-msg { color:var(--text); }
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <div>
+      <h1>Protector — Gestión de Respaldos</h1>
+      <p>Última actualización: <span id="last-update">--:--:--</span></p>
+    </div>
+    <div class="repo-badge repo-ok" id="repo-status">
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+      Repositorio OK
+    </div>
+  </div>
+  <div class="header-btns">
+    <button type="button" class="btn btn-outline btn-hdr" id="btn-refresh-snapshots" onclick="loadSnapshots()">
+      <svg viewBox="0 0 24 24" style="width:15px;height:15px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Actualizar lista
+    </button>
+    <button class="btn btn-blue btn-hdr" id="btn-backup-local" onclick="handleBackupLocal()">
+      <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Backup Local
+    </button>
+    <button class="btn btn-blue btn-hdr" id="btn-sync-cloud" onclick="handleSyncCloud()">
+      <svg viewBox="0 0 24 24"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+      Sincronizar Nube
+    </button>
+    <button class="btn btn-outline btn-hdr" id="btn-report-hdr" onclick="generateReportNow()">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      Reporte PDF
+    </button>
+  </div>
+</div>
+
+<div style="padding:20px;display:flex;flex-direction:column;gap:0;height:calc(100% - 65px);overflow:hidden;">
+
+  <div class="stat-grid-4">
+    <div class="sc teal">
+      <div class="sc-row"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        <div><div class="sc-val" id="stat-snapshots">0</div><div class="sc-lbl">Snapshots</div></div>
+      </div>
+    </div>
+    <div class="sc green">
+      <div class="sc-row"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        <div><div class="sc-val" id="stat-complete">0</div><div class="sc-lbl">Completos</div></div>
+      </div>
+    </div>
+    <div class="sc blue">
+      <div class="sc-row"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <div><div class="sc-val" id="stat-last-backup" style="font-size:16px;">N/A</div><div class="sc-lbl">Último Backup</div></div>
+      </div>
+    </div>
+    <div class="sc purple">
+      <div class="sc-row"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <div><div class="sc-val" id="stat-size" style="font-size:16px;">—</div><div class="sc-lbl">Equipos activos</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="protector-body" style="flex:1;overflow:hidden;">
+    <div class="protector-main" style="display:flex;flex-direction:column;gap:12px;overflow-y:auto;">
+
+      <!-- Snapshots locales -->
+      <div class="table-wrap">
+        <div class="table-head-bar">
+          <h3>Backups de equipos — snapshots locales</h3>
+        </div>
+        <div class="table-scroll">
+          <table id="snapshots-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Fecha</th>
+                <th>Hora</th>
+                <th>Equipo</th>
+                <th>Tamaño</th>
+                <th>Archivos</th>
+                <th>Duración</th>
+                <th>Estado</th>
+                <th style="text-align:right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="snapshots-tbody">
+              <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px;">Cargando snapshots...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Snapshots B2 (nube) -->
+      <div class="table-wrap">
+        <div class="table-head-bar" style="justify-content:space-between;">
+          <h3 style="display:flex;align-items:center;gap:8px;">
+            <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:#3b82f6;stroke-width:2;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+            Descargar backups desde B2 (nube)
+          </h3>
+          <button type="button" onclick="loadB2Snapshots()" id="btn-load-b2"
+            style="display:flex;align-items:center;gap:6px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.4);color:#60a5fa;border-radius:6px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            <svg viewBox="0 0 24 24" style="width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Cargar lista B2
+          </button>
+        </div>
+        <div id="b2-snapshots-wrap" style="padding:10px 14px;">
+          <p style="font-size:12px;color:var(--muted);margin:6px 0;">Pulsa "Cargar lista B2" para ver los snapshots disponibles en la nube.</p>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="logs-panel collapsed" id="logs-panel-wrap">
+      <div class="logs-header" onclick="toggleLogs()">
+        <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <h3>Logs Protector</h3>
+        <span class="logs-count" id="logs-count">0</span>
+      </div>
+      <div class="logs-body" id="logs-panel"></div>
+    </div>
+  </div>
+</div>
+<!-- CONFIG PROTECTOR -->
+<div style="padding:0 20px 20px 20px;">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+
+    <!-- Toggle -->
+    <div onclick="toggleProtectorConfig()" id="protector-cfg-toggle"
+      style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;">
+      <span style="font-size:13px;font-weight:600;color:var(--text);">⚙ Configuración y Opciones</span>
+      <svg id="protector-cfg-arrow" viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:var(--muted);stroke-width:2;transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+
+    <div id="protector-cfg-body" style="display:none;flex-direction:column;gap:16px;padding:16px;border-top:1px solid var(--border);">
+
+      <!-- Retención -->
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:var(--teal);">Retención de Backups</div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <label style="font-size:12px;color:var(--muted);">Días a conservar</label>
+          <input type="number" id="cfg-retention" value="7" min="1" max="365"
+            style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:80px;">
+          <button onclick="saveRetention()"
+            style="background:rgba(13,110,110,0.2);border:1px solid var(--teal);color:var(--teal);border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            Guardar
+          </button>
+        </div>
+      </div>
+
+
+      <!-- Object Lock B2 -->
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:#f59e0b;">Object Lock B2 <span style="font-size:10px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">anti-ransomware</span></div>
+        <div style="font-size:11px;color:var(--muted);">Estado: <span id="obj-lock-status" style="font-weight:600;color:var(--muted);">Consultando...</span></div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <label style="font-size:12px;color:var(--muted);">Retención B2 (días)</label>
+          <input id="obj-lock-days" type="number" value="90" min="7" max="365"
+            style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:80px;">
+          <button id="btn-obj-lock" onclick="activateObjectLock()"
+            style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.5);color:#f59e0b;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;display:flex;align-items:center;gap:6px;">
+            <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Activar Object Lock
+          </button>
+        </div>
+        <div style="font-size:10px;color:#f59e0b;line-height:1.5;">⚠ Irreversible — los backups no podrán borrarse por el período configurado.</div>
+      </div>
+
+      <!-- Equipos a respaldar -->
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:var(--teal);">Equipos a Respaldar</div>
+          <button onclick="showAddEquipoForm()"
+            style="background:rgba(13,110,110,0.15);border:1px solid rgba(13,110,110,0.4);color:var(--teal);border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            + Agregar equipo
+          </button>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin:0;line-height:1.45;">
+          Para cada equipo indica la <strong>ruta o recurso compartido</strong> a respaldar.
+          Windows (SMB): nombre del share, p. ej. <code style="font-size:10px;">Datos</code> o <code style="font-size:10px;">Datos/subcarpeta</code>.
+          Linux/macOS (SSH): ruta absoluta, p. ej. <code style="font-size:10px;">/home/usuario/respaldo</code>.
+          Tras guardar, puedes <strong>Editar</strong> la ruta en la lista.
+        </p>
+
+        <!-- Formulario agregar/editar equipo (oculto por defecto) -->
+        <div id="add-equipo-form" style="display:none;flex-direction:column;gap:10px;background:rgba(13,110,110,0.05);border:1px solid rgba(13,110,110,0.2);border-radius:8px;padding:14px;">
+          <div id="edit-equipo-title" style="font-size:12px;font-weight:600;color:var(--text);">Nuevo equipo</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:11px;color:var(--muted);font-weight:600;">Nombre / Descripción</label>
+              <input type="text" id="eq-nombre" placeholder="Ej: Servidor Contabilidad"
+                style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:11px;color:var(--muted);font-weight:600;">IP del equipo</label>
+              <input type="text" id="eq-ip" placeholder="Ej: 192.168.1.50"
+                style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:11px;color:var(--muted);font-weight:600;">Tipo</label>
+              <select id="eq-tipo"
+                style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+                <option value="windows">Windows (SMB)</option>
+                <option value="linux">Linux (SSH)</option>
+                <option value="macos">macOS (SSH)</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:11px;color:var(--muted);font-weight:600;">Usuario <span id="eq-user-svc-hint" style="color:#60a5fa;font-weight:400;"></span></label>
+              <input type="text" id="eq-user" placeholder="Ej: shomer"
+                style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:11px;color:var(--muted);font-weight:600;">Contraseña</label>
+              <input type="password" id="eq-pass" placeholder="••••••••"
+                style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:11px;color:var(--muted);font-weight:600;">Ruta a respaldar <span style="color:var(--teal);">(obligatoria)</span></label>
+            <input type="text" id="eq-ruta" placeholder="…"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:100%;"
+              oninput="document.getElementById('eq-ruta-hint').textContent='';">
+            <div id="eq-ruta-hint" style="font-size:11px;color:#60a5fa;margin-top:3px;line-height:1.4;"></div>
+          </div>
+          <!-- Horario automático -->
+          <div style="display:flex;align-items:center;gap:16px;background:rgba(13,110,110,0.04);border:1px solid rgba(13,110,110,0.15);border-radius:8px;padding:10px 14px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text);user-select:none;">
+              <input type="checkbox" id="eq-schedule-enabled" style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer;">
+              Backup automático
+            </label>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <label id="eq-schedule-time-label" style="font-size:12px;color:var(--muted);font-weight:600;">Hora</label>
+              <input type="time" id="eq-schedule-time" value="02:00"
+                style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:120px;">
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text);user-select:none;margin-left:8px;">
+              <input type="checkbox" id="eq-sync-b2" style="width:16px;height:16px;accent-color:#3b82f6;cursor:pointer;">
+              <span style="color:#93c5fd;">☁ Subir a B2 tras backup</span>
+            </label>
+            <span id="eq-schedule-hint" style="font-size:11px;color:var(--muted);">El backup se ejecuta a la hora indicada en zona <span id="eq-tz-label">UTC</span>. Con B2: sube solo ese snapshot a la nube.</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <button onclick="testEquipoConexion()"
+              style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+              🔌 Test conexión
+            </button>
+            <button onclick="agregarEquipo()"
+              style="background:var(--teal);color:#fff;border:none;border-radius:6px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+              Guardar equipo
+            </button>
+            <button onclick="cancelAddEquipo()"
+              style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+              Cancelar
+            </button>
+          </div>
+        </div>
+
+        <!-- Lista de equipos -->
+        <div id="equipos-list">
+          <div style="font-size:12px;color:var(--muted);padding:8px 0;">Sin equipos configurados.</div>
+        </div>
+      </div>
+
+      <!-- Backblaze B2 -->
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:var(--teal);">Backblaze B2 — Cloud Storage</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:11px;color:var(--muted);font-weight:600;">Bucket Name</label>
+            <input type="text" id="b2-bucket" placeholder="ej: shomer-backups"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:11px;color:var(--muted);font-weight:600;">Path en bucket (override — vacío = auto desde nombre del sitio)</label>
+            <input type="text" id="b2-path" placeholder="vacío = se usa nombre del sitio automáticamente"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+            <div style="font-size:11px;color:#60a5fa;margin-top:2px;">Carpeta efectiva en B2: <strong id="b2-path-effective" style="color:#34d399;">—</strong></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:11px;color:var(--muted);font-weight:600;">Account ID (keyID)</label>
+            <input type="text" id="b2-account-id" placeholder="000xxxxxxxxxxxxxxx"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:11px;color:var(--muted);font-weight:600;">Application Key</label>
+            <input type="password" id="b2-app-key" placeholder="••••••••••••"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:11px;color:var(--muted);font-weight:600;">Password repo B2 (Restic)</label>
+            <input type="password" id="b2-password" placeholder="password del repo remoto"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);">Si el repo B2 no existe, se inicializa automáticamente al sincronizar por primera vez. La contraseña del repo B2 puede quedar vacía si es la misma que el repo local.</div>
+        <!-- Scheduler global B2 -->
+        <div style="background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#60a5fa;">Sync global nocturno</span>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text);user-select:none;">
+            <input type="checkbox" id="b2-sync-enabled" style="width:16px;height:16px;accent-color:#3b82f6;cursor:pointer;">
+            Activar
+          </label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label id="b2-sync-time-label" style="font-size:12px;color:var(--muted);font-weight:600;">Hora local sitio</label>
+            <input type="time" id="b2-sync-time" value="04:00"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:120px;">
+          </div>
+          <span style="font-size:11px;color:var(--muted);">Sync completo + prune local (retención configurada). Complementa el auto-B2 por equipo.</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button id="btn-save-b2" onclick="saveB2Config()"
+            style="background:var(--teal);color:#fff;border:none;border-radius:6px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            Guardar configuración B2
+          </button>
+          <button id="btn-test-b2" type="button" onclick="testB2Connection()"
+            style="background:transparent;border:1px solid var(--teal);color:var(--teal);border-radius:6px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            Probar conexión B2
+          </button>
+          <span id="b2-status" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+        <!-- Verificación de Backups (Drill) -->
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:#639922;">Verificación de Backups</div>
+          <span style="font-size:10px;color:var(--muted);margin-left:auto;">prueba mensual automática</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">Restaura un snapshot y verifica que el backup sea recuperable. Se ejecuta automáticamente el primer día de cada mes.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
+          <div>
+            <div style="font-size:18px;font-weight:700;color:#639922;" id="drill-total">—</div>
+            <div style="font-size:10px;color:var(--muted);">Ejecutados</div>
+          </div>
+          <div>
+            <div style="font-size:18px;font-weight:700;color:var(--online);" id="drill-ok">—</div>
+            <div style="font-size:10px;color:var(--muted);">Exitosos</div>
+          </div>
+          <div>
+            <div style="font-size:18px;font-weight:700;color:var(--offline);" id="drill-fail">—</div>
+            <div style="font-size:10px;color:var(--muted);">Fallidos</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);">Último: <span id="drill-last">—</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button id="btn-drill-run" onclick="runDrillNow()"
+            style="display:flex;align-items:center;gap:6px;background:#639922;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;"><polygon points="5 3 19 12 5 21 5 3"/></svg>Ejecutar ahora
+          </button>
+          <button onclick="toggleDrillHistory()"
+            style="display:flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            Historial
+          </button>
+          <button onclick="window.location='/drill/history/csv'"
+            style="display:flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;font-family:'Inter',sans-serif;">CSV</button>
+        </div>
+        <div id="drill-history-wrap" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px;">
+          <div style="overflow-x:auto;max-height:200px;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead><tr style="background:var(--sidebar);">
+                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Fecha</th>
+                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Estado</th>
+                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Duración</th>
+                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Error</th>
+              </tr></thead>
+              <tbody id="drill-tbody">
+                <tr><td colspan="4" style="padding:10px;text-align:center;color:var(--muted);">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reportes PDF -->
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+        <!-- Título -->
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:var(--blue);">Reportes PDF</div>
+          <span style="font-size:10px;color:var(--muted);margin-left:auto;">Último: <span id="report-last-date" style="color:var(--text);font-weight:600;">—</span></span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">Genera el reporte mensual de actividad en PDF. Elige el mes preestablecido o define un rango de fechas personalizado.</div>
+        <!-- Controles en una línea -->
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <button id="btn-report-now" onclick="generateReportNow()"
+            style="display:flex;align-items:center;gap:5px;background:var(--blue);color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap;">
+            <svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2;flex-shrink:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Mes actual
+          </button>
+          <button id="btn-report-prev" onclick="generateReportPrev()"
+            style="display:flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--blue);color:#60a5fa;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap;">Anterior</button>
+          <span style="color:var(--border);padding:0 2px;">|</span>
+          <span style="font-size:10px;color:var(--muted);white-space:nowrap;">Desde</span>
+          <input type="date" id="report-from" style="background:var(--sidebar);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-size:11px;color:var(--text);font-family:'Inter',sans-serif;width:130px;">
+          <span style="font-size:10px;color:var(--muted);white-space:nowrap;">Hasta</span>
+          <input type="date" id="report-to" style="background:var(--sidebar);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-size:11px;color:var(--text);font-family:'Inter',sans-serif;width:130px;">
+          <button id="btn-report-range" onclick="generateReportRange()"
+            style="display:flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--teal);color:var(--teal);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap;">Generar</button>
+        </div>
+        <!-- Historial -->
+        <div id="reports-list-wrap" style="border-top:1px solid var(--border);padding-top:8px;">
+          <div style="overflow-x:auto;max-height:150px;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead><tr style="background:var(--sidebar);">
+                <th style="padding:4px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Período</th>
+                <th style="padding:4px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Generado</th>
+                <th style="padding:4px 6px;text-align:right;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">PDF</th>
+              </tr></thead>
+              <tbody id="reports-tbody">
+                <tr><td colspan="3" style="padding:8px;text-align:center;color:var(--muted);">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  document.getElementById('last-update').textContent = new Date().toLocaleTimeString('es-ES');
+  const logsEl = document.getElementById('logs-panel');
+  const logsCount = document.getElementById('logs-count');
+  let logN = 0;
+  function toggleLogs() {
+    const p = document.getElementById('logs-panel-wrap');
+    if (p) p.classList.toggle('collapsed');
+  }
+  function addLog(level, source, msg) {
+    logN++;
+    const t = new Date().toLocaleTimeString('es-ES');
+    const d = document.createElement('div');
+    d.className = 'log-entry log-' + level;
+    d.innerHTML = `<span class="log-time">${t}</span><span class="log-src ${level}">[${source}]</span><span class="log-msg">${msg}</span>`;
+    logsEl.appendChild(d); logsEl.scrollTop = logsEl.scrollHeight;
+    logsCount.textContent = logN;
+  }
+  addLog('info','SYSTEM','Módulo Protector iniciado');
+
+  /* ── Snapshots CSR ─────────────────────────────────── */
+  function loadSnapshots() {
+    const tbody = document.getElementById('snapshots-tbody');
+    const btnRef = document.getElementById('btn-refresh-snapshots');
+    if (btnRef) setBtnRunning(btnRef, true, 'Actualizando...');
+    shomerFetch('/backups/snapshots')
+    .then(async r => {
+      let d = {};
+      try { d = await r.json(); } catch (e) {
+        throw new Error('Respuesta no válida del servidor');
+      }
+      if (!r.ok) {
+        const det = d.detail;
+        const msg = typeof det === 'string' ? det : (Array.isArray(det) ? JSON.stringify(det) : (r.status + ' ' + r.statusText));
+        throw new Error(msg || ('HTTP ' + r.status));
+      }
+      return d;
+    })
+    .then(d => {
+      const snaps = Array.isArray(d.snapshots) ? d.snapshots : [];
+      document.getElementById('stat-snapshots').textContent = snaps.length;
+      document.getElementById('stat-complete').textContent  = snaps.length;
+      if (snaps.length > 0 && snaps[0].time) {
+        const dt = new Date(snaps[0].time);
+        document.getElementById('stat-last-backup').textContent = dt.toLocaleDateString('es-ES');
+      } else {
+        document.getElementById('stat-last-backup').textContent = 'N/A';
+      }
+      if (snaps.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px;">Sin snapshots en el repositorio (o aún no se ha ejecutado un backup local).</td></tr>';
+        return;
+      }
+      tbody.innerHTML = snaps.map(s => {
+        const dt    = s.time ? new Date(s.time) : null;
+        const fecha = dt ? dt.toLocaleDateString('es-ES') : '—';
+        const hora  = dt ? dt.toLocaleTimeString('es-ES') : '—';
+        const sid   = s.short_id || '—';
+        const equipo = s.device_name
+          ? `<span style="font-weight:600;color:var(--text);">${s.device_name}</span>`
+          : `<span style="color:var(--muted);font-size:11px;" title="${s.paths||''}">${(s.paths||'—').slice(0,30)}</span>`;
+        const sizeStr = s.last_size_mb != null
+          ? (s.last_size_mb >= 1024 ? (s.last_size_mb/1024).toFixed(1)+' GB' : s.last_size_mb.toFixed(1)+' MB')
+          : '—';
+        const filesStr = s.last_files != null ? s.last_files.toLocaleString() : '—';
+        const durStr   = s.last_duration_sec != null
+          ? (s.last_duration_sec >= 60 ? Math.floor(s.last_duration_sec/60)+'m '+(s.last_duration_sec%60)+'s' : s.last_duration_sec+'s')
+          : '—';
+        const did = s.device_id;
+        const schedEnabled = s.schedule_enabled;
+        const schedTime = s.schedule_time;
+        const toggleBtn = did ? `
+          <button class="btn btn-outline btn-sm btn-restore"
+            style="background:${schedEnabled ? 'rgba(245,158,11,0.12)' : 'rgba(100,116,139,0.12)'};color:${schedEnabled ? '#f59e0b' : '#94a3b8'};border-color:${schedEnabled ? 'rgba(245,158,11,0.4)' : 'rgba(100,116,139,0.4)'};"
+            onclick="toggleSchedule(${did}, ${!schedEnabled}, '${(s.device_name||sid).replace(/'/g,"\\'")}')">
+            ${schedEnabled ? '⏸ Pausar auto' : '▶ Activar auto'}
+          </button>` : '';
+        const backupBtn = did ? `
+          <button class="btn btn-outline btn-sm btn-restore"
+            onclick="backupDevice(${did}, '${(s.device_name||sid).replace(/'/g,"\\'")}')">
+            <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Backup ahora
+          </button>` : '';
+        return `<tr>
+          <td class="snap-id">${sid}</td>
+          <td>${fecha}</td>
+          <td style="font-family:monospace;color:var(--muted);">${hora}</td>
+          <td>${equipo}</td>
+          <td class="snap-size">${sizeStr}</td>
+          <td style="font-family:monospace;">${filesStr}</td>
+          <td style="color:var(--muted);">${durStr}</td>
+          <td><span class="status-complete">OK</span></td>
+          <td><div class="td-actions">
+            ${toggleBtn}
+            ${backupBtn}
+            <button id="btn-delete-${sid}" class="btn btn-red btn-sm btn-delete" onclick="confirmAction('¿Eliminar snapshot ${sid}?\\nEsta operación no se puede deshacer.', ()=>handleDelete('${sid}'))">
+              <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Eliminar
+            </button>
+          </div></td>
+        </tr>`;
+      }).join('');
+      addLog('success','RESTIC', snaps.length + ' snapshots cargados');
+    })
+    .catch(err => {
+      const m = (err && err.message) ? err.message : 'No se pudo cargar snapshots';
+      addLog('error','RESTIC', m);
+      showToast(m, 'error');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--offline);padding:20px;">Error: ' + String(m).replace(/</g,'&lt;') + '</td></tr>';
+    })
+    .finally(() => { if (btnRef) setBtnRunning(btnRef, false); });
+  }
+  loadSnapshots();
+
+  function handleBackupLocal() {
+    const btn = document.getElementById('btn-backup-local');
+    confirmAction('¿Iniciar backup local con Restic? El proceso puede tardar varios minutos.', () => {
+      setBtnRunning(btn, true, 'Ejecutando...');
+      showProcessBanner('Ejecutando backup local con Restic');
+      addLog('info','RESTIC','Iniciando backup local...');
+      shomerFetch('/backups/run_local', {method:'POST'}).then(r=>r.json()).then(d=>{
+        addLog('success','RESTIC', d.message || 'Backup iniciado');
+        showToast(d.message || 'Backup local iniciado','success');
+        document.getElementById('last-update').textContent = new Date().toLocaleTimeString('es-ES');
+      }).catch(()=>{ addLog('error','RESTIC','Error durante el backup'); showToast('Error en backup','error'); })
+      .finally(()=>{ setBtnRunning(btn,false); hideProcessBanner(); });
+    });
+  }
+
+  function handleSyncCloud() {
+    const btn = document.getElementById('btn-sync-cloud');
+    confirmAction('¿Sincronizar con la nube? Se subirán los snapshots pendientes.', () => {
+      setBtnRunning(btn, true, 'Sincronizando...');
+      showProcessBanner('Sincronizando con almacenamiento en la nube');
+      addLog('info','CLOUD','Conectando a B2 Cloud Storage...');
+      shomerFetch('/backups/sync_cloud', {method:'POST'}).then(r=>r.json()).then(d=>{
+        addLog('success','CLOUD', d.message || 'Sincronización completada');
+        showToast(d.message || 'Sincronización completada','success');
+      }).catch(()=>{ addLog('error','CLOUD','Error de sincronización'); showToast('Error de sincronización','error'); })
+      .finally(()=>{ setBtnRunning(btn,false); hideProcessBanner(); });
+    });
+  }
+
+  async function handleRestore(shortId) {
+    const btn = document.getElementById('btn-restore-' + shortId);
+    if (btn) setBtnRunning(btn, true, 'Restaurando…');
+    showProcessBanner('Restaurando snapshot ' + shortId + ' — puede tardar varios minutos…');
+    addLog('warning', 'RESTIC', 'Iniciando restauración de ' + shortId);
+    try {
+      const r = await shomerFetch('/backups/restore/' + shortId, {
+        method: 'POST',
+        body: JSON.stringify({ target: '/' }),
+      });
+      const d = await r.json();
+      if (r.ok && d.success) {
+        addLog('success', 'RESTIC', 'Restauración ' + shortId + ' completada');
+        showToast('Snapshot ' + shortId + ' restaurado correctamente', 'success');
+      } else {
+        const msg = d.detail || d.error || 'Error al restaurar';
+        addLog('error', 'RESTIC', 'Error restaurando ' + shortId + ': ' + msg);
+        showToast('Error: ' + msg, 'error');
+      }
+    } catch (e) {
+      addLog('error', 'RESTIC', 'Error de red al restaurar: ' + (e.message || e));
+      showToast('Error de conexión al restaurar', 'error');
+    } finally {
+      if (btn) setBtnRunning(btn, false);
+      hideProcessBanner();
+    }
+  }
+
+  async function handleDelete(shortId) {
+    const btn = document.getElementById('btn-delete-' + shortId);
+    if (btn) setBtnRunning(btn, true, 'Eliminando…');
+    addLog('warning', 'RESTIC', 'Eliminando snapshot ' + shortId);
+    try {
+      const r = await shomerFetch('/backups/snapshot/' + shortId, { method: 'DELETE' });
+      const d = await r.json();
+      if (r.ok && d.success) {
+        addLog('success', 'RESTIC', 'Snapshot ' + shortId + ' eliminado');
+        showToast('Snapshot ' + shortId + ' eliminado', 'success');
+        loadSnapshots();
+      } else {
+        const msg = d.detail || d.error || 'Error al eliminar';
+        addLog('error', 'RESTIC', 'Error eliminando ' + shortId + ': ' + msg);
+        showToast('Error: ' + msg, 'error');
+        if (btn) setBtnRunning(btn, false);
+      }
+    } catch (e) {
+      addLog('error', 'RESTIC', 'Error de red al eliminar: ' + (e.message || e));
+      showToast('Error de conexión al eliminar', 'error');
+      if (btn) setBtnRunning(btn, false);
+    }
+  }
+
+  /* ── TIMEZONE DEL SITIO ───────────────────────── */
+  let _siteTZ = 'America/Bogota';
+
+  function loadSiteTimezone() {
+    fetch('/setup/status', { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(d => {
+        _siteTZ = (d.current?.timezone || 'America/Bogota').trim();
+        _svcCredentials.user = d.current?.service_user || '';
+        _updateScheduleLabels();
+      })
+      .catch(() => { _siteTZ = 'America/Bogota'; });
+  }
+
+  function _tzLabel() {
+    const parts = _siteTZ.split('/');
+    return parts[parts.length - 1].replace(/_/g, ' ');
+  }
+
+  function _utcToLocal(hhmm) {
+    // Convierte "HH:MM" UTC a hora local del sitio usando la API Intl
+    if (!hhmm) return hhmm;
+    try {
+      const [h, m] = hhmm.split(':').map(Number);
+      const d = new Date();
+      d.setUTCHours(h, m, 0, 0);
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: _siteTZ, hour: '2-digit', minute: '2-digit', hour12: false
+      }).formatToParts(d);
+      const hr = parts.find(p => p.type === 'hour')?.value.padStart(2,'0') || '00';
+      const mn = parts.find(p => p.type === 'minute')?.value.padStart(2,'0') || '00';
+      return `${hr}:${mn}`;
+    } catch { return hhmm; }
+  }
+
+  function _localToUtc(hhmm) {
+    // Convierte "HH:MM" hora local del sitio a UTC
+    if (!hhmm) return hhmm;
+    try {
+      const [h, m] = hhmm.split(':').map(Number);
+      // Construye una fecha con esa hora en la zona del sitio
+      const dateStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+      const localIso = `${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`;
+      // Usamos Intl para obtener el offset
+      const refDate = new Date(localIso);
+      const utcStr = new Intl.DateTimeFormat('en-US', {
+        timeZone: _siteTZ, hour: '2-digit', minute: '2-digit', hour12: false, year:'numeric', month:'2-digit', day:'2-digit'
+      }).format(refDate);
+      // Diferencia: hora local configurada - hora que Intl dice que sería en esa zona
+      const localDisplayed = _utcToLocal(
+        `${String(refDate.getUTCHours()).padStart(2,'0')}:${String(refDate.getUTCMinutes()).padStart(2,'0')}`
+      );
+      const [lh, lm] = localDisplayed.split(':').map(Number);
+      const diffMin = (h * 60 + m) - (lh * 60 + lm);
+      const totalUtcMin = ((refDate.getUTCHours() * 60 + refDate.getUTCMinutes()) + diffMin + 1440) % 1440;
+      return `${String(Math.floor(totalUtcMin/60)).padStart(2,'0')}:${String(totalUtcMin%60).padStart(2,'0')}`;
+    } catch { return hhmm; }
+  }
+
+  function _updateScheduleLabels() {
+    const lbl  = document.getElementById('eq-schedule-time-label');
+    const tzLbl= document.getElementById('eq-tz-label');
+    const tz   = _tzLabel();
+    if (lbl)   lbl.textContent  = `Hora (${tz})`;
+    if (tzLbl) tzLbl.textContent = _siteTZ;
+  }
+
+  /* ── CONFIG PROTECTOR ──────────────────────────── */
+  let _equipos = [];
+  let _editingDeviceId = null;
+
+  function ensureProtectorConfigOpen() {
+    const body = document.getElementById('protector-cfg-body');
+    const arrow = document.getElementById('protector-cfg-arrow');
+    if (body && body.style.display !== 'flex') {
+      body.style.display = 'flex';
+      if (arrow) arrow.style.transform = 'rotate(180deg)';
+    }
+  }
+
+  function toggleProtectorConfig() {
+    const body  = document.getElementById('protector-cfg-body');
+    const arrow = document.getElementById('protector-cfg-arrow');
+    const open  = body.style.display === 'flex';
+    body.style.display    = open ? 'none' : 'flex';
+    arrow.style.transform = open ? '' : 'rotate(180deg)';
+  }
+
+  function saveRetention() {
+    const days = parseInt(document.getElementById('cfg-retention').value || '7');
+    shomerFetch('/config/system', {
+      method: 'POST',
+      body: JSON.stringify({ protector: { retention_days: days } })
+    })
+    .then(r => r.json())
+    .then(d => showToast(d.success ? 'Retención guardada: ' + days + ' días' : 'Error al guardar', d.success ? 'success' : 'error'))
+    .catch(() => showToast('Error al guardar retención', 'error'));
+  }
+
+
+  const _PATH_HINTS = {
+    windows: 'Nombre del share SMB (ej: <b>backups</b> o <b>Documentos</b>). Créalo en Windows: clic derecho carpeta → Compartir → nombre del share.',
+    linux:   'Ruta absoluta SSH (ej: <b>/home/shomer/backups</b> o <b>/home/shomer/Documentos</b>).',
+    macos:   'Ruta absoluta SSH (ej: <b>/Users/shomer/backups</b> o <b>/Users/shomer/Documents</b>).',
+  };
+
+  function _updateTipoHints() {
+    const tipo = document.getElementById('eq-tipo').value;
+    const hint = document.getElementById('eq-ruta-hint');
+    if (hint && !document.getElementById('eq-ruta').value) {
+      hint.innerHTML = _PATH_HINTS[tipo] || '';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const tipoEl = document.getElementById('eq-tipo');
+    if (tipoEl) tipoEl.addEventListener('change', _updateTipoHints);
+  });
+
+  let _svcCredentials = { user: '', pass: '' };
+
+  function _loadServiceCredentials() {
+    fetch('/setup/status', { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(d => {
+        const c = d.current || {};
+        _svcCredentials.user = c.service_user || '';
+        const hint = document.getElementById('eq-user-svc-hint');
+        if (hint && _svcCredentials.user) hint.textContent = '(cuenta servicio: ' + _svcCredentials.user + ')';
+      })
+      .catch(() => {});
+  }
+  _loadServiceCredentials();
+
+  function showAddEquipoForm() {
+    ensureProtectorConfigOpen();
+    _editingDeviceId = null;
+    const t = document.getElementById('edit-equipo-title');
+    if (t) t.textContent = 'Nuevo equipo';
+    // Pre-llenar con credenciales de servicio
+    const userEl = document.getElementById('eq-user');
+    const passEl = document.getElementById('eq-pass');
+    if (userEl && !userEl.value && _svcCredentials.user) userEl.value = _svcCredentials.user;
+    if (passEl && !passEl.value && _svcCredentials.pass) passEl.value = _svcCredentials.pass;
+    _updateTipoHints();
+    const form = document.getElementById('add-equipo-form');
+    form.style.display = 'flex';
+    document.getElementById('eq-nombre').focus();
+  }
+
+  function cancelAddEquipo() {
+    _editingDeviceId = null;
+    const t = document.getElementById('edit-equipo-title');
+    if (t) t.textContent = 'Nuevo equipo';
+    document.getElementById('add-equipo-form').style.display = 'none';
+    ['eq-nombre','eq-ip','eq-user','eq-pass','eq-ruta'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    const rh = document.getElementById('eq-ruta-hint');
+    if (rh) rh.textContent = '';
+    document.getElementById('eq-tipo').value = 'windows';
+    document.getElementById('eq-schedule-enabled').checked = false;
+    document.getElementById('eq-schedule-time').value = '02:00';
+    document.getElementById('eq-sync-b2').checked = false;
+  }
+
+  function editEquipo(id) {
+    ensureProtectorConfigOpen();
+    shomerFetch('/backups/devices/' + id)
+      .then(r => r.json())
+      .then(d => {
+        if (!d.success || !d.device) throw new Error('sin datos');
+        const e = d.device;
+        _editingDeviceId = id;
+        const t = document.getElementById('edit-equipo-title');
+        if (t) t.textContent = 'Editar equipo';
+        document.getElementById('eq-nombre').value = e.name || '';
+        document.getElementById('eq-ip').value = e.ip || '';
+        document.getElementById('eq-tipo').value = e.device_type || 'windows';
+        document.getElementById('eq-user').value = e.username || '';
+        document.getElementById('eq-pass').value = e.has_password ? '***' : '';
+        document.getElementById('eq-ruta').value = e.source_path || '';
+        document.getElementById('eq-schedule-enabled').checked = !!e.schedule_enabled;
+        document.getElementById('eq-schedule-time').value = e.schedule_time ? _utcToLocal(e.schedule_time) : '02:00';
+        document.getElementById('eq-sync-b2').checked = !!e.schedule_b2_enabled;
+        document.getElementById('add-equipo-form').style.display = 'flex';
+        document.getElementById('eq-ruta').focus();
+        const form = document.getElementById('add-equipo-form');
+        if (form && form.scrollIntoView) form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      })
+      .catch(() => showToast('No se pudo cargar el equipo', 'error'));
+  }
+
+  function testEquipoConexion() {
+    const ip   = document.getElementById('eq-ip').value.trim();
+    const user = document.getElementById('eq-user').value.trim();
+    const pass = document.getElementById('eq-pass').value;
+    const tipo = document.getElementById('eq-tipo').value;
+    const ruta = document.getElementById('eq-ruta').value.trim();
+    if (!ip || !user) { showToast('Ingresa IP y usuario primero', 'warning'); return; }
+    addLog('info', 'PROTECTOR', 'Probando conexión ' + ip + ' (' + tipo + ')...');
+    shomerFetch('/backups/devices/test', {
+      method: 'POST',
+      body: JSON.stringify({ ip, username: user, password: pass, device_type: tipo, source_path: ruta })
+    })
+    .then(r => r.json())
+    .then(d => {
+      addLog(d.success ? 'success' : 'error', 'PROTECTOR', d.message || 'Test completado');
+      showToast(d.message || 'Test completado', d.success ? 'success' : 'error');
+    })
+    .catch(() => showToast('Error al probar conexión', 'error'));
+  }
+
+  function agregarEquipo() {
+    const nombre = document.getElementById('eq-nombre').value.trim();
+    const ip     = document.getElementById('eq-ip').value.trim();
+    const tipo   = document.getElementById('eq-tipo').value;
+    const user   = document.getElementById('eq-user').value.trim();
+    const pass   = document.getElementById('eq-pass').value;
+    const ruta            = document.getElementById('eq-ruta').value.trim();
+    const scheduleEnabled   = document.getElementById('eq-schedule-enabled').checked;
+    const scheduleTime      = document.getElementById('eq-schedule-time').value.trim();
+    const syncB2Enabled     = document.getElementById('eq-sync-b2').checked;
+    if (!nombre || !ip || !ruta) { showToast('Nombre, IP y ruta son obligatorios', 'warning'); return; }
+    const scheduleTimeUtc = scheduleEnabled ? _localToUtc(scheduleTime) : null;
+    const payload = { name: nombre, ip, device_type: tipo, username: user, password: pass, source_path: ruta,
+                      schedule_enabled: scheduleEnabled, schedule_time: scheduleTimeUtc,
+                      schedule_b2_enabled: syncB2Enabled };
+    const url = _editingDeviceId ? ('/backups/devices/' + _editingDeviceId) : '/backups/devices';
+    const method = _editingDeviceId ? 'PATCH' : 'POST';
+    shomerFetch(url, { method, body: JSON.stringify(payload) })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.success) throw new Error(d.detail || 'Error al guardar');
+      addLog('success', 'PROTECTOR', (_editingDeviceId ? 'Equipo actualizado: ' : 'Equipo guardado: ') + nombre + ' (' + ip + ')');
+      showToast(_editingDeviceId ? 'Cambios guardados' : 'Equipo guardado', 'success');
+      cancelAddEquipo();
+      loadEquipos();
+    })
+    .catch(e => showToast('Error: ' + e.message, 'error'));
+  }
+
+  function removeEquipo(id, nombre) {
+    confirmAction('¿Eliminar equipo ' + nombre + '?', () => {
+      shomerFetch('/backups/devices/' + id, { method: 'DELETE' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) { showToast('Equipo eliminado', 'success'); loadEquipos(); }
+        else showToast('Error al eliminar', 'error');
+      })
+      .catch(() => showToast('Error al eliminar', 'error'));
+    });
+  }
+
+  function loadEquipos() {
+    shomerFetch('/backups/devices')
+    .then(r => r.json())
+    .then(d => {
+      const el = document.getElementById('equipos-list');
+      const devs = d.devices || [];
+      if (devs.length === 0) {
+        el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0;">Sin equipos configurados.</div>';
+        return;
+      }
+      el.innerHTML = devs.map(e => `
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:6px;">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span style="font-size:13px;font-weight:600;color:var(--text);">${e.name}</span>
+            <span style="font-size:11px;font-family:monospace;color:#06b6d4;">${e.ip}</span>
+            <span style="font-size:11px;background:rgba(13,110,110,0.15);color:var(--teal);border-radius:4px;padding:2px 7px;">${e.device_type}</span>
+            <span style="font-size:11px;color:var(--muted);">${e.source_path || '—'}</span>
+            ${e.schedule_time ? (e.schedule_enabled
+              ? `<span style="font-size:11px;background:rgba(139,92,246,0.15);color:#a78bfa;border-radius:4px;padding:2px 7px;">⏰ ${_utcToLocal(e.schedule_time)} (${_tzLabel()})</span>`
+              : `<span style="font-size:11px;background:rgba(100,116,139,0.15);color:#94a3b8;border-radius:4px;padding:2px 7px;">⏸ Pausado — ${_utcToLocal(e.schedule_time)}</span>`)
+              : ''}
+            ${e.schedule_b2_enabled ? `<span style="font-size:11px;background:rgba(59,130,246,0.15);color:#93c5fd;border-radius:4px;padding:2px 7px;">☁ B2</span>` : ''}
+            ${e.last_status ? `<span style="font-size:11px;color:${e.last_status==='ok'?'var(--online)':'var(--offline)'};">${e.last_status}</span>` : ''}
+            ${e.last_backup_at ? `<span style="font-size:11px;color:var(--muted);">${e.last_backup_at}</span>` : ''}
+            ${e.last_size_mb != null ? `<span style="font-size:11px;color:var(--muted);">${e.last_size_mb >= 1024 ? (e.last_size_mb/1024).toFixed(1)+' GB' : e.last_size_mb.toFixed(1)+' MB'}</span>` : ''}
+            ${e.last_files_count != null ? `<span style="font-size:11px;color:var(--muted);">${e.last_files_count.toLocaleString()} archivos</span>` : ''}
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button type="button" onclick="editEquipo(${e.id})"
+              style="background:rgba(59,130,246,0.12);color:#93c5fd;border:1px solid rgba(59,130,246,0.35);border-radius:5px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;">
+              Editar
+            </button>
+            <button onclick="removeEquipo(${e.id}, '${(e.name||'').replace(/'/g,"\\'")}')"
+              style="background:rgba(220,38,38,0.1);color:var(--offline);border:none;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;">
+              Eliminar
+            </button>
+          </div>
+        </div>
+      `).join('');
+    })
+    .catch(() => {});
+  }
+
+  function toggleSchedule(id, enable, nombre) {
+    shomerFetch('/backups/devices/' + id, {
+      method: 'PATCH',
+      body: JSON.stringify({ schedule_enabled: enable })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.success) throw new Error(d.detail || 'Error');
+      const msg = enable ? ('Auto-backup activado: ' + nombre) : ('Auto-backup pausado: ' + nombre);
+      addLog(enable ? 'success' : 'warning', 'SCHEDULE', msg);
+      showToast(msg, enable ? 'success' : 'warning');
+      loadEquipos();
+      loadSnapshots();
+    })
+    .catch(e => showToast('Error: ' + e.message, 'error'));
+  }
+
+  function loadProtectorConfig() {
+    shomerFetch('/config/system')
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) return;
+        const ret = document.getElementById('cfg-retention');
+        if (ret) ret.value = data.protector?.retention_days || 7;
+        // timezone se carga desde loadSiteTimezone() vía /setup/status
+      })
+      .catch(() => {});
+  }
+
+  loadSiteTimezone();
+  loadProtectorConfig();
+  loadEquipos();
+
+  /* ── Backup Ahora por equipo ───────────────────────── */
+  function backupDevice(id, nombre) {
+    confirmAction('¿Iniciar backup de ' + nombre + '?', () => {
+      addLog('info','PROTECTOR','Iniciando backup de ' + nombre + '...');
+      showProcessBanner('Backup en progreso: ' + nombre);
+      shomerFetch('/backups/devices/backup_now', {
+        method:'POST',
+        body: JSON.stringify({device_id: id})
+      })
+      .then(r => r.json())
+      .then(d => {
+        addLog(d.success ? 'success' : 'error','PROTECTOR', d.message || 'Backup completado');
+        showToast(d.message || 'Backup completado', d.success ? 'success' : 'error');
+        loadEquipos();
+        loadSnapshots();
+      })
+      .catch(() => showToast('Error en backup','error'))
+      .finally(() => hideProcessBanner());
+    });
+  }
+
+  /* ── B2 Cloud Config ───────────────────────────────── */
+  function loadB2Config() {
+    shomerFetch('/backups/b2config')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.success) return;
+      const bucket = document.getElementById('b2-bucket');
+      const accId  = document.getElementById('b2-account-id');
+      const path   = document.getElementById('b2-path');
+      if (bucket) bucket.value = d.b2_bucket || '';
+      if (accId)  accId.value  = d.b2_account_id || '';
+      if (path)   path.value   = d.b2_path || '';
+      const effPath = document.getElementById('b2-path-effective');
+      if (effPath) effPath.textContent = d.b2_path_effective || '(sin nombre de sitio configurado)';
+      const syncEn = document.getElementById('b2-sync-enabled');
+      const syncTm = document.getElementById('b2-sync-time');
+      const syncLbl = document.getElementById('b2-sync-time-label');
+      if (syncEn) syncEn.checked = !!d.b2_sync_enabled;
+      if (syncTm && d.b2_sync_time) syncTm.value = d.b2_sync_time;
+      if (syncLbl && d.site_timezone) syncLbl.textContent = 'Hora local sitio (' + d.site_timezone + ')';
+      const status = document.getElementById('b2-status');
+      if (status) {
+        if (d.b2_has_key) {
+          status.textContent = '✓ Credenciales configuradas';
+          status.style.color = 'var(--online)';
+        } else {
+          status.textContent = 'Sin credenciales completas';
+          status.style.color = 'var(--muted)';
+        }
+      }
+    })
+    .catch(() => {});
+  }
+  loadB2Config();
+
+  function testB2Connection() {
+    const el = document.getElementById('b2-status');
+    const btn = document.getElementById('btn-test-b2');
+    if (el) el.textContent = 'Probando conexión con B2...';
+    if (btn) { btn.disabled = true; }
+    shomerFetch('/backups/b2/test', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || (d.success ? 'OK' : 'Error'), d.success ? 'success' : 'error');
+        if (el) el.textContent = d.message || '';
+      })
+      .catch(() => {
+        showToast('Error de conexión al probar B2', 'error');
+        if (el) el.textContent = '';
+      })
+      .finally(() => { if (btn) btn.disabled = false; });
+  }
+
+  function saveB2Config() {
+    const body = {
+      b2_bucket:      (document.getElementById('b2-bucket')?.value || '').trim(),
+      b2_path:        (document.getElementById('b2-path')?.value || '').trim(),
+      b2_account_id:  (document.getElementById('b2-account-id')?.value || '').trim(),
+      b2_app_key:     (document.getElementById('b2-app-key')?.value || '').trim(),
+      b2_password:    (document.getElementById('b2-password')?.value || '').trim(),
+      b2_sync_enabled: document.getElementById('b2-sync-enabled')?.checked || false,
+      b2_sync_time:   (document.getElementById('b2-sync-time')?.value || '').trim(),
+    };
+    shomerFetch('/backups/b2config', {
+      method:'POST',
+      body: JSON.stringify(body)
+    })
+    .then(r => r.json())
+    .then(d => {
+      showToast(d.message || 'B2 guardado', d.success ? 'success' : 'error');
+      if (d.success) loadB2Config();
+    })
+    .catch(() => showToast('Error al guardar B2','error'));
+  }
+
+  /* ── Snapshots B2 (nube) ──────────────────────────── */
+  async function loadB2Snapshots() {
+    const wrap = document.getElementById('b2-snapshots-wrap');
+    if (!wrap) return;
+    wrap.innerHTML = '<p style="font-size:12px;color:var(--muted);">Consultando B2… puede tardar unos segundos.</p>';
+    try {
+      const r = await shomerFetch('/backups/b2/snapshots');
+      const d = await r.json();
+      if (!r.ok) {
+        const raw = (typeof d.detail === 'string' ? d.detail : null) || ('HTTP ' + r.status);
+        const isTimeout = raw.toLowerCase().includes('timeout') || raw.toLowerCase().includes('conectar');
+        const hint = isTimeout ? ' — Sin conexión a internet o credenciales B2 inválidas.' : '';
+        const msg = raw + hint;
+        wrap.innerHTML = `<p style="font-size:12px;color:var(--offline);">⚠ ${msg.replace(/</g,'&lt;')}</p>`;
+        addLog('error','B2', msg);
+        return;
+      }
+      const snaps = Array.isArray(d.snapshots) ? d.snapshots : [];
+      addLog('success','B2', snaps.length + ' snapshots en B2' + (d.repo ? ' — ' + d.repo : ''));
+      if (snaps.length === 0) {
+        wrap.innerHTML = '<p style="font-size:12px;color:var(--muted);">No hay snapshots en B2 para este repositorio.</p>';
+        return;
+      }
+      function _b2TagToEquipo(tags) {
+        if (!Array.isArray(tags)) return '—';
+        const skip = /^device_\d+$|^(ssh|smb|windows|linux|macos|nfs)$/i;
+        const name = tags.find(t => !skip.test(t));
+        return name ? name.replace(/_/g, ' ') : '—';
+      }
+      const rows = snaps.map(s => {
+        const dt    = s.time ? new Date(s.time) : null;
+        const fecha = dt ? dt.toLocaleDateString('es-ES') : '—';
+        const hora  = dt ? dt.toLocaleTimeString('es-ES') : '—';
+        const sid   = s.short_id || s.id?.slice(0,8) || '—';
+        const fullId = s.id || sid;
+        const equipo = _b2TagToEquipo(s.tags);
+        const paths = Array.isArray(s.paths) ? s.paths.join(', ') : (s.paths || '—');
+        return `<tr>
+          <td class="snap-id" title="${fullId}">${sid}</td>
+          <td>${fecha}</td>
+          <td style="font-family:monospace;color:var(--muted);">${hora}</td>
+          <td style="font-weight:600;color:var(--text);">${equipo}</td>
+          <td style="font-size:11px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${paths}">${paths}</td>
+          <td><div class="td-actions">
+            <button id="btn-b2restore-${sid}" class="btn btn-outline btn-sm btn-restore"
+              onclick="confirmAction('¿Restaurar snapshot B2 ${sid} (${equipo})?\\nSe descargará desde la nube.\\nPuede tardar varios minutos.', ()=>handleB2Restore('${fullId}','${sid}'))">
+              <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/></svg>Restaurar desde B2
+            </button>
+            <a id="btn-b2dl-${sid}" style="display:none;" class="btn btn-outline btn-sm btn-restore"
+              style="background:rgba(139,92,246,0.12);color:#a78bfa;border-color:rgba(139,92,246,0.4);text-decoration:none;"
+              href="/backups/restore/${sid}/download">
+              ⬇ Descargar ZIP
+            </a>
+          </div></td>
+        </tr>`;
+      }).join('');
+      wrap.innerHTML = `
+        <div style="overflow-x:auto;margin-top:6px;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr style="background:var(--sidebar);border-bottom:1px solid var(--border);">
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">ID</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Fecha</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Hora</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Equipo</th>
+                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Ruta</th>
+                <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    } catch (e) {
+      const msg = e?.message || 'Error de conexión';
+      wrap.innerHTML = '<p style="font-size:12px;color:var(--offline);">Error: ' + msg.replace(/</g,'&lt;') + '</p>';
+      addLog('error','B2', msg);
+    }
+  }
+
+  /* ── Drill (R3) ──────────────────────────────────── */
+  function toggleDrillHistory() {
+    const wrap = document.getElementById('drill-history-wrap');
+    if (!wrap) return;
+    wrap.style.display = wrap.style.display === 'none' ? 'block' : 'none';
+  }
+
+  function loadDrillStatus() {
+    shomerFetch('/drill/status')
+      .then(r => r.json())
+      .then(d => {
+        const el = id => document.getElementById(id);
+        if (el('drill-total')) el('drill-total').textContent = d.total ?? '—';
+        if (el('drill-ok'))    el('drill-ok').textContent    = d.successful ?? '—';
+        if (el('drill-fail'))  el('drill-fail').textContent  = d.failed ?? '—';
+        if (el('drill-last'))  el('drill-last').textContent  = d.last_ran_at ? new Date(d.last_ran_at).toLocaleDateString('es-ES') : '—';
+      })
+      .catch(() => {});
+  }
+
+  function loadDrillHistory() {
+    shomerFetch('/drill/history')
+      .then(r => r.json())
+      .then(d => {
+        const tbody = document.getElementById('drill-tbody');
+        const rows = Array.isArray(d.results) ? d.results : [];
+        if (rows.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">Sin drills ejecutados aún.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = rows.map(r => {
+          const statusIcon = r.success
+            ? `<span style="color:var(--online);font-weight:700;">✓</span>`
+            : `<span style="color:var(--offline);font-weight:700;">✗</span>`;
+          const errTxt = r.error ? String(r.error).slice(0, 50) : '—';
+          return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:5px 6px;font-size:10px;color:var(--text);">${r.ran_at ? new Date(r.ran_at).toLocaleString('es-ES') : '—'}</td>
+            <td style="padding:5px 6px;font-size:10px;">${statusIcon}</td>
+            <td style="padding:5px 6px;font-size:10px;color:var(--muted);">${r.duration_label || '—'}</td>
+            <td style="padding:5px 6px;font-size:10px;color:var(--offline);" title="${r.error || ''}">${errTxt}</td>
+          </tr>`;
+        }).join('');
+      })
+      .catch(() => {
+        const tbody = document.getElementById('drill-tbody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--offline);font-size:12px;">Error al cargar historial.</td></tr>';
+      });
+  }
+
+  function runDrillNow() {
+    const btn = document.getElementById('btn-drill-run');
+    setBtnRunning(btn, true, 'Ejecutando...');
+    shomerFetch('/drill/run', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || (d.success ? 'Drill ejecutado' : 'Error al ejecutar drill'), d.success ? 'success' : 'error');
+        if (d.success) { loadDrillStatus(); loadDrillHistory(); }
+      })
+      .catch(() => showToast('Error al ejecutar drill', 'error'))
+      .finally(() => setBtnRunning(btn, false));
+  }
+
+  loadDrillStatus();
+  loadDrillHistory();
+
+  /* ── Reportes mensuales (R1) ──────────────────────── */
+
+
+  function loadReports() {
+    shomerFetch('/reports/list')
+      .then(r => r.json())
+      .then(d => {
+        const tbody = document.getElementById('reports-tbody');
+        const items = Array.isArray(d.reports) ? d.reports : [];
+        const lastEl = document.getElementById('report-last-date');
+        if (lastEl && items.length > 0) {
+          lastEl.textContent = items[0].generated_at ? new Date(items[0].generated_at).toLocaleDateString('es-ES') : '—';
+        }
+        if (items.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3" style="padding:10px;text-align:center;color:var(--muted);font-size:11px;">Sin reportes generados.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = items.map(rep => `<tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:5px 6px;font-size:10px;color:var(--text);">${rep.period_label || '—'}</td>
+          <td style="padding:5px 6px;font-size:10px;color:var(--muted);">${rep.generated_at ? new Date(rep.generated_at).toLocaleDateString('es-ES') : '—'}</td>
+          <td style="padding:5px 6px;text-align:right;">
+            <button onclick="window.open('/reports/download/${encodeURIComponent(rep.filename)}','_blank')"
+              style="background:rgba(59,130,246,0.12);color:#60a5fa;border:1px solid rgba(59,130,246,0.35);border-radius:5px;padding:3px 8px;font-size:10px;font-weight:600;cursor:pointer;">⬇ PDF</button>
+          </td>
+        </tr>`).join('');
+      })
+      .catch(() => {
+        const tbody = document.getElementById('reports-tbody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="3" style="padding:10px;text-align:center;color:var(--offline);font-size:11px;">Error al cargar reportes.</td></tr>';
+      });
+  }
+
+  function generateReportNow() {
+    const btn = document.getElementById('btn-report-now');
+    const btnHdr = document.getElementById('btn-report-hdr');
+    setBtnRunning(btn, true, 'Generando...');
+    if (btnHdr) setBtnRunning(btnHdr, true, 'Generando...');
+    shomerFetch('/reports/generate/now', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || (d.success ? 'Reporte generado' : 'Error al generar reporte'), d.success ? 'success' : 'error');
+        if (d.success) loadReports();
+      })
+      .catch(() => showToast('Error al generar reporte', 'error'))
+      .finally(() => { setBtnRunning(btn, false); if (btnHdr) setBtnRunning(btnHdr, false); });
+  }
+
+  function generateReportPrev() {
+    const btn = document.getElementById('btn-report-prev');
+    setBtnRunning(btn, true, 'Generando...');
+    shomerFetch('/reports/generate', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || (d.success ? 'Reporte generado' : 'Error al generar reporte'), d.success ? 'success' : 'error');
+        if (d.success) loadReports();
+      })
+      .catch(() => showToast('Error al generar reporte', 'error'))
+      .finally(() => setBtnRunning(btn, false));
+  }
+
+  function generateReportRange() {
+    const from = document.getElementById('report-from').value;
+    const to   = document.getElementById('report-to').value;
+    if (!from || !to) { showToast('Selecciona las fechas Desde y Hasta', 'error'); return; }
+    if (from > to)    { showToast('La fecha Desde debe ser anterior a Hasta', 'error'); return; }
+    const btn = document.getElementById('btn-report-range');
+    setBtnRunning(btn, true, 'Generando...');
+    shomerFetch('/reports/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_date: from, to_date: to })
+    })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || (d.success ? 'Reporte generado' : 'Error al generar reporte'), d.success ? 'success' : 'error');
+        if (d.success) loadReports();
+      })
+      .catch(() => showToast('Error al generar reporte', 'error'))
+      .finally(() => setBtnRunning(btn, false));
+  }
+
+  function initReportDates() {
+    const now  = new Date();
+    const y    = now.getFullYear();
+    const m    = now.getMonth(); // 0-based; 0 = prev month if current is Jan
+    const prev = m === 0 ? new Date(y - 1, 11, 1) : new Date(y, m - 1, 1);
+    const last = new Date(prev.getFullYear(), prev.getMonth() + 1, 0);
+    const pad  = n => String(n).padStart(2, '0');
+    const fmt  = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const fromEl = document.getElementById('report-from');
+    const toEl   = document.getElementById('report-to');
+    if (fromEl) fromEl.value = fmt(prev);
+    if (toEl)   toEl.value   = fmt(last);
+  }
+
+  initReportDates();
+  loadReports();
+
+  /* ── Object Lock B2 (R4) ─────────────────────────── */
+  function loadObjectLockStatus() {
+    shomerFetch('/backups/b2/object-lock/status')
+      .then(r => r.json())
+      .then(d => {
+        const el = document.getElementById('obj-lock-status');
+        const btn = document.getElementById('btn-obj-lock');
+        const daysEl = document.getElementById('obj-lock-days');
+        if (!el) return;
+        if (d.lock_days && daysEl) daysEl.value = d.lock_days;
+        if (d.enabled) {
+          el.textContent = `✓ Activado (${d.lock_days || '?'} días)`;
+          el.style.color = 'var(--online)';
+          if (btn) { btn.disabled = true; btn.innerHTML = '✓ Activado'; btn.style.opacity = '0.5'; btn.style.cursor = 'not-allowed'; }
+          if (daysEl) { daysEl.disabled = true; daysEl.style.opacity = '0.5'; }
+        } else {
+          el.textContent = 'No activado';
+          el.style.color = 'var(--muted)';
+        }
+      })
+      .catch(() => {
+        const el = document.getElementById('obj-lock-status');
+        if (el) { el.textContent = 'Sin conexión a B2'; el.style.color = 'var(--muted)'; }
+      });
+  }
+
+  function activateObjectLock() {
+    const days = parseInt(document.getElementById('obj-lock-days')?.value) || 90;
+    confirmAction(`¿Activar Object Lock en B2 con retención de ${days} días?\n\nEsta acción es IRREVERSIBLE. Los backups quedarán protegidos contra borrado y modificación.\n\n¿Continuar?`, () => {
+      const btn = document.getElementById('btn-obj-lock');
+      setBtnRunning(btn, true, 'Activando...');
+      shomerFetch('/backups/b2/object-lock/enable', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({lock_days: days}) })
+        .then(r => r.json())
+        .then(d => {
+          showToast(d.message || (d.success ? 'Object Lock activado' : 'Error al activar'), d.success ? 'success' : 'error');
+          if (d.success) {
+            btn.disabled = true;
+            btn.innerHTML = '✓ Activado';
+            btn.style.opacity = '0.5';
+            btn.style.cursor = 'not-allowed';
+            const el = document.getElementById('obj-lock-status');
+            if (el) { el.textContent = '✓ Activado'; el.style.color = 'var(--online)'; }
+          } else {
+            setBtnRunning(btn, false);
+          }
+        })
+        .catch(() => {
+          showToast('Error al activar Object Lock', 'error');
+          setBtnRunning(btn, false);
+        });
+    });
+  }
+
+  loadObjectLockStatus();
+
+  async function handleB2Restore(fullId, shortId) {
+    const btn = document.getElementById('btn-b2restore-' + shortId);
+    if (btn) setBtnRunning(btn, true, 'Descargando…');
+    const target = '/srv/shomer_restore/' + shortId;
+    showProcessBanner('Restaurando desde B2: ' + shortId + ' → ' + target + '  (puede tardar varios minutos)');
+    addLog('warning','B2','Iniciando restauración desde nube: ' + shortId + ' → ' + target);
+    try {
+      const r = await shomerFetch('/backups/b2/restore/' + encodeURIComponent(fullId), { method: 'POST' });
+      const d = await r.json();
+      if (r.ok && d.success) {
+        const dest = d.target || target;
+        addLog('success','B2','✅ Restauración completada → ' + dest);
+        showToast('✅ Listo. Pulsa "⬇ Descargar ZIP" para obtener los archivos.', 'success');
+        if (btn) {
+          btn.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Restaurado';
+          btn.style.background = 'rgba(34,197,94,0.15)';
+          btn.style.color = 'var(--online)';
+          btn.disabled = true;
+        }
+        // Mostrar botón de descarga ZIP
+        const dlBtn = document.getElementById('btn-b2dl-' + shortId);
+        if (dlBtn) {
+          dlBtn.style.display = 'inline-flex';
+          dlBtn.style.alignItems = 'center';
+          dlBtn.style.gap = '4px';
+          dlBtn.style.background = 'rgba(139,92,246,0.12)';
+          dlBtn.style.color = '#a78bfa';
+          dlBtn.style.border = '1px solid rgba(139,92,246,0.4)';
+          dlBtn.style.borderRadius = '5px';
+          dlBtn.style.padding = '5px 10px';
+          dlBtn.style.fontSize = '11px';
+          dlBtn.style.fontWeight = '600';
+          dlBtn.style.cursor = 'pointer';
+          dlBtn.style.textDecoration = 'none';
+        }
+      } else {
+        const msg = (typeof d.detail === 'string' ? d.detail : null) || d.error || 'Error al restaurar desde B2';
+        addLog('error','B2', '❌ ' + msg);
+        showToast('Error: ' + msg, 'error');
+        if (btn) setBtnRunning(btn, false);
+      }
+    } catch (e) {
+      addLog('error','B2','Error de red: ' + (e?.message || e));
+      showToast('Error de conexión al restaurar desde B2', 'error');
+      if (btn) setBtnRunning(btn, false);
+    } finally {
+      hideProcessBanner();
+    }
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,1468 @@
+{% extends "base.html" %}
+{% set active_module = "tracker" %}
+{% block page_title %}Tracker — Inventario IT{% endblock %}
+
+{% block extra_styles %}
+.page-header { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); background:var(--sidebar); padding:16px 24px; }
+.page-header-left h1 { font-size:18px; font-weight:700; color:var(--text); }
+.page-header-left p  { font-size:12px; color:var(--muted); margin-top:2px; }
+.header-btns { display:flex; align-items:center; gap:10px; }
+/* Botones header — migrados al sistema unificado .btn .btn-blue/btn-outline/btn-ghost/btn-red en base.html */
+.btn-hdr svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; }
+.step-badge { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:rgba(255,255,255,0.2); font-size:11px; font-weight:700; margin-right:5px; }
+
+/* STAT GRID 6 cols */
+.stat-grid-6 { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:16px; }
+.sc { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px; }
+.sc .sc-val { font-size:24px; font-weight:700; margin-bottom:2px; }
+.sc .sc-ico-row { display:flex; align-items:center; gap:8px; margin-bottom:2px; }
+.sc .sc-ico-row svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; }
+.sc .sc-lbl { font-size:12px; color:var(--muted); }
+.sc.teal   { border-color:rgba(13,110,110,0.3); }  .sc.teal   .sc-val,.sc.teal   svg { color:#0d6e6e; }
+.sc.green  { border-color:rgba(34,197,94,0.3); }   .sc.green  .sc-val,.sc.green  svg { color:var(--online); }
+.sc.red    { border-color:rgba(220,38,38,0.3); }    .sc.red    .sc-val,.sc.red    svg { color:var(--offline); }
+.sc.cyan   { border-color:rgba(6,182,212,0.3); }    .sc.cyan   .sc-val,.sc.cyan   svg { color:#06b6d4; }
+.sc.purple { border-color:rgba(139,92,246,0.3); }   .sc.purple .sc-val,.sc.purple svg { color:#8b5cf6; }
+.sc.amber  { border-color:rgba(245,158,11,0.3); }   .sc.amber  .sc-val,.sc.amber  svg { color:var(--warning); }
+
+/* SEARCH */
+.search-wrap { position:relative; margin-bottom:16px; }
+.search-wrap svg { position:absolute; left:12px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--muted); fill:none; stroke:currentColor; stroke-width:2; pointer-events:none; }
+.search-input { width:100%; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:10px 14px 10px 38px; color:var(--text); font-size:13px; font-family:'Inter',sans-serif; outline:none; }
+.search-input:focus { border-color:var(--teal); }
+.search-input::placeholder { color:var(--muted); }
+
+/* BODY */
+.tracker-body { display:flex; gap:16px; overflow:hidden; }
+.tracker-main { flex:1; overflow:hidden; display:flex; flex-direction:column; gap:16px; }
+
+/* TABLE */
+.table-wrap { background:var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.table-scroll { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; }
+thead tr { background:var(--sidebar); border-bottom:1px solid var(--border); }
+thead th { padding:10px 14px; text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); white-space:nowrap; }
+tbody tr { border-bottom:1px solid var(--border); transition:background 0.15s; cursor:pointer; }
+tbody tr:hover { background:rgba(30,42,58,0.4); }
+tbody tr:last-child { border-bottom:none; }
+td { padding:10px 14px; font-size:13px; color:var(--text); }
+.td-mac { font-family:monospace; font-size:12px; color:var(--muted); }
+.td-ip  { color:#06b6d4; font-weight:600; }
+.td-type { display:flex; align-items:center; gap:6px; color:var(--muted); }
+.td-type svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; }
+.dot-on  { width:8px; height:8px; border-radius:50%; background:var(--online); display:inline-block; margin-right:5px; animation:pulse 2s infinite; }
+.dot-off { width:8px; height:8px; border-radius:50%; background:var(--offline); display:inline-block; margin-right:5px; }
+.dot-unk { width:8px; height:8px; border-radius:50%; background:var(--warning); display:inline-block; margin-right:5px; }
+.expand-arrow { color:var(--muted); transition:transform 0.2s; font-size:12px; }
+.expand-arrow.open { transform:rotate(90deg); }
+
+/* EXPANDED ROW */
+.expanded-row td { background:rgba(13,110,110,0.04); border-top:1px solid var(--border); padding:0; }
+.expanded-content { padding:16px 20px; display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+.exp-section h4 { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:10px; }
+.exp-row { display:flex; justify-content:space-between; font-size:12px; padding:4px 0; border-bottom:1px solid rgba(30,42,58,0.5); }
+.exp-row span:first-child { color:var(--muted); }
+.exp-row span:last-child  { color:var(--text); font-weight:500; }
+.usage-bar { height:4px; background:var(--border); border-radius:2px; margin-top:4px; }
+.usage-fill { height:100%; border-radius:2px; }
+.software-tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.sw-tag { background:rgba(13,110,110,0.15); color:var(--teal); border:1px solid rgba(13,110,110,0.3); border-radius:4px; padding:2px 8px; font-size:11px; }
+
+/* LOGS — colapsable */
+.logs-panel { width:320px; min-width:320px; background:var(--sidebar); border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; overflow:hidden; transition:width 0.2s ease, min-width 0.2s ease; }
+.logs-panel.collapsed { width:44px; min-width:44px; }
+.logs-panel.collapsed .logs-body,
+.logs-panel.collapsed h3,
+.logs-panel.collapsed .logs-count { display:none; }
+.logs-header { display:flex; align-items:center; gap:8px; padding:12px 16px; border-bottom:1px solid var(--border); cursor:pointer; user-select:none; }
+.logs-header:hover { background:rgba(30,42,58,0.4); }
+.logs-panel.collapsed .logs-header { padding:12px; justify-content:center; border-bottom:none; }
+.logs-header svg { width:14px; height:14px; color:var(--teal); fill:none; stroke:currentColor; stroke-width:2; flex-shrink:0; }
+.logs-header h3 { font-size:13px; font-weight:600; color:var(--text); flex:1; }
+.logs-count { background:var(--border); border-radius:20px; padding:2px 8px; font-size:11px; color:var(--muted); }
+.logs-body { flex:1; overflow-y:auto; padding:8px; font-family:monospace; font-size:11px; }
+.log-entry { display:flex; gap:6px; padding:5px 8px; border-radius:4px; margin-bottom:2px; flex-wrap:wrap; }
+.log-info    { background:rgba(59,130,246,0.08); }
+.log-success { background:rgba(34,197,94,0.08); }
+.log-warning { background:rgba(245,158,11,0.08); }
+.log-error   { background:rgba(220,38,38,0.08); }
+.log-time { color:var(--muted); flex-shrink:0; }
+.log-src { font-weight:700; flex-shrink:0; }
+.log-src.info    { color:var(--blue); }
+.log-src.success { color:var(--online); }
+.log-src.warning { color:var(--warning); }
+.log-src.error   { color:var(--offline); }
+.log-msg { color:var(--text); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+/* MODAL EDICIÓN */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8);
+  z-index:9999; align-items:center; justify-content:center; }
+.modal-overlay.active { display:flex; }
+.modal-box { background:var(--card); border:1px solid var(--border);
+  border-radius:12px; width:90%; max-width:860px; max-height:90vh;
+  overflow-y:auto; display:flex; flex-direction:column; }
+.modal-header { display:flex; align-items:center; justify-content:space-between;
+  padding:16px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.modal-header h2 { font-size:15px; font-weight:700; color:var(--text); }
+.modal-header .modal-mac { font-size:11px; color:var(--muted);
+  font-family:monospace; margin-left:10px; }
+.modal-close { background:none; border:none; color:var(--muted);
+  cursor:pointer; font-size:20px; line-height:1; padding:4px 8px; }
+.modal-close:hover { color:var(--text); }
+.modal-body { padding:20px; display:flex; flex-direction:column; gap:20px; }
+.modal-section { display:flex; flex-direction:column; gap:12px; }
+.modal-section-title { font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:1.5px; color:var(--teal); padding-bottom:6px;
+  border-bottom:1px solid var(--border); }
+.modal-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.modal-grid-2 { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+.modal-field { display:flex; flex-direction:column; gap:4px; }
+.modal-field label { font-size:11px; color:var(--muted); font-weight:600; }
+.modal-field input, .modal-field select, .modal-field textarea {
+  background:var(--bg); border:1px solid var(--border); border-radius:6px;
+  padding:8px 10px; color:var(--text); font-size:13px;
+  font-family:'Inter',sans-serif; outline:none; width:100%; }
+.modal-field input:focus, .modal-field select:focus,
+.modal-field textarea:focus { border-color:var(--teal); }
+.modal-field textarea { resize:vertical; min-height:80px; }
+.modal-field input[readonly] { color:var(--muted); cursor:not-allowed; }
+.modal-field select option { background:var(--card); }
+.modal-footer { padding:16px 20px; border-top:1px solid var(--border);
+  display:flex; justify-content:flex-end; gap:10px; flex-shrink:0; }
+/* .btn-modal-save y .btn-modal-cancel — clases marcador (mantenidas para querySelector en JS).
+   Estilo viene de .btn .btn-blue / .btn .btn-ghost del sistema unificado en base.html. */
+.modal-readonly { background:rgba(255,255,255,0.03);
+  border:1px solid var(--border); border-radius:6px; padding:8px 10px;
+  color:var(--text); font-size:13px; font-family:monospace; }
+.sw-tags-wrap { display:flex; flex-wrap:wrap; gap:5px; }
+.sw-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:4px; }
+.sw-table th { text-align:left; color:var(--muted); font-weight:600; padding:4px 6px;
+  border-bottom:1px solid var(--border); }
+.sw-table td { padding:3px 6px; border-bottom:1px solid rgba(255,255,255,0.04);
+  color:var(--text); vertical-align:top; }
+.sw-table tr:last-child td { border-bottom:none; }
+.sw-table td:last-child { color:var(--muted); font-size:11px; white-space:nowrap; }
+.conn-badge { display:inline-flex; align-items:center; gap:5px;
+  padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+.conn-ok   { background:rgba(34,197,94,0.1);  color:var(--online); }
+.conn-fail { background:rgba(220,38,38,0.1);  color:var(--offline); }
+.conn-na   { background:rgba(100,100,100,0.1);color:var(--muted); }
+
+/* BOTÓN ICONO (papelera) — mismo estilo que guardian */
+.btn-icon { background:none; border:none; cursor:pointer; color:var(--muted); padding:5px; border-radius:5px; transition:all 0.15s; display:flex; align-items:center; }
+.btn-icon:hover { background:var(--border); color:var(--offline); }
+.btn-icon svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; }
+
+/* FILA EXPANDIDA — modal reemplaza */
+.expanded-row { display:none !important; }
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <h1>Tracker — Inventario IT</h1>
+    <p>Última actualización: <span id="last-update">--:--:--</span></p>
+  </div>
+  <div class="header-btns">
+    <button class="btn btn-outline btn-hdr" id="btn-refresh" onclick="handleRefresh()">
+      <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Actualizar
+    </button>
+    <button class="btn btn-outline btn-hdr" onclick="openCredentialsModal()">
+      <span class="step-badge">1</span> Credenciales
+    </button>
+    <button class="btn btn-outline btn-hdr" id="btn-discovery-scan" onclick="handleScan()">
+      <span class="step-badge">2</span> Escanear Red
+    </button>
+    <button class="btn btn-blue btn-hdr" id="btn-deep-scan" onclick="handleDeepScan()">
+      <span class="step-badge">3</span> Escaneo Profundo
+    </button>
+    <button class="btn btn-outline btn-hdr" onclick="handleExcel()">
+      <span class="step-badge">4</span> Excel Global
+    </button>
+    <button class="btn btn-outline btn-hdr" onclick="handleLabelsSheet()" title="PDF carta — 18 etiquetas QR por hoja">
+      <span class="step-badge">5</span> Hoja Etiquetas
+    </button>
+    <button class="btn btn-red btn-hdr" onclick="openSnapshotModal()">
+      <span class="step-badge">6</span> Cerrar y Archivar
+    </button>
+    <button class="btn btn-outline btn-hdr" onclick="openHistoryModal()">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Historial
+    </button>
+  </div>
+</div>
+
+<div style="padding:20px;display:flex;flex-direction:column;gap:0;height:calc(100% - 65px);overflow:hidden;">
+
+  <!-- STATS -->
+  <div class="stat-grid-6">
+    <div class="sc teal"><div class="sc-val" id="stat-total">0</div><div class="sc-lbl">Total</div></div>
+    <div class="sc green"><div class="sc-val" id="stat-online">0</div><div class="sc-lbl">Online</div></div>
+    <div class="sc red"><div class="sc-val" id="stat-offline">0</div><div class="sc-lbl">Offline</div></div>
+    <div class="sc cyan">
+      <div class="sc-ico-row"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg><span class="sc-val" id="stat-routers">0</span></div>
+      <div class="sc-lbl">Routers</div>
+    </div>
+    <div class="sc purple">
+      <div class="sc-ico-row"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg><span class="sc-val" id="stat-servers">0</span></div>
+      <div class="sc-lbl">Servidores</div>
+    </div>
+    <div class="sc amber">
+      <div class="sc-ico-row"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="18" x2="12" y2="20"/></svg><span class="sc-val" id="stat-pcs">0</span></div>
+      <div class="sc-lbl">PCs/Laptops</div>
+    </div>
+  </div>
+
+  <!-- SEARCH -->
+  <div class="search-wrap">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" class="search-input" id="search-input" placeholder="Buscar por IP, MAC, hostname, ubicación..." oninput="filterTable()">
+  </div>
+
+  <!-- BODY -->
+  <div class="tracker-body" style="flex:1;overflow:hidden;">
+    <div class="tracker-main">
+      <div class="table-wrap">
+        <div class="table-scroll" style="max-height:calc(100vh - 320px);overflow-y:auto;">
+          <table id="inventory-table">
+            <thead>
+              <tr>
+                <th style="width:20px;"></th>
+                <th>MAC</th>
+                <th>IP</th>
+                <th>Estado</th>
+                <th>Hostname</th>
+                <th>Tipo</th>
+                <th>Modelo</th>
+                <th>Usuario</th>
+                <th>Ubicación</th>
+                <th>Última Auditoría</th>
+              </tr>
+            </thead>
+            <tbody>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGS -->
+    <div class="logs-panel collapsed" id="logs-panel-wrap">
+      <div class="logs-header" onclick="toggleLogs()">
+        <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <h3>Logs Tracker</h3>
+        <span class="logs-count" id="logs-count">0</span>
+      </div>
+      <div class="logs-body" id="logs-panel"></div>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIG SUBREDES TRACKER -->
+<div style="padding:0 20px 20px 20px;">
+  <div class="config-section" style="background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+    <div class="config-toggle" id="tracker-config-toggle" onclick="toggleTrackerConfig()"
+      style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;">
+      <span style="font-size:13px;font-weight:600;color:var(--text);">⚙ Configuración de Red — Tracker</span>
+      <svg id="tracker-config-arrow" viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--muted);fill:none;stroke:currentColor;stroke-width:2;transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div id="tracker-config-body" style="display:none;padding:16px;border-top:1px solid var(--border);">
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:var(--teal);">Tracker — Subredes a inventariar</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;" id="cfg-tracker-subnets"></div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <input type="text" id="cfg-tracker-input" placeholder="ej: 192.168.1.0/24"
+            style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:220px;">
+          <button onclick="addTrackerSubnet()"
+            style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            + Agregar
+          </button>
+          <button onclick="saveTrackerConfig()"
+            style="background:rgba(13,110,110,0.2);border:1px solid var(--teal);color:var(--teal);border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="asset-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="modal-type-icon"></span>
+        <h2 id="modal-title">Detalle del Activo</h2>
+        <span class="modal-mac" id="modal-mac-header"></span>
+      </div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- SECCIÓN 1: IDENTIFICACIÓN -->
+      <div class="modal-section">
+        <div class="modal-section-title">Identificación</div>
+        <div class="modal-grid">
+          <div class="modal-field"><label>IP</label><div class="modal-readonly" id="m-ip">—</div></div>
+          <div class="modal-field"><label>MAC</label><div class="modal-readonly" id="m-mac">—</div></div>
+          <div class="modal-field"><label>Hostname</label><input type="text" id="m-hostname" placeholder="Ej: AP-Lobby-Piso1"></div>
+          <div class="modal-field">
+            <label>Tipo de equipo</label>
+            <select id="m-asset-type">
+              <option value="">— Seleccionar —</option>
+              <option value="laptop">Laptop</option>
+              <option value="pc">PC / Workstation</option>
+              <option value="server">Servidor</option>
+              <option value="router">Router</option>
+              <option value="ap">Access Point</option>
+              <option value="switch">Switch</option>
+              <option value="printer">Impresora</option>
+              <option value="plotter">Plotter</option>
+              <option value="smart_tv">Smart TV</option>
+              <option value="nas">NAS / Storage</option>
+              <option value="other">Otro</option>
+            </select>
+          </div>
+          <div class="modal-field"><label>Fabricante</label><input type="text" id="m-vendor" placeholder="Ej: TP-Link"></div>
+          <div class="modal-field"><label>Modelo</label><input type="text" id="m-model" placeholder="Ej: EAP610"></div>
+          <div class="modal-field"><label>Número de serie</label><input type="text" id="m-serial" placeholder="Ej: SN20240501X"></div>
+          <div class="modal-field"><label>Nro. Inventario interno</label><input type="text" id="m-inv-number" placeholder="Ej: INV-001"></div>
+          <div class="modal-field">
+            <label>Estado físico</label>
+            <select id="m-physical-state">
+              <option value="">— Seleccionar —</option>
+              <option value="bueno">Bueno</option>
+              <option value="regular">Regular</option>
+              <option value="malo">Malo</option>
+              <option value="dado_de_baja">Dado de baja</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-grid-2">
+          <div class="modal-field"><label>Fecha de compra</label><input type="date" id="m-purchase-date"></div>
+          <div class="modal-field"><label>Vencimiento de garantía</label><input type="date" id="m-warranty"></div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN PROPIEDAD -->
+      <div class="modal-section">
+        <div class="modal-section-title">Propiedad del equipo</div>
+        <div class="modal-grid">
+          <div class="modal-field">
+            <label>Tipo de propiedad</label>
+            <select id="m-ownership-type">
+              <option value="">— Seleccionar —</option>
+              <option value="cliente">Cliente (propio del hotel)</option>
+              <option value="leasing">Leasing / Arrendamiento</option>
+              <option value="prestamo">Préstamo / Comodato</option>
+              <option value="propio">USB Admin (propio)</option>
+            </select>
+          </div>
+          <div class="modal-field"><label>Nombre del propietario / empresa</label><input type="text" id="m-owner-name" placeholder="Ej: Hotel Sheraton S.A.S."></div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 2: ASIGNACIÓN -->
+      <div class="modal-section">
+        <div class="modal-section-title">Asignación</div>
+        <div class="modal-grid">
+          <div class="modal-field"><label>Usuario asignado</label><input type="text" id="m-user" placeholder="Nombre del usuario"></div>
+          <div class="modal-field"><label>Departamento / Área</label><input type="text" id="m-department" placeholder="Ej: Recepción"></div>
+          <div class="modal-field"><label>Ubicación física</label><input type="text" id="m-location" placeholder="Ej: Piso 2 - Sala de Servidores"></div>
+        </div>
+        <div class="modal-field"><label>Observaciones físicas</label><textarea id="m-visual-details" placeholder="Estado visual, daños, stickers, etc."></textarea></div>
+      </div>
+
+      <!-- SECCIÓN: CREDENCIALES OVERRIDE -->
+      <div class="modal-section">
+        <div class="modal-section-title">Credenciales del equipo (override)</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">
+          Si este equipo tiene credenciales diferentes a las globales,
+          ingrésalas aquí. Se usan solo para este equipo.
+        </p>
+        <div class="modal-grid-2">
+          <div class="modal-field">
+            <label>Usuario (override)</label>
+            <input type="text" id="m-override-user" placeholder="Dejar vacío para usar globales">
+          </div>
+          <div class="modal-field">
+            <label>Contraseña (override)</label>
+            <input type="password" id="m-override-pass" placeholder="Dejar vacío para usar globales">
+          </div>
+        </div>
+        <button class="btn btn-blue btn-modal-save" style="margin-top:10px;width:auto;"
+          onclick="rescanAsset()">
+          🔄 Rescanear este equipo
+        </button>
+      </div>
+
+      <!-- SECCIÓN 3: HARDWARE Y CONECTIVIDAD -->
+      <div class="modal-section">
+        <div class="modal-section-title">Hardware y Conectividad</div>
+        <div class="modal-grid">
+          <div class="modal-field"><label>Sistema Operativo</label><input type="text" id="m-os" placeholder="Ej: Windows 10 Pro"></div>
+          <div class="modal-field"><label>CPU</label><input type="text" id="m-cpu" placeholder="Ej: Intel Core i5-10400"></div>
+          <div class="modal-field"><label>RAM</label><input type="text" id="m-ram" placeholder="Ej: 8GB DDR4"></div>
+          <div class="modal-field"><label>Almacenamiento</label><input type="text" id="m-storage" placeholder="Ej: 256GB SSD"></div>
+          <div class="modal-field"><label>Firmware / Versión</label><input type="text" id="m-firmware" placeholder="Ej: v1.2.4"></div>
+          <div class="modal-field"><label>Puertos abiertos</label><input type="text" id="m-ports" placeholder="Ej: 22/ssh, 80/http"></div>
+        </div>
+        <div class="modal-grid">
+          <div class="modal-field"><label>SSH</label><div id="m-ssh">—</div></div>
+          <div class="modal-field"><label>WMI</label><div id="m-wmi">—</div></div>
+          <div class="modal-field"><label>SNMP</label><div id="m-snmp">—</div></div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 4: SOFTWARE -->
+      <div class="modal-section">
+        <div class="modal-section-title">Software Instalado</div>
+        <div id="m-software-tags" class="sw-tags-wrap">
+          <span style="color:var(--muted);font-size:12px;">Sin datos de software</span>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 5: HISTORIAL Y NOTAS -->
+      <div class="modal-section">
+        <div class="modal-section-title">Historial y Notas</div>
+        <div class="modal-grid-2">
+          <div class="modal-field"><label>Última auditoría</label><div class="modal-readonly" id="m-last-audit">—</div></div>
+          <div class="modal-field"><label>Último visto en red</label><div class="modal-readonly" id="m-last-seen">—</div></div>
+        </div>
+        <div class="modal-field"><label>Cambios de hardware</label><textarea id="m-hardware-changes" placeholder="Registrar upgrades, reemplazos, etc."></textarea></div>
+        <div class="modal-field"><label>Actualizaciones de software</label><textarea id="m-software-updates" placeholder="Registrar actualizaciones realizadas"></textarea></div>
+        <div class="modal-grid-2">
+          <div class="modal-field"><label>Última limpieza física</label><input type="date" id="m-last-cleaning"></div>
+          <div class="modal-field"><label>Último mantenimiento</label><input type="date" id="m-last-maintenance"></div>
+        </div>
+        <div class="modal-field"><label>Notas internas del técnico</label><textarea id="m-notes" placeholder="Notas, observaciones, incidencias..."></textarea></div>
+      </div>
+
+    </div>
+    <div class="modal-footer" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;">
+      <button type="button" class="btn btn-outline btn-modal-cancel" style="margin-right:auto;"
+        onclick="downloadAssetLabelPdf()" title="Etiqueta texto 90×50 mm">
+        Etiqueta PDF
+      </button>
+      <button class="btn btn-ghost btn-modal-cancel" onclick="closeModal()">Cancelar</button>
+      <button id="btn-save-asset" class="btn btn-blue btn-modal-save" onclick="saveAsset()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="credentials-modal">
+  <div class="modal-box" style="max-width:480px;">
+    <div class="modal-header">
+      <h2>Credenciales de Red</h2>
+      <button class="modal-close" onclick="closeCredentialsModal()">×</button>
+    </div>
+    <div class="modal-body">
+
+      <div class="modal-section">
+        <div class="modal-section-title">Credenciales Globales</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">
+          Se usan para escaneo WMI (Windows) y SSH (Linux/Mac) en toda la red.
+          El técnico ingresa el usuario administrador del dominio o equipo.
+        </p>
+        <div class="modal-grid-2">
+          <div class="modal-field">
+            <label>Usuario</label>
+            <input type="text" id="cred-user" placeholder="Ej: Administrador">
+          </div>
+          <div class="modal-field">
+            <label>Contraseña</label>
+            <input type="password" id="cred-pass" placeholder="••••••••">
+          </div>
+          <div class="modal-field">
+            <label>Dominio (opcional)</label>
+            <input type="text" id="cred-domain" placeholder="Ej: HOTEL.local">
+          </div>
+          <div class="modal-field">
+            <label>SNMP Community</label>
+            <input type="text" id="cred-snmp" placeholder="public">
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Credenciales por equipo</div>
+        <p style="font-size:12px;color:var(--muted);">
+          Para equipos con credenciales diferentes, edítalas
+          directamente en el modal de cada activo (campo usuario/contraseña).
+        </p>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Rescanear segmento</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">
+          Escanea un rango específico de la red con las credenciales configuradas.
+        </p>
+        <div class="modal-field">
+          <label>Subnet o rango a escanear</label>
+          <input type="text" id="cred-rescan-subnet"
+            placeholder="Ej: 192.168.10.0/24 o 192.168.10.50-100">
+        </div>
+        <button class="btn btn-blue btn-modal-save"
+          style="margin-top:10px;width:auto;"
+          onclick="rescanSegment()">
+          🔄 Escanear segmento
+        </button>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-modal-cancel" onclick="closeCredentialsModal()">Cancelar</button>
+      <button class="btn btn-blue btn-modal-save" onclick="saveCredentials()">Guardar</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  /* ── ESTADO GLOBAL ─────────────────────────────── */
+  let _assets      = [];
+  let _currentMac  = null;
+
+  const logsEl    = document.getElementById('logs-panel');
+  const logsCount = document.getElementById('logs-count');
+  let logN = 0;
+
+  /* ── LOGS ──────────────────────────────────────── */
+  function toggleLogs() {
+    const p = document.getElementById('logs-panel-wrap');
+    if (p) p.classList.toggle('collapsed');
+  }
+  function expandLogs() {
+    const p = document.getElementById('logs-panel-wrap');
+    if (p) p.classList.remove('collapsed');
+  }
+
+  function addLog(level, source, msg) {
+    logN++;
+    expandLogs();
+    const t = new Date().toLocaleTimeString('es-ES');
+    const d = document.createElement('div');
+    d.className = 'log-entry log-' + level;
+    d.innerHTML = `<span class="log-time">${t}</span><span class="log-src ${level}">[${source}]</span><span class="log-msg">${msg}</span>`;
+    logsEl.appendChild(d);
+    logsEl.scrollTop = logsEl.scrollHeight;
+    logsCount.textContent = logN;
+  }
+
+  /* ── HELPERS DE TIPO Y STATUS ──────────────────── */
+  function inferType(a) {
+    const t = (a.asset_type || '').toLowerCase().trim();
+    if (t && t !== 'unknown' && t !== 'other' && t !== 'otro' && t !== '')
+      return t;
+    const vendor  = (a.vendor || '').toLowerCase();
+    const os      = (a.os_name || a.os_detected || a.os_family || '').toLowerCase();
+    const ports   = (a.ports_open || '').toLowerCase();
+    const sw      = (typeof a.software_list === 'string' ? a.software_list : '').toLowerCase();
+
+    if (vendor.includes('gl') || vendor.includes('openwrt') ||
+        vendor.includes('mikrotik') || vendor.includes('cisco') ||
+        vendor.includes('ubiquiti') || sw.includes('openwrt') ||
+        sw.includes('gl-sdk') || sw.includes('busybox'))
+      return 'router';
+    if (os.includes('macos') || os.includes('darwin') ||
+        vendor.includes('apple') || sw.includes('app store') ||
+        sw.includes('safari') || sw.includes('macos'))
+      return 'laptop';
+    if (vendor.includes('lenovo') || vendor.includes('dell') ||
+        vendor.includes('hp') || vendor.includes('hewlett') ||
+        vendor.includes('asus') || vendor.includes('acer') ||
+        vendor.includes('toshiba') || vendor.includes('samsung'))
+      return os.includes('windows') ? 'laptop' : 'laptop';
+    if (os.includes('windows server') || vendor.includes('supermicro'))
+      return 'server';
+    if (os.includes('windows')) return 'pc';
+    if (os.includes('linux') && !sw.includes('gl-sdk')) return 'server';
+    if (ports.includes('9100') || ports.includes('631') ||
+        vendor.includes('epson') || vendor.includes('canon') ||
+        vendor.includes('xerox') || vendor.includes('brother'))
+      return 'printer';
+    return 'other';
+  }
+
+  // Normaliza tipos de vendor (guess_asset_type_from_vendor) a keys estándar JS
+  const _TYPE_NORMALIZE = {
+    'router': 'router', 'ap': 'ap', 'access_point': 'ap',
+    'switch': 'switch', 'laptop': 'laptop', 'pc': 'pc',
+    'workstation': 'pc', 'desktop': 'pc', 'server': 'server',
+    'servidor': 'server', 'printer': 'printer', 'plotter': 'plotter',
+    'smart_tv': 'smart_tv', 'nas': 'nas', 'firewall': 'firewall',
+    'camera': 'camera', 'cámara': 'camera', 'camara': 'camera',
+    'dispositivo apple': 'laptop',
+    'sbc/embedded': 'server', 'telefonía ip': 'voip', 'telefonia ip': 'voip',
+    'voip': 'voip',
+  };
+
+  function getTypeIcon(type) {
+    const t   = (type || '').toLowerCase();
+    const svg = (path, w) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:${w||16}px;height:${w||16}px;">${path}</svg>`;
+    if (['laptop'].includes(t))
+      return svg('<rect x="3" y="4" width="18" height="12" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/>');
+    if (['pc','workstation','desktop'].includes(t))
+      return svg('<rect x="3" y="4" width="18" height="14" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="18" x2="12" y2="20"/>');
+    if (['server','servidor'].includes(t))
+      return svg('<rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>');
+    if (['router','ap','access_point'].includes(t))
+      return svg('<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>');
+    if (t === 'switch')
+      return svg('<line x1="8" y1="6" x2="8" y2="18"/><line x1="12" y1="6" x2="12" y2="18"/><line x1="16" y1="6" x2="16" y2="18"/>');
+    if (['printer','plotter'].includes(t))
+      return svg('<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>');
+    if (t === 'smart_tv')
+      return svg('<rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/>');
+    if (t === 'nas')
+      return svg('<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>');
+    if (t === 'firewall')
+      return svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>');
+    if (t === 'camera')
+      return svg('<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>');
+    if (t === 'voip')
+      return svg('<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.3 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6.13 6.13l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>');
+    return svg('<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>');
+  }
+
+  function typeIcon(a) {
+    const rawType = (a.asset_type || '').trim();
+    const normalized = _TYPE_NORMALIZE[rawType.toLowerCase()] || rawType.toLowerCase();
+    const ico = getTypeIcon(normalized);
+    const labels = {
+      laptop:'Laptop', pc:'PC', server:'Server', router:'Router', ap:'AP',
+      switch:'Switch', printer:'Impresora', plotter:'Plotter',
+      smart_tv:'Smart TV', nas:'NAS', firewall:'Firewall',
+      camera:'Cámara', voip:'VoIP',
+    };
+    return `<span class="td-type">${ico}${labels[normalized] || (rawType || 'Otro')}</span>`;
+  }
+
+  function getAssetStatus(a) {
+    if (a.wmi_status === 'OK' || a.ssh_status === 'OK' || a.snmp_status === 'OK')
+      return 'online';
+    if (a.last_seen && a.last_seen !== 'None' && a.last_seen !== '')
+      return 'online';
+    if (a.wmi_status === 'FAILED' || a.ssh_status === 'FAILED')
+      return 'offline';
+    return 'unknown';
+  }
+
+  function statusDot(a) {
+    const s = getAssetStatus(a);
+    if (s === 'online')  return '<span class="dot-on"></span>Online';
+    if (s === 'offline') return '<span class="dot-off"></span>Offline';
+    return '<span class="dot-unk"></span>Desc.';
+  }
+
+  function connBadge(val) {
+    if (!val || val === 'None') return '<span class="conn-badge conn-na">N/A</span>';
+    if (val === 'OK')           return '<span class="conn-badge conn-ok">✓ OK</span>';
+    if (val === 'FAILED')       return '<span class="conn-badge conn-fail">✗ FAIL</span>';
+    return `<span class="conn-badge conn-na">${val}</span>`;
+  }
+
+  function parseSoftware(raw) {
+    try {
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'string' && raw.trim().startsWith('[')) return JSON.parse(raw);
+      if (typeof raw === 'string' && raw.trim()) return raw.split(',').map(s => s.trim()).filter(Boolean);
+    } catch(e) {}
+    return [];
+  }
+
+  function swName(s) {
+    return typeof s === 'object' ? (s.name || s.Name || JSON.stringify(s)) : String(s);
+  }
+
+  /* ── TABLA ─────────────────────────────────────── */
+  function buildTable(assets) {
+    _assets = assets;
+    const tbody = document.querySelector('#inventory-table tbody');
+    tbody.innerHTML = '';
+    assets.forEach(a => {
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = () => openModal(a.mac);
+      tr.innerHTML = `
+        <td><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;color:var(--muted)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></td>
+        <td class="td-mac">${a.mac || '—'}</td>
+        <td class="td-ip">${a.ip || '—'}</td>
+        <td>${statusDot(a)}</td>
+        <td>${a.hostname || '—'}</td>
+        <td>${typeIcon(a)}</td>
+        <td>${a.vendor || a.asset_model || '—'}</td>
+        <td>${a.user_assigned || '—'}</td>
+        <td>${a.location || '—'}</td>
+        <td style="font-size:11px;color:var(--muted);">${a.last_audit || a.last_seen || '—'}</td>
+        <td onclick="event.stopPropagation()">
+          <button class="btn-icon" title="Eliminar activo"
+            onclick="confirmAction('¿Eliminar este activo del inventario?', () => deleteAsset('${(a.mac||'')}'))">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function updateStats(assets) {
+    document.getElementById('stat-total').textContent   = assets.length;
+    document.getElementById('stat-online').textContent  = assets.filter(a => getAssetStatus(a) === 'online').length;
+    document.getElementById('stat-offline').textContent = assets.filter(a => getAssetStatus(a) === 'offline').length;
+    document.getElementById('stat-routers').textContent = assets.filter(a => ['router','ap','access_point'].includes(inferType(a))).length;
+    document.getElementById('stat-servers').textContent = assets.filter(a => ['server','servidor'].includes(inferType(a))).length;
+    document.getElementById('stat-pcs').textContent     = assets.filter(a => ['pc','laptop','workstation','desktop'].includes(inferType(a))).length;
+  }
+
+  /* ── FETCH ─────────────────────────────────────── */
+  function fetchAssets() {
+    shomerFetch('/tracker/assets')
+    .then(r => r.json())
+    .then(data => {
+      const assets = data.assets || [];
+      buildTable(assets);
+      updateStats(assets);
+      document.getElementById('last-update').textContent = new Date().toLocaleTimeString('es-ES');
+      addLog('success', 'DB', assets.length + ' activos cargados');
+    })
+    .catch(() => addLog('error', 'API', 'Error al cargar inventario'));
+  }
+
+  /* ── FILTRO Y ACCIONES DE HEADER ───────────────── */
+  function filterTable() {
+    const q = document.getElementById('search-input').value.toLowerCase();
+    document.querySelectorAll('#inventory-table tbody tr').forEach(row => {
+      row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  }
+
+  function handleRefresh() {
+    const btn = document.getElementById('btn-refresh');
+    setBtnRunning(btn, true, 'Actualizando...');
+    showProcessBanner('Actualizando inventario');
+    addLog('info', 'REFRESH', 'Actualizando inventario...');
+    fetchAssets();
+    setTimeout(() => {
+      setBtnRunning(btn, false);
+      hideProcessBanner();
+      showToast('Inventario actualizado', 'success');
+    }, 1500);
+  }
+
+  let _scanRunning = false;
+
+  function handleScan() {
+    if (_scanRunning) {
+      showToast('Ya hay un escaneo en progreso. Espera a que termine.', 'warning');
+      return;
+    }
+    _scanRunning = true;
+    const btn = document.getElementById('btn-discovery-scan');
+    const btnDeep = document.getElementById('btn-deep-scan');
+    btn.disabled = true;
+    btnDeep.disabled = true;
+    showProcessBanner('Escaneando red — puede tardar hasta 90 segundos…');
+
+    shomerFetch('/tracker/scan', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || 'Escaneo iniciado', 'success');
+        setTimeout(() => {
+          btn.disabled = false;
+          btnDeep.disabled = false;
+          _scanRunning = false;
+          hideProcessBanner();
+          fetchAssets(true);
+        }, 90000);
+      })
+      .catch(() => {
+        showToast('Error al iniciar escaneo', 'error');
+        btn.disabled = false;
+        btnDeep.disabled = false;
+        _scanRunning = false;
+        hideProcessBanner();
+      });
+  }
+
+  function deleteAsset(mac) {
+    shomerFetch('/tracker/asset/' + encodeURIComponent(mac), { method: 'DELETE' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        showToast('Activo eliminado', 'success');
+        fetchAssets(true);
+      } else {
+        showToast(d.message || 'Error al eliminar', 'error');
+      }
+    })
+    .catch(() => showToast('Error de conexión', 'error'));
+  }
+
+  function handleLabelsSheet() {
+    addLog('info', 'EXPORT', 'Generando hoja de etiquetas PDF...');
+    shomerFetch('/tracker/export/labels/sheet')
+      .then(r => {
+        if (!r.ok) throw new Error('Error ' + r.status);
+        const disposition = r.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^";]+)"?/);
+        const filename = match ? match[1].trim() : 'etiquetas.pdf';
+        return r.arrayBuffer().then(buf => ({ buf, filename }));
+      })
+      .then(({ buf, filename }) => {
+        const blob = new Blob([buf], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+        addLog('success', 'EXPORT', 'Hoja de etiquetas descargada: ' + filename);
+        showToast('Hoja de etiquetas PDF descargada', 'success');
+      })
+      .catch(err => {
+        addLog('error', 'EXPORT', 'Etiquetas: ' + err.message);
+        showToast('Error al generar hoja de etiquetas', 'error');
+      });
+  }
+
+  function handleExcel() {
+    addLog('info', 'EXPORT', 'Descargando Excel global...');
+
+    const url = '/tracker/export/excel';
+
+    shomerFetch(url)
+    .then(r => {
+      if (!r.ok) throw new Error('Error ' + r.status);
+      const disposition = r.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : 'inventario.xlsx';
+      return r.arrayBuffer().then(buf => ({ buf, filename }));
+    })
+    .then(({ buf, filename }) => {
+      const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+      addLog('success', 'EXPORT', 'Excel descargado: ' + filename);
+      showToast('Excel descargado', 'success');
+    })
+    .catch(err => {
+      addLog('error', 'EXPORT', 'Error: ' + err.message);
+      showToast('Error al generar Excel', 'error');
+    });
+  }
+
+  function downloadAssetLabelPdf() {
+    if (!_currentMac) return;
+    addLog('info', 'EXPORT', 'Descargando etiqueta PDF...');
+    const macEncoded = encodeURIComponent(_currentMac);
+    shomerFetch('/tracker/export/asset/label/' + macEncoded)
+      .then(r => {
+        if (!r.ok) throw new Error('Error ' + r.status);
+        const disposition = r.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^";]+)"?/);
+        const filename = match ? match[1].trim() : 'etiqueta.pdf';
+        return r.arrayBuffer().then(buf => ({ buf, filename }));
+      })
+      .then(({ buf, filename }) => {
+        const blob = new Blob([buf], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 1000);
+        addLog('success', 'EXPORT', 'Etiqueta descargada: ' + filename);
+        showToast('Etiqueta PDF descargada', 'success');
+      })
+      .catch(err => {
+        addLog('error', 'EXPORT', 'Etiqueta: ' + err.message);
+        showToast('No se pudo generar la etiqueta', 'error');
+      });
+  }
+
+  function handleDeepScan() {
+    if (_scanRunning) {
+      showToast('Ya hay un escaneo en progreso. Espera a que termine.', 'warning');
+      return;
+    }
+    _scanRunning = true;
+    const btn = document.getElementById('btn-deep-scan');
+    const btnScan = document.getElementById('btn-discovery-scan');
+    btn.disabled = true;
+    btnScan.disabled = true;
+    showProcessBanner('Escaneo profundo en progreso — puede tardar varios minutos…');
+
+    shomerFetch('/tracker/deep_scan', {
+      method: 'POST',
+      body: JSON.stringify({})
+    })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || 'Escaneo profundo iniciado', 'success');
+        setTimeout(() => {
+          btn.disabled = false;
+          btnScan.disabled = false;
+          _scanRunning = false;
+          hideProcessBanner();
+          fetchAssets(true);
+        }, 300000);
+      })
+      .catch(() => {
+        showToast('Error al iniciar escaneo profundo', 'error');
+        btn.disabled = false;
+        btnScan.disabled = false;
+        _scanRunning = false;
+        hideProcessBanner();
+      });
+  }
+
+  /* ── AUDITORÍA DE RED ───────────────────────────── */
+  let _netAuditRunning = false;
+  let _netAuditPoll = null;
+
+  async function handleNetworkAudit() {
+    if (_netAuditRunning) { showToast('Auditoría ya en progreso', 'warning'); return; }
+    const btn = document.getElementById('btn-net-audit-inv');
+    setBtnRunning(btn, true, 'Escaneando…');
+    _netAuditRunning = true;
+    try {
+      const r = await shomerFetch('/audit/network/scan', { method: 'POST' });
+      const d = await r.json();
+      if (d.success) {
+        showToast('Auditoría de red iniciada — ver resultados en Hunter → Riesgos de Red', 'success');
+        // Poll until done
+        _netAuditPoll = setInterval(async () => {
+          try {
+            const sr = await shomerFetch('/audit/network/status');
+            const sd = await sr.json();
+            if (!sd.running) {
+              clearInterval(_netAuditPoll);
+              setBtnRunning(btn, false, '');
+              _netAuditRunning = false;
+              const sc = sd.scan;
+              if (sc && sc.status === 'completed') {
+                showToast(`Auditoría completada: ${sc.findings_count} hallazgos en ${sc.total_hosts} equipos`, 'success');
+              }
+            }
+          } catch(e) {}
+        }, 5000);
+      } else {
+        showToast(d.error || 'Error al iniciar auditoría', 'error');
+        setBtnRunning(btn, false, '');
+        _netAuditRunning = false;
+      }
+    } catch(e) {
+      showToast('Error de red', 'error');
+      setBtnRunning(btn, false, '');
+      _netAuditRunning = false;
+    }
+  }
+
+  /* ── MODAL ─────────────────────────────────────── */
+  function openModal(mac) {
+    const a = _assets.find(x => x.mac === mac);
+    if (!a) return;
+    _currentMac = mac;
+
+    // Header
+    document.getElementById('modal-title').textContent     = a.hostname || a.ip || 'Activo';
+    document.getElementById('modal-mac-header').textContent = a.mac || '';
+    document.getElementById('modal-type-icon').innerHTML    = getTypeIcon(inferType(a));
+
+    // Solo IP y MAC son readonly
+    document.getElementById('m-ip').textContent       = a.ip  || '—';
+    document.getElementById('m-mac').textContent      = a.mac || '—';
+    document.getElementById('m-last-audit').textContent = a.last_audit || '—';
+    document.getElementById('m-last-seen').textContent  = a.last_seen  || '—';
+
+    // Hardware — ahora editables
+    document.getElementById('m-hostname').value = a.hostname        || '';
+    document.getElementById('m-vendor').value   = a.vendor          || '';
+    document.getElementById('m-serial').value   = a.serial_number   || '';
+    document.getElementById('m-os').value       = a.os_name || a.os_detected || a.os_family || '';
+    document.getElementById('m-cpu').value      = a.cpu             || '';
+    document.getElementById('m-ram').value      = a.ram             || '';
+    document.getElementById('m-storage').value  = a.storage_cap     || '';
+    document.getElementById('m-firmware').value = a.firmware_version|| '';
+    document.getElementById('m-ports').value    = a.ports_open      || '';
+
+    // Badges conectividad
+    document.getElementById('m-ssh').innerHTML  = connBadge(a.ssh_status);
+    document.getElementById('m-wmi').innerHTML  = connBadge(a.wmi_status);
+    document.getElementById('m-snmp').innerHTML = connBadge(a.snmp_status);
+
+    // Editables
+    document.getElementById('m-asset-type').value     = inferType(a);
+    document.getElementById('m-model').value          = a.asset_model          || '';
+    document.getElementById('m-physical-state').value = a.physical_state       || '';
+    document.getElementById('m-purchase-date').value  = (a.purchase_date       || '').split(' ')[0];
+    document.getElementById('m-warranty').value       = (a.warranty_expiration || a.warranty_exp || '').split(' ')[0];
+    document.getElementById('m-user').value           = a.user_assigned        || '';
+    document.getElementById('m-department').value     = '';
+    document.getElementById('m-location').value       = a.location             || '';
+    document.getElementById('m-visual-details').value = a.visual_details       || '';
+    document.getElementById('m-hardware-changes').value  = a.hardware_changes  || '';
+    document.getElementById('m-software-updates').value  = a.software_updates  || '';
+    document.getElementById('m-last-cleaning').value  = (a.last_physical_cleaning || '').split(' ')[0];
+    document.getElementById('m-notes').value          = a.internal_notes       || '';
+    document.getElementById('m-inv-number').value      = '';
+    document.getElementById('m-ownership-type').value  = a.ownership_type || '';
+    document.getElementById('m-owner-name').value      = a.owner_name     || '';
+    document.getElementById('m-last-maintenance').value = (a.last_maintenance || '').split(' ')[0];
+    document.getElementById('m-override-user').value   = a.override_user  || '';
+    document.getElementById('m-override-pass').value   = a.override_pass  || '';
+
+    // Software: parsear a lista de {name, version}
+    let swList = [];
+    try {
+      const raw = a.software_list;
+      let parsed = raw;
+      if (typeof raw === 'string' && raw.trim()) {
+        parsed = JSON.parse(raw);
+      }
+      if (Array.isArray(parsed)) {
+        swList = parsed.map(s => {
+          if (typeof s === 'object' && s !== null) {
+            return {
+              name:    (s.DisplayName || s.Name || s.displayName || s.name || '').trim(),
+              version: (s.DisplayVersion || s.Version || s.version || '').trim()
+            };
+          }
+          return { name: String(s).trim(), version: '' };
+        }).filter(x => x.name);
+      }
+    } catch(e) { swList = []; }
+
+    // Filtrar solo software relevante para inventario IT
+    const relevantKeywords = [
+      'office', 'word', 'excel', 'powerpoint', 'outlook', 'teams', 'microsoft 365',
+      'antivirus', 'kaspersky', 'norton', 'eset', 'avast', 'defender', 'malwarebytes',
+      'chrome', 'firefox', 'edge', 'safari', 'brave',
+      'zoom', 'teamviewer', 'anydesk', 'slack', 'whatsapp',
+      'autocad', 'adobe', 'photoshop', 'illustrator', 'acrobat',
+      'visual studio', 'vscode', 'git', 'docker',
+      'java', 'python', 'node',
+      'sql server', 'mysql', 'postgresql', 'oracle',
+      'vmware', 'virtualbox', 'hyper-v',
+      'sap', 'quickbooks', 'contpaqi',
+      'gl-sdk', 'openwrt', 'luci'
+    ];
+
+    // Si hay muchos items (router con 200+ paquetes), filtrar
+    let displayList = swList;
+    if (swList.length > 30) {
+      displayList = swList.filter(item => {
+        const lower = item.name.toLowerCase();
+        return relevantKeywords.some(kw => lower.includes(kw));
+      });
+      if (displayList.length === 0) displayList = swList.slice(0, 20);
+    }
+
+    const swHtml = displayList.length
+      ? `<table class="sw-table">
+          <thead><tr><th>Nombre</th><th>Versión</th></tr></thead>
+          <tbody>` +
+          displayList.map(s =>
+            `<tr><td>${s.name}</td><td>${s.version || '—'}</td></tr>`
+          ).join('') +
+          `</tbody></table>`
+      : '<span style="color:var(--muted);font-size:12px;">Sin datos de software</span>';
+    document.getElementById('m-software-tags').innerHTML = swHtml;
+
+    document.getElementById('asset-modal').classList.add('active');
+  }
+
+  function closeModal() {
+    document.getElementById('asset-modal').classList.remove('active');
+    _currentMac = null;
+  }
+
+  function saveAsset() {
+    if (!_currentMac) return;
+    const payload = {
+      // Identificación (antes readonly, ahora editables)
+      hostname:               document.getElementById('m-hostname').value,
+      vendor:                 document.getElementById('m-vendor').value,
+      serial_number:          document.getElementById('m-serial').value,
+      os_detected:            document.getElementById('m-os').value,
+      cpu:                    document.getElementById('m-cpu').value,
+      ram:                    document.getElementById('m-ram').value,
+      storage_cap:            document.getElementById('m-storage').value,
+      firmware_version:       document.getElementById('m-firmware').value,
+      ports_open:             document.getElementById('m-ports').value,
+      // Tipo y estado
+      asset_type:             document.getElementById('m-asset-type').value,
+      asset_model:            document.getElementById('m-model').value,
+      physical_state:         document.getElementById('m-physical-state').value,
+      purchase_date:          document.getElementById('m-purchase-date').value,
+      warranty_expiration:    document.getElementById('m-warranty').value,
+      // Propiedad
+      ownership_type:         document.getElementById('m-ownership-type').value,
+      owner_name:             document.getElementById('m-owner-name').value,
+      // Asignación
+      user_assigned:          document.getElementById('m-user').value,
+      location:               document.getElementById('m-location').value,
+      visual_details:         document.getElementById('m-visual-details').value,
+      // Historial
+      hardware_changes:       document.getElementById('m-hardware-changes').value,
+      software_updates:       document.getElementById('m-software-updates').value,
+      last_physical_cleaning: document.getElementById('m-last-cleaning').value,
+      last_maintenance:       document.getElementById('m-last-maintenance').value,
+      internal_notes:         document.getElementById('m-notes').value,
+      // Credenciales
+      override_user:          document.getElementById('m-override-user').value,
+      override_pass:          document.getElementById('m-override-pass').value,
+    };
+    // Limpiar campos vacíos — no enviar strings vacíos innecesarios
+    Object.keys(payload).forEach(k => {
+      if (payload[k] === '') delete payload[k];
+    });
+
+    const btn = document.getElementById('btn-save-asset');
+    const originalText = btn ? btn.textContent : 'Guardar cambios';
+    if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+    // CRÍTICO: usar encodeURIComponent para el MAC con ':'
+    const macEncoded = encodeURIComponent(_currentMac);
+
+    shomerFetch('/tracker/asset/' + macEncoded, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(d => {
+      if (d.success) {
+        showToast('Activo guardado correctamente', 'success');
+        addLog('success', 'TRACKER', 'Activo ' + _currentMac + ' actualizado');
+        // Actualizar el asset en memoria para que la tabla refleje los cambios
+        const idx = _assets.findIndex(x => x.mac === _currentMac);
+        if (idx >= 0) Object.assign(_assets[idx], payload);
+        closeModal();
+        fetchAssets();
+      } else {
+        showToast('Error: ' + (d.detail || d.message || 'Error desconocido'), 'error');
+      }
+    })
+    .catch(err => {
+      showToast('Error al guardar: ' + err.message, 'error');
+      addLog('error', 'TRACKER', 'Error guardando ' + _currentMac + ': ' + err.message);
+    })
+    .finally(() => {
+      if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    });
+  }
+
+  /* ── CREDENCIALES ───────────────────────────────── */
+  function openCredentialsModal() {
+    shomerFetch('/tracker/credentials')
+    .then(r => r.json())
+    .then(d => {
+      const c = d.credentials || {};
+      document.getElementById('cred-user').value   = c.user            || '';
+      document.getElementById('cred-pass').value   = c.password        || '';
+      document.getElementById('cred-domain').value = c.domain          || '';
+      document.getElementById('cred-snmp').value   = c.snmp_community  || '';
+      document.getElementById('credentials-modal').classList.add('active');
+    })
+    .catch(() => {
+      document.getElementById('credentials-modal').classList.add('active');
+    });
+  }
+
+  function closeCredentialsModal() {
+    document.getElementById('credentials-modal').classList.remove('active');
+  }
+
+  function saveCredentials() {
+    const payload = {
+      user:           document.getElementById('cred-user').value.trim(),
+      password:       document.getElementById('cred-pass').value,
+      domain:         document.getElementById('cred-domain').value.trim(),
+      snmp_community: document.getElementById('cred-snmp').value.trim() || 'public',
+    };
+    const btn = document.querySelector('#credentials-modal .btn-modal-save');
+    btn.disabled = true; btn.textContent = 'Guardando...';
+    shomerFetch('/tracker/credentials', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(() => {
+      showToast('Credenciales guardadas', 'success');
+      addLog('success', 'TRACKER', 'Credenciales de red actualizadas');
+      closeCredentialsModal();
+    })
+    .catch(() => showToast('Error al guardar credenciales', 'error'))
+    .finally(() => { btn.disabled = false; btn.textContent = 'Guardar'; });
+  }
+
+  function rescanAsset() {
+    if (!_currentMac) return;
+    const a = _assets.find(x => x.mac === _currentMac);
+    if (!a || !a.ip) { showToast('IP no disponible', 'warning'); return; }
+    const btn = document.querySelector('[onclick="rescanAsset()"]');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Rescaneando...'; }
+    addLog('info', 'SCAN', 'Rescaneando ' + a.ip + '...');
+    showProcessBanner('Rescaneando ' + a.ip + ' — puede tardar 1-2 minutos');
+    shomerFetch('/tracker/rescan/' + encodeURIComponent(_currentMac), {
+      method: 'POST',
+      body: JSON.stringify({ ip: a.ip })
+    })
+    .then(r => r.json())
+    .then(d => {
+      addLog('success', 'SCAN', d.message || 'Rescan de ' + a.ip + ' iniciado');
+      showToast('Rescan iniciado — actualiza en 2-3 min', 'success');
+      setTimeout(() => { fetchAssets(); }, 150000);
+    })
+    .catch(() => {
+      addLog('error', 'SCAN', 'Error al rescanear ' + a.ip);
+      showToast('Error en rescan', 'error');
+    })
+    .finally(() => {
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 Rescanear este equipo'; }
+      hideProcessBanner();
+    });
+  }
+
+  function rescanSegment() {
+    const subnet = document.getElementById('cred-rescan-subnet').value.trim();
+    if (!subnet) { showToast('Ingresa un rango de IPs', 'warning'); return; }
+    const btn = document.querySelector('[onclick="rescanSegment()"]');
+    if (btn) btn.disabled = true;
+    addLog('info', 'SCAN', 'Rescaneando segmento ' + subnet + '...');
+    showProcessBanner('Escaneando segmento ' + subnet + ' — puede tardar 1-2 minutos…');
+    shomerFetch('/tracker/deep_scan', {
+      method: 'POST',
+      body: JSON.stringify({ subnet: subnet })
+    })
+    .then(r => r.json())
+    .then(d => {
+      addLog('success', 'SCAN', d.message || 'Escaneo de ' + subnet + ' iniciado');
+      showToast('Escaneo iniciado — actualiza en 1-2 min', 'success');
+      closeCredentialsModal();
+      setTimeout(() => fetchAssets(), 90000);
+    })
+    .catch(() => showToast('Error al iniciar escaneo', 'error'))
+    .finally(() => {
+      if (btn) { btn.disabled = false; }
+      hideProcessBanner();
+    });
+  }
+
+  /* ── CONFIG SUBREDES TRACKER ───────────────────── */
+  let _trackerSubnets = [];
+
+  function toggleTrackerConfig() {
+    const body  = document.getElementById('tracker-config-body');
+    const arrow = document.getElementById('tracker-config-arrow');
+    const open  = body.style.display === 'flex' || body.style.display === 'block';
+    body.style.display  = open ? 'none' : 'block';
+    arrow.style.transform = open ? '' : 'rotate(180deg)';
+  }
+
+  function renderTrackerSubnets() {
+    const el = document.getElementById('cfg-tracker-subnets');
+    if (!el) return;
+    el.innerHTML = _trackerSubnets.map((v, i) =>
+      `<span style="display:flex;align-items:center;gap:4px;background:rgba(13,110,110,0.15);border:1px solid rgba(13,110,110,0.4);border-radius:4px;padding:3px 8px;font-size:12px;color:var(--teal);">
+        ${v}
+        <button onclick="removeTrackerSubnet(${i})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:0 0 0 2px;">×</button>
+      </span>`
+    ).join('');
+  }
+
+  function addTrackerSubnet() {
+    const inp = document.getElementById('cfg-tracker-input');
+    const val = (inp.value || '').trim();
+    if (!val) return;
+    if (!_trackerSubnets.includes(val)) _trackerSubnets.push(val);
+    inp.value = '';
+    renderTrackerSubnets();
+  }
+
+  function removeTrackerSubnet(i) {
+    _trackerSubnets.splice(i, 1);
+    renderTrackerSubnets();
+  }
+
+  function saveTrackerConfig() {
+    shomerFetch('/config/system', {
+      method: 'POST',
+      body: JSON.stringify({ tracker: { subnets: _trackerSubnets } })
+    })
+    .then(r => r.json())
+    .then(d => {
+      showToast(d.success ? 'Subredes Tracker guardadas' : 'Error al guardar', d.success ? 'success' : 'error');
+      addLog(d.success ? 'success' : 'error', 'TRACKER', d.success ? 'Subredes guardadas' : 'Error al guardar subredes');
+    })
+    .catch(() => showToast('Error al guardar subredes', 'error'));
+  }
+
+  function loadTrackerConfig() {
+    shomerFetch('/config/system')
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) return;
+        _trackerSubnets = data.tracker?.subnets || [];
+        renderTrackerSubnets();
+      })
+      .catch(() => {});
+  }
+
+  /* ── INICIO ────────────────────────────────────── */
+  addLog('info',    'SYSTEM', 'Módulo Tracker iniciado');
+  addLog('success', 'DB',     'Conectando con API de inventario...');
+  fetchAssets();
+  loadTrackerConfig();
+</script>
+
+<!-- MODAL: Cerrar y Archivar -->
+<div id="modal-snapshot" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;display:flex;flex-direction:column;gap:16px;">
+    <h3 style="font-size:15px;font-weight:700;color:var(--text);margin:0;">📦 Cerrar y Archivar Inventario</h3>
+    <p style="font-size:13px;color:var(--muted);margin:0;">El inventario actual se guardará como snapshot histórico y la tabla quedará limpia para un nuevo escaneo.</p>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <label style="font-size:12px;color:var(--muted);">Nombre del snapshot</label>
+      <input id="snapshot-name-input" type="text" placeholder="ej: Inventario Hotel Marzo 2026"
+        style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;">
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-ghost btn-modal-cancel" onclick="closeSnapshotModal()">Cancelar</button>
+      <button class="btn btn-red btn-modal-save" onclick="confirmCloseSnapshot()">Archivar y Limpiar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Historial de Snapshots -->
+<div id="modal-history" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;width:560px;display:flex;flex-direction:column;gap:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:15px;font-weight:700;color:var(--text);margin:0;">🕐 Historial de Inventarios</h3>
+      <button onclick="closeHistoryModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;">×</button>
+    </div>
+    <div id="history-list" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<script>
+  // ── Snapshot Modal ────────────────────────────────────
+  function openSnapshotModal() {
+    const d = new Date();
+    document.getElementById('snapshot-name-input').value =
+      `Inventario ${d.toLocaleDateString('es-ES', {month:'long', year:'numeric'})}`;
+    document.getElementById('modal-snapshot').style.display = 'flex';
+  }
+  function closeSnapshotModal() {
+    document.getElementById('modal-snapshot').style.display = 'none';
+  }
+  function confirmCloseSnapshot() {
+    const name = (document.getElementById('snapshot-name-input').value || '').trim();
+    if (!name) { showToast('Ingresa un nombre para el snapshot', 'error'); return; }
+    const btn = document.querySelector('#modal-snapshot .btn-modal-save');
+    btn.disabled = true; btn.textContent = 'Archivando...';
+    shomerFetch('/snapshot/close', {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.success) throw new Error(d.detail || 'Error al archivar');
+      closeSnapshotModal();
+      showToast(`✅ Archivado: ${d.name} (${d.asset_count} activos)`, 'success');
+      setTimeout(() => handleRefresh(), 800);
+    })
+    .catch(e => showToast('Error: ' + e.message, 'error'))
+    .finally(() => { btn.disabled = false; btn.textContent = 'Archivar y Limpiar'; });
+  }
+
+  // ── History Modal ─────────────────────────────────────
+  function openHistoryModal() {
+    document.getElementById('modal-history').style.display = 'flex';
+    document.getElementById('history-list').innerHTML =
+      '<p style="color:var(--muted);font-size:13px;text-align:center;">Cargando...</p>';
+    shomerFetch('/snapshots')
+    .then(r => r.json())
+    .then(d => {
+      const list = document.getElementById('history-list');
+      if (!d.snapshots || d.snapshots.length === 0) {
+        list.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;">Sin snapshots archivados</p>';
+        return;
+      }
+      list.innerHTML = d.snapshots.map(s => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+          <div style="display:flex;flex-direction:column;gap:3px;">
+            <span style="font-size:13px;font-weight:600;color:var(--text);">${s.name}</span>
+            <span style="font-size:11px;color:var(--muted);">${s.created_at.replace('T',' ').slice(0,16)} · ${s.asset_count} activos</span>
+          </div>
+          <button class="btn btn-ghost btn-sm btn-hdr"
+            onclick="downloadSnapshot(${s.id}, '${s.name.replace(/'/g,"\\'")}')">
+            <svg viewBox="0 0 24 24" style="width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Excel
+          </button>
+        </div>
+      `).join('');
+    })
+    .catch(() => {
+      document.getElementById('history-list').innerHTML =
+        '<p style="color:var(--offline);font-size:13px;text-align:center;">Error al cargar historial</p>';
+    });
+  }
+  function closeHistoryModal() {
+    document.getElementById('modal-history').style.display = 'none';
+  }
+  function downloadSnapshot(id, name) {
+    showToast('Generando Excel...', 'info');
+    const url = `/snapshot/${id}/excel`;
+    shomerFetch(url)
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const disposition = r.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        const filename = match ? match[1] : 'snapshot_' + id + '.xlsx';
+        return r.arrayBuffer().then(buf => ({ buf, filename }));
+      })
+      .then(({ buf, filename }) => {
+        const blob = new Blob([buf], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
+        const u = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = u;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(u);
+        }, 1000);
+        showToast('Excel descargado', 'success');
+      })
+      .catch(() => showToast('Error al descargar Excel del snapshot', 'error'));
+  }
+</script>
+{% endblock %}

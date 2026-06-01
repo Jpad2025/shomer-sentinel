@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% set active_module = "docs_tecnico" %}
+
+{% block page_title %}Guía técnica — instalación en campo{% endblock %}
+
+{% block extra_styles %}
+<style>
+.docs-page { padding: 20px 24px 48px; max-width: 920px; margin: 0 auto; }
+.docs-page h1 { font-size: 20px; font-weight: 800; color: var(--gold); margin-bottom: 10px; letter-spacing: 0.02em; }
+.docs-toc {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 18px; margin-bottom: 22px; font-size: 12px;
+}
+.docs-toc strong { color: var(--teal); display: block; margin-bottom: 8px; font-size: 11px; letter-spacing: 0.06em; }
+.docs-toc ul { margin: 0; padding-left: 18px; line-height: 1.7; }
+.docs-toc a { color: #7dd3fc; text-decoration: none; }
+.docs-toc a:hover { text-decoration: underline; }
+.docs-intro { font-size: 13px; color: var(--muted); line-height: 1.55; margin-bottom: 22px; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+.docs-section { margin-bottom: 26px; scroll-margin-top: 16px; }
+.docs-section h2 { font-size: 15px; font-weight: 700; color: var(--teal); margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.docs-ol { margin: 8px 0 0 0; padding-left: 22px; counter-reset: step; }
+.docs-ol > li { margin-bottom: 14px; font-size: 13px; line-height: 1.55; color: var(--text); }
+.docs-ol > li strong { color: #e2e8f0; }
+.docs-section p, .docs-section li { font-size: 13px; color: var(--text); line-height: 1.55; }
+.docs-section ul { margin: 8px 0 0 18px; }
+.docs-section li { margin-bottom: 6px; }
+.docs-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #a5b4fc; word-break: break-all; }
+.docs-kv { display: grid; grid-template-columns: 160px 1fr; gap: 6px 12px; font-size: 12px; margin-top: 10px; }
+.docs-kv dt { color: var(--muted); font-weight: 600; }
+.docs-kv dd { color: var(--text); margin: 0; }
+.docs-pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(13,110,110,0.25); color: var(--teal); font-weight: 600; }
+.docs-warn { font-size: 12px; color: #fbbf24; margin-top: 10px; }
+.docs-manual-link {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;
+  padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(13,110,110,0.5);
+  background: rgba(13,110,110,0.12); color: #5eead4; font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.docs-manual-link:hover { background: rgba(13,110,110,0.22); }
+.informe-wrap { background: #0b0f18; border: 1px solid #1f2937; border-radius: 8px; padding: 16px 18px; margin-top: 10px; overflow-x: auto; }
+.informe-wrap pre { margin: 0; font-size: 0.78rem; line-height: 1.45; color: #d1d5db; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Consolas, monospace; }
+.btn-copy { font-family: 'Orbitron', sans-serif; font-size: 0.75rem; letter-spacing: 0.08em; padding: 10px 18px; border-radius: 4px; border: 1px solid #00ff88; background: #022c22; color: #00ff88; cursor: pointer; margin-bottom: 12px; }
+.btn-copy:hover { background: #065f46; box-shadow: 0 0 12px rgba(0,255,136,0.3); }
+.docs-topbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:20px; }
+.docs-topbar h1 { margin-bottom:0; }
+.btn-pdf {
+  display:inline-flex; align-items:center; gap:7px;
+  padding:9px 16px; border-radius:7px;
+  border:1px solid rgba(13,110,110,.5); background:rgba(13,110,110,.12);
+  color:#5eead4; font-size:13px; font-weight:600; cursor:pointer;
+  text-decoration:none; white-space:nowrap;
+}
+.btn-pdf:hover { background:rgba(13,110,110,.25); }
+
+/* ── Estilos de impresión (PDF via Ctrl+P / window.print()) ── */
+@media print {
+  .sidebar, .btn-pdf, .btn-copy, .docs-toc, nav, .docs-intro { display:none !important; }
+  body, html { background:#fff !important; color:#000 !important; font-family:Arial,sans-serif; }
+  .app { display:block !important; }
+  .docs-page { max-width:100%; padding:0 16px; }
+  .docs-page h1 { color:#000; font-size:18px; }
+  .docs-section h2 { color:#000; border-bottom:1px solid #ccc; font-size:14px; }
+  .docs-section p, .docs-section li, .docs-ol > li { color:#222; }
+  .docs-box { background:#f5f5f5; border:1px solid #ccc; color:#333; }
+  code { background:#eee; color:#333; }
+  a { color:#000; text-decoration:underline; }
+  .docs-manual-link { display:none; }
+  .informe-wrap pre { color:#222; background:#f5f5f5; }
+  @page { margin:2cm; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="docs-page">
+  <div class="docs-topbar">
+    <h1>Documentación técnica</h1>
+    <button class="btn-pdf" onclick="window.print()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      Descargar / Imprimir PDF
+    </button>
+  </div>
+
+  <!-- ── Documentos principales ─────────────────────────────── -->
+  <div style="margin-bottom:22px;">
+    <div style="font-size:11px;font-weight:700;color:var(--teal);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;">Documentos principales</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px;">
+
+      <a href="{{ compendio_doc_url }}" target="_blank" rel="noopener" style="text-decoration:none;">
+        <div style="background:var(--card);border:1px solid rgba(13,110,110,.5);border-radius:10px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start;transition:border-color .2s;" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='rgba(13,110,110,.5)'">
+          <div style="font-size:24px;line-height:1;">📖</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:3px;">Compendio Completo</div>
+            <div style="font-size:11px;color:var(--muted);line-height:1.4;">Todo el sistema en un documento — para JP, Andrés y Laura. Módulos, instalación, operación.</div>
+          </div>
+        </div>
+      </a>
+
+      <a href="{{ soporte_doc_url }}" target="_blank" rel="noopener" style="text-decoration:none;">
+        <div style="background:var(--card);border:1px solid rgba(13,110,110,.4);border-radius:10px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start;transition:border-color .2s;" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='rgba(13,110,110,.4)'">
+          <div style="font-size:24px;line-height:1;">🛠️</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:3px;">Manual del Técnico de Campo</div>
+            <div style="font-size:11px;color:var(--muted);line-height:1.4;">Instalación paso a paso, módulos en detalle, hoja de datos del sitio, troubleshooting.</div>
+          </div>
+        </div>
+      </a>
+
+      <a href="{{ tailscale_doc_url }}" target="_blank" rel="noopener" style="text-decoration:none;">
+        <div style="background:var(--card);border:1px solid rgba(13,110,110,.4);border-radius:10px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start;transition:border-color .2s;" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='rgba(13,110,110,.4)'">
+          <div style="font-size:24px;line-height:1;">🌐</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:3px;">Instalación Remota — Tailscale</div>
+            <div style="font-size:11px;color:var(--muted);line-height:1.4;">Cómo instalar desde Utah vía Tailscale. Flujo completo para Bogotá y nuevos clientes.</div>
+          </div>
+        </div>
+      </a>
+
+      <a href="{{ usb_install_doc_url }}" target="_blank" rel="noopener" style="text-decoration:none;">
+        <div style="background:var(--card);border:1px solid rgba(13,110,110,.4);border-radius:10px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start;transition:border-color .2s;" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='rgba(13,110,110,.4)'">
+          <div style="font-size:24px;line-height:1;">💾</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:3px;">USB + Particiones 256 GB</div>
+            <div style="font-size:11px;color:var(--muted);line-height:1.4;">Crear USB booteable e instalar Ubuntu con particionado correcto para SSD 256 GB.</div>
+          </div>
+        </div>
+      </a>
+
+      <a href="{{ telegram_doc_url }}" target="_blank" rel="noopener" style="text-decoration:none;">
+        <div style="background:var(--card);border:1px solid rgba(13,110,110,.4);border-radius:10px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start;transition:border-color .2s;" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='rgba(13,110,110,.4)'">
+          <div style="font-size:24px;line-height:1;">✈️</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:3px;">Manual Telegram — Bot</div>
+            <div style="font-size:11px;color:var(--muted);line-height:1.4;">Crear el bot en BotFather, obtener Chat ID, configurar en panel. Lo que hace JP y lo que hace el técnico.</div>
+          </div>
+        </div>
+      </a>
+
+    </div>
+  </div>
+
+  <!-- ── Documentos de referencia ───────────────────────────── -->
+  <div style="margin-bottom:22px;">
+    <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;">Referencia técnica</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      <a href="{{ install_doc_url }}" target="_blank" rel="noopener" class="docs-manual-link" style="font-size:12px;padding:7px 12px;">📄 Instalación producción (campo)</a>
+      <a href="{{ sistema_doc_url }}" target="_blank" rel="noopener" class="docs-manual-link" style="font-size:12px;padding:7px 12px;">🏗️ Arquitectura del sistema</a>
+      <a href="{{ tracker_cuenta_doc_url }}" target="_blank" rel="noopener" class="docs-manual-link" style="font-size:12px;padding:7px 12px;">🔑 Tracker — cuentas WMI/SSH</a>
+      <a href="{{ hunter_campo_doc_url }}" target="_blank" rel="noopener" class="docs-manual-link" style="font-size:12px;padding:7px 12px;">🎯 Hunter — checklist campo</a>
+      <a href="{{ manual_doc_url }}" target="_blank" rel="noopener" class="docs-manual-link" style="font-size:12px;padding:7px 12px;">📋 Anexo MikroTik/TFTP</a>
+    </div>
+  </div>
+
+  <p class="docs-intro">
+    Abajo: <strong>orden de trabajo</strong> en sitio y <strong>texto copiable</strong> para tickets de soporte.
+  </p>
+
+  <nav class="docs-toc" aria-label="Índice">
+    <strong>ÍNDICE</strong>
+    <ul>
+      <li><a href="#pasos-cliente">1. Pasos en el cliente (orden de trabajo)</a></li>
+      <li><a href="#hardware-ref">2. Hardware de referencia y fábrica</a></li>
+      <li><a href="#acceso-panel">3. Cómo entrar al panel</a></li>
+      <li><a href="#variables">4. Variables de entorno (/etc/shomer/shomer-runtime.env)</a></li>
+      <li><a href="#checklist">5. Checklist antes de cerrar la visita</a></li>
+      <li><a href="#resumen-soporte">6. Resumen para soporte (copiar)</a></li>
+      <li><a href="#fallos-https">7. Si el panel no carga</a></li>
+      <li><a href="#manual-completo">8. Manual completo (Markdown embebido)</a></li>
+    </ul>
+  </nav>
+
+  <div class="docs-section" id="pasos-cliente">
+    <h2>1. Pasos en el cliente (orden de trabajo)</h2>
+    <ol class="docs-ol">
+      <li>
+        <strong>Antes de salir del taller</strong> — reúne la hoja de datos del cliente:
+        subred (ej. <code>192.168.10.0/24</code>), gateway, IP fija para el Shomer, IP del MikroTik/switch,
+        rango de APs, credenciales Telegram, lista de equipos a respaldar.
+        Ver tablas en el manual §0.
+      </li>
+      <li>
+        <strong>Colocación física</strong> — NIC de gestión (<code>enp2s0</code>) al switch del cliente;
+        cable SPAN/mirror hacia la NIC mirror (<code>enp4s0</code>) cuando corresponda para Hunter/Suricata.
+      </li>
+      <li>
+        <strong>Configurar la red del Shomer</strong> — Menú <strong>Instalación</strong> (<code>/setup</code>):
+        <ul>
+          <li>Clic en <strong>Escanear IPs</strong> para detectar la red automáticamente.</li>
+          <li>Completa los campos: <em>IP de gestión, Subred, Gateway, Interfaz de gestión</em>.</li>
+          <li>Si hay mirror para Hunter: completa también <em>Interfaz mirror</em>.</li>
+          <li>Clic en <strong>Aplicar</strong> — aplica netplan y reinicia los servicios.</li>
+          <li>Verifica en <a href="/system-status"><strong>Estado del sistema</strong></a> que las NICs aparezcan con las IPs correctas.</li>
+        </ul>
+      </li>
+      <li>
+        <strong>Guardian</strong> — <strong>Guardian → Dispositivos</strong>: agrega los nodos GL.iNet con su IP y credenciales SSH.
+        Verifica que el monitor los marque en línea (punto verde).
+      </li>
+      <li>
+        <strong>Hunter</strong> — Confirma que <code>suricata</code> esté activo en <strong>Estado del sistema</strong>.
+        En <strong>Hunter → Configuración</strong>: agrega la IP del firewall y sus credenciales SSH para bloqueos remotos.
+      </li>
+      <li>
+        <strong>Protector</strong> — <strong>Protector → Dispositivos</strong>: agrega cada equipo a respaldar (nombre, IP, usuario, contraseña, ruta de backup).
+        Lanza un <strong>Backup ahora</strong> de prueba. Si hay B2, configura y prueba la sincronización en nube.
+      </li>
+      <li>
+        <strong>Tracker</strong> (si el contrato lo incluye) — Configura la subred en <strong>Tracker → Configuración</strong>.
+        Lanza un escaneo y verifica que los activos aparezcan con la información esperada.
+      </li>
+      <li>
+        <strong>Cierre</strong> — Prueba Telegram desde Guardian → Configuración.
+        Rota contraseña admin si aplica. Documenta la visita y entrega al cliente la URL del panel.
+      </li>
+    </ol>
+  </div>
+
+  <div class="docs-section" id="hardware-ref">
+    <h2>2. Hardware de referencia y salida de fábrica</h2>
+    <p>Mini PC de referencia actual <strong>USB</strong>:</p>
+    <ul>
+      <li><strong>enp2s0</strong> — Gestión: panel, API, SSH del técnico.</li>
+      <li><strong>enp4s0</strong> — Mirror: tráfico hacia Suricata (Hunter).</li>
+    </ul>
+    <p>Tras <code>factory_reset_network.sh</code> el equipo queda en IP de fábrica para conectar el portátil; en <strong>campo</strong> las IPs reales las fija el técnico con <strong>/setup</strong>. Otro chasis en el futuro → variables de entorno <code>SHOMER_MANAGEMENT_INTERFACE</code> / <code>SHOMER_MIRROR_INTERFACE</code> (y script de fábrica).</p>
+    <p>Recomendado dejar explícito en <code>/etc/shomer/shomer-runtime.env</code> (taller):</p>
+    <div class="docs-box">SHOMER_MANAGEMENT_INTERFACE=enp2s0
+SHOMER_MIRROR_INTERFACE=enp4s0</div>
+  </div>
+
+  <div class="docs-section" id="acceso-panel">
+    <h2>3. Cómo entrar al panel</h2>
+    <ul>
+      <li>Sin proxy TLS: <code>http://&lt;IP-gestión&gt;:8000</code> (común en LAN interna).</li>
+      <li>Con nginx/Caddy delante: <code>https://&lt;IP-o-nombre&gt;:8443</code> (o el puerto configurado).</li>
+    </ul>
+    <p><span class="docs-pill">Sugerencia según detección / entorno</span></p>
+    <div class="docs-box">{{ panel_url_sugerida }}</div>
+    <p class="docs-warn">Si usa HTTPS público distinto, defina <code>SHOMER_PUBLIC_HTTPS_URL</code> y reinicie servicios.</p>
+  </div>
+
+  <div class="docs-section" id="https-proxy">
+    <h2>4. HTTPS y proxy (resumen)</h2>
+    <ul>
+      <li>El cifrado hacia el navegador lo hace normalmente <strong>nginx/Caddy</strong>; la app puede escuchar en <code>127.0.0.1:8000</code>.</li>
+      <li>Con <code>SHOMER_BEHIND_PROXY=1</code> la app interpreta <code>X-Forwarded-Proto</code> para cookies y esquema.</li>
+      <li>Ejemplos: <code>/opt/network_monitor/tools/reverse_proxy/</code>.</li>
+    </ul>
+  </div>
+
+  <div class="docs-section" id="variables">
+    <h2>5. Variables <code>/etc/shomer/shomer-runtime.env</code></h2>
+    <p>Tras editar: <code>sudo systemctl daemon-reload</code> y reiniciar <code>shomer-guardian</code> y <code>shomer-tools</code>.</p>
+    <ul>
+      <li><code>JWT_SECRET</code>, <code>SHOMER_CORS_ORIGINS</code>, <code>SHOMER_TRUSTED_HOSTS</code>, <code>SHOMER_BEHIND_PROXY</code>, <code>SHOMER_PUBLIC_HTTPS_URL</code>, <code>SHOMER_FACTORY_PANEL_PORT</code>, …</li>
+      <li>NIC OEM: <code>SHOMER_MANAGEMENT_INTERFACE</code>, <code>SHOMER_MIRROR_INTERFACE</code>.</li>
+    </ul>
+  </div>
+
+  <div class="docs-section" id="checklist">
+    <h2>6. Checklist antes de cerrar la visita</h2>
+    <ul>
+      <li>Red y netplan coherentes con el cliente; <strong>/setup</strong> aplicado.</li>
+      <li>Guardian: nodos vistos y política de fallos probada si aplica.</li>
+      <li>Hunter: mirror y bloqueo coherentes con MikroTik/OpenWrt documentado.</li>
+      <li>Protector: al menos un backup de prueba OK.</li>
+      <li>Telegram de prueba desde Guardian.</li>
+      <li>Contraseñas iniciales rotadas según política USB/cliente.</li>
+    </ul>
+  </div>
+
+  <div class="docs-section" id="resumen-soporte">
+    <h2>7. Resumen para soporte (copiar en ticket o correo)</h2>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">Generado al cargar esta página (hostname, red). Botón copia todo el bloque.</p>
+    <button type="button" class="btn-copy" id="btn-copy-resumen">Copiar resumen completo</button>
+    <div class="informe-wrap">
+      <pre id="resumen-body">{{ report_content | e }}</pre>
+    </div>
+  </div>
+
+  <div class="docs-section" id="fallos-https">
+    <h2>8. Si el panel no carga</h2>
+    <ul>
+      <li>Verifica en <a href="/system-status" style="color:var(--teal)">Estado del sistema</a> que <code>shomer-guardian</code> y <code>nginx</code> estén <em>active</em>.</li>
+      <li>URL del navegador debe estar en <code>SHOMER_CORS_ORIGINS</code> (origen exacto).</li>
+      <li><code>SHOMER_TRUSTED_HOSTS</code> debe incluir el host del navegador.</li>
+      <li>Logs: <code>journalctl -u shomer-guardian -n 50</code> o consulta <a href="/docs/fallas" style="color:var(--teal)">Glosario de fallas</a>.</li>
+    </ul>
+  </div>
+
+  <div class="docs-section" id="manual-completo">
+    <h2>Manuales en el servidor (Markdown)</h2>
+    <p><strong>Prioritario — instalación producción:</strong></p>
+    <a class="docs-manual-link" href="{{ install_doc_url }}" target="_blank" rel="noopener">Abrir — Instalacion_Shomer_Produccion_Tecnico.md</a>
+    <p><strong>Guía maestra — sistema, código, recuperación ante pérdida:</strong></p>
+    <a class="docs-manual-link" href="{{ sistema_doc_url }}" target="_blank" rel="noopener">Abrir — SISTEMA_SHOMER.md</a>
+    <p><strong>Tracker — cuenta de servicio (Windows WMI, SSH Linux/macOS):</strong></p>
+    <a class="docs-manual-link" href="{{ tracker_cuenta_doc_url }}" target="_blank" rel="noopener">Abrir — Tracker_cuenta_servicio_inventario.md</a>
+    <p><strong>Hunter — pruebas en campo (espejo, Suricata, una página):</strong></p>
+    <a class="docs-manual-link" href="{{ hunter_campo_doc_url }}" target="_blank" rel="noopener">Abrir — Hunter_pruebas_campo_checklist.md</a>
+    <p><strong>Anexo — procedimiento detallado (MikroTik, OpenWrt, TFTP, fallos):</strong></p>
+    <a class="docs-manual-link" href="{{ manual_doc_url }}" target="_blank" rel="noopener">Abrir — Pasos_Instalacion_Shomer_v2422026.md</a>
+    <p class="docs-warn">Abre en nueva pestaña. Si el navegador muestra texto plano, use «Guardar como» o un visor Markdown.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+  var reportText = {{ report_content | tojson }};
+  var btn = document.getElementById("btn-copy-resumen");
+  if (btn) {
+    btn.addEventListener("click", function() {
+      navigator.clipboard.writeText(reportText).then(function() {
+        btn.textContent = "Copiado";
+        setTimeout(function() { btn.textContent = "Copiar resumen completo"; }, 2500);
+      }).catch(function() {
+        btn.textContent = "Error al copiar";
+        setTimeout(function() { btn.textContent = "Copiar resumen completo"; }, 2000);
+      });
+    });
+  }
+})();
+</script>
+{% endblock %}

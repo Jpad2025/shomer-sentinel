@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Reportes — Shomer Sentinel{% endblock %}
+{% block content %}
+<style>
+  .rep-wrap { max-width: 820px; margin: 0 auto; padding: 24px 16px 60px; }
+  .rep-card  { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 28px; margin-bottom: 20px; }
+  .rep-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  .rep-sub   { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+  .date-row  { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+  .date-field { display: flex; flex-direction: column; gap: 5px; }
+  .date-field label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .date-field input[type="date"] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+  }
+  .date-field input[type="date"]:focus {
+    outline: none;
+    border-color: var(--teal);
+  }
+
+  /* tabla historial */
+  .hist-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+  .hist-table th { padding: 6px 10px; text-align: left; color: var(--muted); font-size: 10px;
+                   text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  .hist-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.04); color: var(--text); }
+  .hist-table tr:last-child td { border-bottom: none; }
+  .hist-table tr:hover td { background: rgba(255,255,255,.02); }
+</style>
+
+<div class="rep-wrap">
+  <div class="rep-card">
+    <div class="rep-title">Generar Reporte de Seguridad</div>
+    <div class="rep-sub">Selecciona el período y descarga un PDF con hallazgos de red, bloqueos, estado de nodos y métricas del servidor.</div>
+
+    <div class="date-row">
+      <div class="date-field">
+        <label>Fecha inicio</label>
+        <input type="date" id="from-date">
+      </div>
+      <div class="date-field">
+        <label>Fecha fin</label>
+        <input type="date" id="to-date">
+      </div>
+      <button class="btn btn-blue" onclick="generateReport()" id="btn-gen" style="height:38px;">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+        Descargar PDF
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<div style="text-align:center;margin-top:40px;padding-bottom:32px;opacity:.22;pointer-events:none;user-select:none;">
+  <img src="/static/img/shomer-eyes.png" alt="" style="width:min(820px,90vw);display:block;margin:0 auto;">
+</div>
+
+<script>
+  const today = new Date();
+
+  function _fmt(d) {
+    return d.toISOString().slice(0,10);
+  }
+
+  async function generateReport() {
+    const from = document.getElementById('from-date').value;
+    const to   = document.getElementById('to-date').value;
+    if (!from || !to) { showToast('Selecciona el período de inicio y fin', 'error'); return; }
+    if (from > to)    { showToast('La fecha de inicio debe ser anterior al fin', 'error'); return; }
+
+    const btn = document.getElementById('btn-gen');
+    btn.disabled = true;
+    showProcessBanner('Generando PDF — puede tardar unos segundos…');
+
+    try {
+      const url = `/reports/export?from_date=${from}&to_date=${to}`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `shomer-reporte-${from}-${to}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      setTimeout(() => {
+        btn.disabled = false;
+        hideProcessBanner();
+      }, 3000);
+    } catch(e) {
+      showToast('Error al generar el reporte', 'error');
+      btn.disabled = false;
+      hideProcessBanner();
+    }
+  }
+
+  // Inicializar — mes actual por defecto
+  (function init() {
+    const t = new Date(today);
+    document.getElementById('from-date').value = _fmt(new Date(t.getFullYear(), t.getMonth(), 1));
+    document.getElementById('to-date').value   = _fmt(t);
+  })();
+</script>
+{% endblock %}

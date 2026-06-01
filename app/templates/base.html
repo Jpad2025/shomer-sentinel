@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shomer Sentinel 2.0 — {% block page_title %}{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0e1a; --sidebar: #0d1117; --card: #111827;
+      --border: #1e2a3a; --teal: #0d6e6e; --gold: #f5c518;
+      --text: #e2e8f0; --muted: #94a3b8;
+      --online: #22c55e; --offline: #dc2626; --warning: #f59e0b;
+      --blue: #3b82f6; --cyan: #06b6d4;
+      --guardian: #378ADD;
+      --tracker:  #7F77DD;
+      --hunter:   #E24B4A;
+      --protector:#639922;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; overflow: hidden; }
+    .app { display: flex; height: 100vh; min-width: 900px; overflow: auto; }
+
+    /* SIDEBAR */
+    .sidebar { width: 220px; min-width: 220px; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+
+    /* Logo */
+    .sb-logo { display: flex; flex-direction: column; align-items: center; border-bottom: 1px solid var(--border); padding: 18px 16px 14px; }
+    .sb-logo-img { margin-bottom: 8px; display: flex; justify-content: center; }
+    .sb-logo-img img { display: block; width: 185px; height: auto; object-fit: contain; border: 1.5px solid rgba(13,110,110,0.5); border-radius: 8px; padding: 6px 10px; background: rgba(13,110,110,0.08); }
+    .sb-brand { text-align: center; }
+    .sb-brand .shomer   { display: block; font-family: 'Orbitron', monospace; font-size: 17px; font-weight: 900; color: var(--gold); letter-spacing: 3px; }
+    .sb-brand .sentinel { display: block; font-family: 'Orbitron', monospace; font-size: 12px; font-weight: 700; color: var(--text); letter-spacing: 4px; margin-top: 1px; }
+    .sb-version { margin-top: 5px; display: inline-block; background: rgba(13,110,110,0.2); color: var(--teal); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+
+    /* Status bar */
+    .sb-status { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding: 9px 14px; }
+    .sb-status svg { width: 14px; height: 14px; color: var(--online); flex-shrink: 0; }
+    .sb-status span { font-size: 11px; font-weight: 500; color: var(--muted); }
+    .pulse { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--online); animation: pulse 2s infinite; flex-shrink: 0; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.6;transform:scale(0.85)} }
+
+    /* Nav */
+    .sb-nav { flex: 1; padding: 16px 12px; }
+    .sb-nav-label { display: block; font-size: 10px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: var(--muted); padding: 0 10px; margin-bottom: 10px; }
+
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 10px; border-radius: 8px; margin-bottom: 3px;
+      cursor: pointer; text-decoration: none;
+      color: var(--muted); font-size: 14px; font-weight: 600;
+      transition: all 0.15s; border-left: 3px solid transparent;
+    }
+    .nav-item:hover { background: rgba(30,42,58,0.6); color: var(--text); }
+    .nav-item.active { background: rgba(30,42,58,0.9); color: var(--text); }
+
+    .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; }
+    .nav-item .nav-dot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; animation: pulse 2s infinite; flex-shrink: 0; }
+
+    /* Colores por modulo */
+    .guardian  { color: var(--muted); }
+    .tracker   { color: var(--muted); }
+    .hunter    { color: var(--muted); }
+    .protector { color: var(--muted); }
+    .informe   { color: var(--muted); }
+    .status    { color: var(--muted); }
+    .fallas    { color: var(--muted); }
+
+    .guardian  svg { color: var(--guardian); }
+    .tracker   svg { color: var(--tracker);  }
+    .hunter    svg { color: var(--hunter);   }
+    .protector svg { color: var(--protector);}
+    .informe   svg { color: #94a3b8; }
+    .admin     svg { color: var(--gold);     }
+    .status    svg { color: var(--cyan);     }
+    .fallas    svg { color: var(--warning);  }
+
+    .guardian  .nav-dot { background: var(--guardian); }
+    .tracker   .nav-dot { background: var(--tracker);  }
+    .hunter    .nav-dot { background: var(--hunter);   }
+    .protector .nav-dot { background: var(--protector);}
+    .informe   .nav-dot { background: #94a3b8; }
+    .admin     .nav-dot { background: var(--gold);     }
+    .status    .nav-dot { background: var(--cyan);     }
+    .fallas    .nav-dot { background: var(--warning);  }
+    .infra     { color: var(--muted); }
+    .infra     svg { color: var(--cyan); }
+    .infra     .nav-dot { background: var(--cyan); }
+    .reportes  { color: var(--muted); }
+    .reportes  svg { color: var(--gold); }
+    .reportes  .nav-dot { background: var(--gold); }
+
+    .nav-item.active.status    { border-left-color: var(--cyan);    color: var(--cyan);    }
+    .nav-item.active.infra     { border-left-color: var(--cyan);    color: var(--cyan);    }
+    .nav-item.active.reportes  { border-left-color: var(--gold);    color: var(--gold);    }
+    .nav-item.active.fallas { border-left-color: var(--warning); color: var(--warning); }
+
+    .nav-item.active.guardian  { border-left-color: var(--guardian); color: var(--guardian); }
+    .nav-item.active.tracker   { border-left-color: var(--tracker);  color: var(--tracker);  }
+    .nav-item.active.hunter    { border-left-color: var(--hunter);   color: var(--hunter);   }
+    .nav-item.active.protector { border-left-color: var(--protector);color: var(--protector);}
+    .nav-item.active.informe   { border-left-color: #94a3b8; color: #cbd5e1; }
+    .nav-item.active.admin     { border-left-color: var(--gold);     color: var(--gold);     }
+
+    /* Footer sidebar */
+    .sb-footer { border-top: 1px solid var(--border); padding: 14px 12px; }
+    .sb-footer-box { background: rgba(245,197,24,0.06); border: 1px solid rgba(245,197,24,0.2); border-radius: 8px; padding: 10px 12px; }
+    .sb-footer-connected { font-size: 10px; color: var(--muted); margin-bottom: 2px; text-transform: uppercase; letter-spacing: 1px; }
+    .sb-footer-host { font-size: 13px; font-weight: 700; color: var(--gold); display: flex; align-items: center; gap: 6px; }
+    .sb-footer-host::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--online); animation: pulse 2s infinite; flex-shrink: 0; }
+    .btn-logout {
+      margin-top: 10px; width: 100%;
+      background: rgba(220,38,38,0.12); border: 1px solid rgba(220,38,38,0.4);
+      color: #f87171; padding: 7px 0; border-radius: 6px;
+      cursor: pointer; font-size: 12px; font-weight: 600;
+      letter-spacing: 0.06em; font-family: 'Inter', sans-serif;
+      transition: background 0.15s;
+    }
+    .btn-logout:hover { background: rgba(220,38,38,0.25); }
+
+    /* MAIN */
+    .main-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+    /* PROCESS BAR */
+    #process-banner { display: none; align-items: center; gap: 12px; padding: 10px 24px; background: rgba(245,197,24,0.1); border-bottom: 1px solid rgba(245,197,24,0.3); }
+    #process-banner.active { display: flex; }
+    .banner-spin { width: 18px; height: 18px; border: 2px solid rgba(245,197,24,0.3); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+    .banner-dots { margin-left: auto; display: flex; gap: 4px; }
+    .banner-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); animation: bounce 1s infinite; }
+    .banner-dots span:nth-child(2) { animation-delay: 0.15s; }
+    .banner-dots span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* CONTENT */
+    .main-content { flex: 1; overflow: auto; padding: 0; background: var(--bg); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+    /* FOOTER */
+    .footer { padding: 6px 24px; background: var(--sidebar); border-top: 1px solid var(--border); font-size: 10px; color: var(--muted); text-align: center; flex-shrink: 0; }
+
+    /* TOAST */
+    #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+    .toast { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; border-left: 4px solid transparent; box-shadow: 0 4px 20px rgba(0,0,0,0.5); animation: slideIn 0.3s ease; max-width: 320px; background: var(--card); }
+    .toast.success { border-left-color: var(--online); color: var(--online); }
+    .toast.error   { border-left-color: var(--offline); color: var(--offline); }
+    .toast.warning { border-left-color: var(--warning); color: var(--warning); }
+    @keyframes slideIn { from{transform:translateX(100px);opacity:0} to{transform:translateX(0);opacity:1} }
+
+    /* MODAL */
+    #confirm-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 9998; align-items: center; justify-content: center; }
+    #confirm-overlay.active { display: flex; }
+    .confirm-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 28px 32px; max-width: 400px; width: 90%; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+    .confirm-box h3 { font-size: 16px; color: var(--text); margin-bottom: 8px; }
+    .confirm-box p  { font-size: 13px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+    .confirm-actions { display: flex; gap: 10px; justify-content: center; }
+    .btn-confirm { padding: 8px 24px; border-radius: 6px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s; }
+    .btn-confirm.yes { background: var(--teal); color: #fff; }
+    .btn-confirm.yes:hover { background: #0f8080; }
+    .btn-confirm.no  { background: var(--border); color: var(--muted); border: 1px solid #2a3a50; }
+    .btn-confirm.no:hover { color: var(--text); }
+
+    /* UTILITIES */
+    .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+    
+    /* ============================================================
+       SHOMER — Sistema unificado de botones (Teal corporativo)
+       Cada botón tiene DOS nombres equivalentes: por COLOR y por USO.
+       Agregado: 22 mayo 2026 — Sesión 32 (estandarización UI)
+       ============================================================ */
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 6px;
+      font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s;
+      white-space: nowrap; line-height: 1;
+      text-decoration: none;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* 1. Acción principal — TEAL SÓLIDO (color corporativo Shomer, sin sombra) */
+    .btn-blue,
+    .btn-ejecutar {
+      background: var(--teal); color: #fff; border: none;
+    }
+    .btn-blue:hover, .btn-ejecutar:hover {
+      background: #0f8080;
+    }
+
+    /* 2. Alternativa — OUTLINE TEAL */
+    .btn-outline,
+    .btn-opcion {
+      background: transparent; color: var(--teal);
+      border: 1px solid var(--teal);
+    }
+    .btn-outline:hover, .btn-opcion:hover {
+      background: rgba(13,110,110,0.12);
+    }
+
+    /* 3. Peligroso — ROJO OUTLINE */
+    .btn-red,
+    .btn-bloquear {
+      background: transparent; color: var(--offline);
+      border: 1px solid rgba(220,38,38,0.5);
+    }
+    .btn-red:hover, .btn-bloquear:hover {
+      background: rgba(220,38,38,0.12);
+      border-color: var(--offline);
+    }
+
+    /* 4. Utilidad discreta — TRANSPARENTE GRIS */
+    .btn-ghost,
+    .btn-toolbar {
+      background: transparent; color: var(--muted); border: none;
+    }
+    .btn-ghost:hover, .btn-toolbar:hover {
+      background: rgba(30,42,58,0.5); color: var(--text);
+    }
+
+    /* Modificadores de tamaño y forma */
+    .btn-sm    { padding: 5px 10px; font-size: 12px; }
+    .btn-lg    { padding: 10px 20px; font-size: 14px; }
+    .btn-icon  { padding: 6px; }
+    .btn-block { width: 100%; justify-content: center; }
+
+
+    {% block extra_styles %}{% endblock %}
+  </style>
+  <script src="/static/js/shomer-auth.js?v=3"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <!-- Logo -->
+    <div class="sb-logo">
+      <div class="sb-logo-img">
+        <img src="/static/img/logo-usb.png" alt="USB Ingenieria"
+             onerror="this.style.display='none';document.getElementById('sb-logo-fallback').style.display='flex'">
+      </div>
+      <div id="sb-logo-fallback" style="display:none;align-items:center;gap:10px;margin-bottom:14px;">
+        <div style="width:36px;height:36px;background:var(--teal);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="width:20px;height:20px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div style="display:flex;flex-direction:column;">
+          <span style="font-size:13px;font-weight:600;color:var(--text);">USB Ingenieria</span>
+          <span style="font-size:11px;color:var(--muted);">Engineering LLC</span>
+        </div>
+      </div>
+      <div class="sb-brand">
+        <span class="shomer">SHOMER</span>
+        <span class="sentinel">SENTINEL</span>
+        <span class="sb-version">v2.0</span>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="sb-status">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+      <span>Sistema Operativo</span>
+      <div class="pulse"></div>
+    </div>
+
+    <!-- Nav -->
+    <nav class="sb-nav">
+      <span class="sb-nav-label">Modulos</span>
+
+      <!-- Guardian - icono: ojo -->
+      <a href="/" class="nav-item guardian {% if active_module == 'guardian' %}active{% endif %}">
+        <svg viewBox="0 0 24 24">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        <span>Guardian</span>
+        <span class="nav-dot"></span>
+      </a>
+
+      <!-- Tracker - icono: capas/inventario -->
+      <a href="/tracker" class="nav-item tracker {% if active_module == 'tracker' %}active{% endif %}">
+        <svg viewBox="0 0 24 24">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+          <polyline points="2 17 12 22 22 17"/>
+          <polyline points="2 12 12 17 22 12"/>
+        </svg>
+        <span>Tracker</span>
+        <span class="nav-dot"></span>
+      </a>
+
+      <!-- Hunter - icono: mira/objetivo -->
+      <a href="/security" class="nav-item hunter {% if active_module == 'hunter' %}active{% endif %}">
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="3"/>
+          <line x1="12" y1="2"  x2="12" y2="6"/>
+          <line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="2"  y1="12" x2="6"  y2="12"/>
+          <line x1="18" y1="12" x2="22" y2="12"/>
+        </svg>
+        <span>Hunter</span>
+        <span class="nav-dot"></span>
+      </a>
+
+      <!-- Protector - icono: escudo -->
+      <a href="/backups" class="nav-item protector {% if active_module == 'protector' %}active{% endif %}">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <span>Protector</span>
+        <span class="nav-dot"></span>
+      </a>
+
+      <!-- Inframonitor - icono: radar -->
+      <a href="/infra" class="nav-item infra {% if active_module == 'inframonitor' %}active{% endif %}">
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M4.93 4.93l14.14 14.14"/>
+        </svg>
+        <span>Inframonitor</span>
+        <span class="nav-dot"></span>
+      </a>
+
+      <a href="/reportes" class="nav-item reportes {% if active_module == 'reportes' %}active{% endif %}" title="Genera reportes PDF por período">
+        <svg viewBox="0 0 24 24">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="8" y1="17" x2="8" y2="13"/>
+          <line x1="12" y1="17" x2="12" y2="11"/>
+          <line x1="16" y1="17" x2="16" y2="15"/>
+        </svg>
+        <span>Reportes</span>
+        <span class="nav-dot"></span>
+      </a>
+
+      <!-- Estado del sistema — servicios, recursos, logs -->
+      <a href="/system-status" class="nav-item status {% if active_module == 'system_status' %}active{% endif %}" title="Servicios, CPU, RAM, NICs, logs en vivo">
+        <svg viewBox="0 0 24 24">
+          <rect x="2" y="3" width="20" height="14" rx="2"/>
+          <polyline points="8 21 12 17 16 21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+          <polyline points="6 8 9 11 12 8 15 11 18 8"/>
+        </svg>
+        <span>Estado</span>
+        <span class="nav-dot"></span>
+      </a>
+
+      <!-- Sección soporte / instalación — solo admin (JS muestra ambos) -->
+      <span id="nav-soporte-label" class="sb-nav-label" style="margin-top:14px;display:none;">Soporte</span>
+      <a href="/setup" id="nav-setup" class="nav-item admin {% if active_module == 'setup' %}active{% endif %}" style="display:none;" title="Red del Shomer y netplan">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        <span>Instalación</span>
+        <span class="nav-dot"></span>
+      </a>
+      <a href="/audit" id="nav-audit" class="nav-item admin {% if active_module == 'audit' %}active{% endif %}" style="display:none;" title="Log de cambios y auditoría">
+        <svg viewBox="0 0 24 24">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
+        </svg>
+        <span>Auditoría</span>
+        <span class="nav-dot"></span>
+      </a>
+      <a href="/admin" id="nav-admin" class="nav-item admin {% if active_module == 'admin' %}active{% endif %}" style="display:none;" title="Licencia, usuarios y contraseña">
+        <svg viewBox="0 0 24 24">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        <span>Administración</span>
+        <span class="nav-dot"></span>
+      </a>
+    </nav>
+
+    <!-- Footer -->
+    <div class="sb-footer">
+      <div class="sb-footer-box">
+        <p class="sb-footer-connected">Usuario activo</p>
+        <p class="sb-footer-host" id="sb-username">—</p>
+        <p id="sb-role-badge" style="font-size:10px;color:#64748b;margin-top:2px;display:none;"></p>
+        <button class="btn-logout" id="btn-logout">
+          Cerrar Sesion
+        </button>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main-wrap">
+
+    <!-- PROCESS BANNER -->
+    <div id="process-banner">
+      <div class="banner-spin"></div>
+      <span style="color:#f5c518;font-weight:600;">Ejecutando...</span>
+      <span id="process-banner-text" style="color:#e2e8f0;">Proceso en ejecucion</span>
+      <div class="banner-dots"><span></span><span></span><span></span></div>
+    </div>
+
+    <!-- CONTENIDO -->
+    <main class="main-content">
+      {% block content %}{% endblock %}
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="footer">Con Tecnologia USB Ingenieria</footer>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast-container"></div>
+
+<!-- MODAL CONFIRMACION -->
+<div id="confirm-overlay">
+  <div class="confirm-box">
+    <div style="font-size:32px;margin-bottom:12px;">&#9888;&#65039;</div>
+    <h3 id="confirm-title">&#191;Confirmar accion?</h3>
+    <p id="confirm-msg"></p>
+    <div class="confirm-actions">
+      <button class="btn-confirm yes" id="confirm-yes">Confirmar</button>
+      <button class="btn-confirm no"  id="confirm-no">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function setBtnRunning(btn, running, textoEspera) {
+    if (running) {
+      btn._orig = btn.innerHTML; btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>&nbsp;' + (textoEspera || 'Procesando...');
+      btn.style.opacity = '0.7';
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = btn._orig || btn.innerHTML;
+      btn.style.opacity = '';
+    }
+  }
+  function showProcessBanner(msg) {
+    document.getElementById('process-banner-text').textContent = msg || 'Proceso en ejecucion';
+    document.getElementById('process-banner').classList.add('active');
+  }
+  function hideProcessBanner() {
+    document.getElementById('process-banner').classList.remove('active');
+  }
+  function showToast(msg, tipo) {
+    tipo = tipo || 'success';
+    const icons = { success: '\u2713', error: '\u2717', warning: '\u26a0\ufe0f' };
+    const c = document.getElementById('toast-container');
+    const t = document.createElement('div');
+    t.className = 'toast ' + tipo;
+    t.innerHTML = '<span>' + icons[tipo] + '</span><span>' + msg + '</span>';
+    c.appendChild(t);
+    setTimeout(() => {
+      t.style.transition = 'opacity 0.4s';
+      t.style.opacity = '0';
+      setTimeout(() => t.remove(), 400);
+    }, 5000);
+  }
+  function confirmAction(msg, onOk) {
+    const o = document.getElementById('confirm-overlay');
+    document.getElementById('confirm-msg').textContent = msg;
+    o.classList.add('active');
+    document.getElementById('confirm-yes').onclick = () => { o.classList.remove('active'); onOk(); };
+    document.getElementById('confirm-no').onclick  = () => o.classList.remove('active');
+  }
+
+  // ── Sesión activa: usuario, rol, setup link ───────────────────────────────
+  (function _loadSession() {
+    shomerFetch('/auth/me')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        const el = document.getElementById('sb-username');
+        if (el) el.textContent = d.username || '—';
+        const rb = document.getElementById('sb-role-badge');
+        if (rb) {
+          rb.style.display = '';
+          rb.textContent = d.role === 'admin' ? '⚙ Administrador' : '● Operador';
+          rb.style.color  = d.role === 'admin' ? '#f5c518' : '#94a3b8';
+        }
+        if (d.role === 'admin') {
+          const s = document.getElementById('nav-setup');
+          const a = document.getElementById('nav-admin');
+          const l = document.getElementById('nav-soporte-label');
+          const au = document.getElementById('nav-audit');
+          if (s)  s.style.display  = '';
+          if (a)  a.style.display  = '';
+          if (l)  l.style.display  = '';
+          if (au) au.style.display = '';
+        }
+      })
+      .catch(() => {});
+  })();
+
+  // ── Logout ────────────────────────────────────────────────────────────────
+  document.getElementById('btn-logout').addEventListener('click', function() {
+    shomerFetch('/auth/logout', { method: 'POST' }).finally(() => {
+      localStorage.removeItem('auth_token');
+      window.location.href = '/login';
+    });
+  });
+
+  // ── Sistema de módulos por licencia ──────────────────────────────────────
+  const _MODULE_NAV = {
+    'tracker':      'tracker',
+    'hunter':       'hunter',
+    'protector':    'protector',
+    'infra':        'inframonitor',
+  };
+
+  function _applyModules(enabled) {
+    Object.entries(_MODULE_NAV).forEach(([cssClass, mod]) => {
+      const el = document.querySelector(`.nav-item.${cssClass}`);
+      if (!el) return;
+      el.style.display = enabled.includes(mod) ? '' : 'none';
+    });
+  }
+
+  shomerFetch('/config/modules')
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d && d.enabled) _applyModules(d.enabled); })
+    .catch(() => {});
+</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

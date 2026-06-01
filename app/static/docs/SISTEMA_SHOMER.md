@@ -1,0 +1,1 @@
+/opt/network_monitor/SISTEMA_SHOMER.md

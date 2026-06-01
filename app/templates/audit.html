@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% set active_module = "audit" %}
+{% block page_title %}Auditoría del Sistema{% endblock %}
+
+{% block extra_styles %}
+.page-header { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); background:var(--sidebar); padding:16px 24px; flex-wrap:wrap; gap:12px; }
+.page-header-left h1 { font-size:18px; font-weight:700; color:var(--text); }
+.page-header-left p  { font-size:12px; color:var(--muted); margin-top:2px; }
+/* .btn-hdr: solo styles del SVG; padding/border/font los dan .btn .btn-blue/.btn-outline del sistema unificado en base.html */
+.btn-hdr svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; }
+
+.stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px; }
+.sc { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+.sc-row { display:flex; align-items:center; gap:12px; }
+.sc-row svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; }
+.sc-val { font-size:22px; font-weight:700; }
+.sc-lbl { font-size:11px; color:var(--muted); margin-top:2px; }
+.sc.gold  { border-color:rgba(245,197,24,0.35);  } .sc.gold  svg,.sc.gold  .sc-val { color:var(--gold); }
+.sc.red   { border-color:rgba(220,38,38,0.3);   } .sc.red   svg,.sc.red   .sc-val { color:var(--offline); }
+.sc.cyan  { border-color:rgba(6,182,212,0.3);   } .sc.cyan  svg,.sc.cyan  .sc-val { color:var(--cyan); }
+.sc.muted { border-color:rgba(100,116,139,0.25); } .sc.muted svg,.sc.muted .sc-val { color:var(--muted); }
+
+.filter-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:10px 14px; }
+.filter-bar input { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 10px; color:var(--text); font-size:12px; font-family:'Inter',sans-serif; outline:none; width:160px; }
+.filter-bar input:focus { border-color:var(--gold); }
+.filter-bar input[type="date"] { width:140px; }
+.filter-bar label { font-size:11px; color:var(--muted); font-weight:600; }
+
+.table-wrap { background:var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:16px; }
+.table-scroll { overflow-x:auto; max-height:calc(100vh - 400px); overflow-y:auto; }
+table { width:100%; border-collapse:collapse; }
+thead tr { background:var(--sidebar); border-bottom:1px solid var(--border); }
+thead th { padding:7px 8px; text-align:left; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); white-space:nowrap; }
+tbody tr { border-bottom:1px solid var(--border); transition:background 0.15s; }
+tbody tr:hover { background:rgba(30,42,58,0.35); }
+tbody tr:last-child { border-bottom:none; }
+tbody td { padding:6px 8px; font-size:11px; color:var(--text); }
+
+.method-badge { display:inline-block; border-radius:4px; padding:2px 7px; font-size:10px; font-weight:700; letter-spacing:0.3px; }
+.method-get    { background:rgba(100,116,139,0.2); color:var(--muted); }
+.method-post   { background:rgba(59,130,246,0.2); color:#60a5fa; }
+.method-put    { background:rgba(245,158,11,0.2); color:var(--warning); }
+.method-delete { background:rgba(220,38,38,0.2); color:var(--offline); }
+.method-patch  { background:rgba(249,115,22,0.2); color:#fb923c; }
+
+.role-badge { display:inline-block; border-radius:20px; padding:2px 8px; font-size:10px; font-weight:600; }
+.role-admin  { background:rgba(245,197,24,0.15); color:var(--gold); }
+.role-op     { background:rgba(100,116,139,0.15); color:var(--muted); }
+
+.pills-row { display:flex; flex-wrap:wrap; gap:6px; }
+.pill-item { background:rgba(13,110,110,0.1); border:1px solid rgba(13,110,110,0.3); color:var(--teal); border-radius:20px; padding:3px 10px; font-size:11px; }
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <h1>Auditoría del Sistema</h1>
+    <p>Registro de acciones administrativas — solo admin</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button class="btn btn-outline btn-hdr" onclick="exportAuditCSV()">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Exportar CSV
+    </button>
+    <button id="btn-audit-pdf" class="btn btn-outline btn-hdr" onclick="exportAuditReport('pdf')">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      Reporte PDF
+    </button>
+    <button id="btn-audit-zip" class="btn btn-outline btn-hdr" onclick="exportAuditReport('zip')">
+      <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      Reporte ZIP
+    </button>
+  </div>
+</div>
+
+<div style="padding:20px;display:flex;flex-direction:column;gap:16px;">
+
+  <!-- Stats -->
+  <div class="stat-grid">
+    <div class="sc gold">
+      <div class="sc-row">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <div><div class="sc-val" id="stat-total">—</div><div class="sc-lbl">Total entradas</div></div>
+      </div>
+    </div>
+    <div class="sc muted">
+      <div class="sc-row">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <div><div class="sc-val" id="stat-today">—</div><div class="sc-lbl">Hoy</div></div>
+      </div>
+    </div>
+    <div class="sc red">
+      <div class="sc-row">
+        <svg viewBox="0 0 24 24"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div><div class="sc-val" id="stat-errors">—</div><div class="sc-lbl">Errores</div></div>
+      </div>
+    </div>
+    <div class="sc cyan">
+      <div class="sc-row">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        <div><div class="sc-val" id="stat-users">—</div><div class="sc-lbl">Usuarios únicos</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar">
+    <label>Usuario</label>
+    <input type="text" id="filter-username" placeholder="admin" />
+    <label>Ruta</label>
+    <input type="text" id="filter-path" placeholder="/config/system" />
+    <label>Desde</label>
+    <input type="date" id="filter-from" />
+    <label>Hasta</label>
+    <input type="date" id="filter-to" />
+    <button onclick="loadAuditLogs()" style="background:var(--gold);color:#000;border:none;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;">
+      Filtrar
+    </button>
+    <button onclick="resetFilters()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+      Limpiar
+    </button>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha/Hora</th>
+            <th>Usuario</th>
+            <th>Rol</th>
+            <th>Método</th>
+            <th>Ruta</th>
+            <th>Status</th>
+            <th>Duración ms</th>
+            <th>Body</th>
+          </tr>
+        </thead>
+        <tbody id="audit-tbody">
+          <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">Cargando registros...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Top users and paths -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--gold);margin-bottom:10px;">Top Usuarios</div>
+      <div id="top-users-wrap" class="pills-row">
+        <span style="font-size:11px;color:var(--muted);">—</span>
+      </div>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--gold);margin-bottom:10px;">Top Rutas</div>
+      <div id="top-paths-wrap" class="pills-row">
+        <span style="font-size:11px;color:var(--muted);">—</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function setDefaultDates() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    document.getElementById('filter-from').value = `${y}-${m}-01`;
+    document.getElementById('filter-to').value   = now.toISOString().slice(0, 10);
+  })();
+
+  function loadAuditStats() {
+    shomerFetch('/audit/stats')
+      .then(r => r.json())
+      .then(d => {
+        const el = id => document.getElementById(id);
+        if (el('stat-total'))  el('stat-total').textContent  = d.total ?? '—';
+        if (el('stat-today'))  el('stat-today').textContent  = d.today ?? '—';
+        if (el('stat-errors')) el('stat-errors').textContent = d.errors_today ?? '—';
+        if (el('stat-users'))  el('stat-users').textContent  = d.unique_users ?? '—';
+
+        const topUsers = document.getElementById('top-users-wrap');
+        if (topUsers && Array.isArray(d.top_users) && d.top_users.length) {
+          topUsers.innerHTML = d.top_users.slice(0, 5).map(u =>
+            `<span class="pill-item">${u.username} <span style="opacity:0.6;">(${u.count})</span></span>`
+          ).join('');
+        }
+        const topPaths = document.getElementById('top-paths-wrap');
+        if (topPaths && Array.isArray(d.top_paths) && d.top_paths.length) {
+          topPaths.innerHTML = d.top_paths.slice(0, 5).map(p =>
+            `<span class="pill-item" style="font-family:monospace;font-size:10px;">${p.path} <span style="opacity:0.6;">(${p.count})</span></span>`
+          ).join('');
+        }
+      })
+      .catch(() => {});
+  }
+
+  function loadAuditLogs() {
+    const username = document.getElementById('filter-username').value.trim();
+    const path     = document.getElementById('filter-path').value.trim();
+    const from     = document.getElementById('filter-from').value;
+    const to       = document.getElementById('filter-to').value;
+
+    let url = '/audit/logs?limit=100';
+    if (username) url += '&username=' + encodeURIComponent(username);
+    if (path)     url += '&path='     + encodeURIComponent(path);
+    if (from)     url += '&from='     + encodeURIComponent(from);
+    if (to)       url += '&to='       + encodeURIComponent(to);
+
+    const tbody = document.getElementById('audit-tbody');
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:14px;font-size:12px;">Cargando...</td></tr>';
+
+    shomerFetch(url)
+      .then(r => r.json())
+      .then(d => {
+        const rows = Array.isArray(d.logs) ? d.logs : [];
+        if (rows.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">Sin registros para los filtros aplicados.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = rows.map(log => {
+          const meth = (log.method || 'GET').toUpperCase();
+          const methClass = { GET:'get', POST:'post', PUT:'put', DELETE:'delete', PATCH:'patch' }[meth] || 'get';
+          const methBadge = `<span class="method-badge method-${methClass}">${meth}</span>`;
+
+          const role = log.role || 'operator';
+          const roleBadge = role === 'admin'
+            ? `<span class="role-badge role-admin">admin</span>`
+            : `<span class="role-badge role-op">operador</span>`;
+
+          const status = log.status_code || 0;
+          let statusColor = 'var(--muted)';
+          if (status >= 200 && status < 300) statusColor = 'var(--online)';
+          else if (status >= 400 && status < 500) statusColor = 'var(--warning)';
+          else if (status >= 500) statusColor = 'var(--offline)';
+
+          const bodyRaw = log.body || '';
+          const bodyTrunc = bodyRaw.length > 30 ? bodyRaw.slice(0, 30) + '…' : bodyRaw;
+          const fecha = log.created_at ? new Date(log.created_at).toLocaleString('es-ES') : '—';
+
+          return `<tr>
+            <td style="color:var(--muted);font-size:10px;white-space:nowrap;">${fecha}</td>
+            <td style="font-weight:600;color:var(--text);">${log.username || '—'}</td>
+            <td>${roleBadge}</td>
+            <td>${methBadge}</td>
+            <td style="font-family:monospace;font-size:10px;color:var(--cyan);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${log.path || ''}">${log.path || '—'}</td>
+            <td style="font-weight:700;color:${statusColor};">${status || '—'}</td>
+            <td style="color:var(--muted);">${log.duration_ms != null ? log.duration_ms + 'ms' : '—'}</td>
+            <td style="font-size:10px;color:var(--muted);" title="${bodyRaw.replace(/"/g,'&quot;')}">${bodyTrunc || '—'}</td>
+          </tr>`;
+        }).join('');
+      })
+      .catch(() => {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--offline);padding:20px;">Error al cargar registros.</td></tr>';
+      });
+  }
+
+  function resetFilters() {
+    document.getElementById('filter-username').value = '';
+    document.getElementById('filter-path').value = '';
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    document.getElementById('filter-from').value = `${y}-${m}-01`;
+    document.getElementById('filter-to').value   = now.toISOString().slice(0, 10);
+    loadAuditLogs();
+  }
+
+  function _getDateParams() {
+    const from = document.getElementById('filter-from').value;
+    const to   = document.getElementById('filter-to').value;
+    const p = [];
+    if (from) p.push('from=' + encodeURIComponent(from));
+    if (to)   p.push('to='   + encodeURIComponent(to));
+    return p.length ? '?' + p.join('&') : '';
+  }
+
+  function exportAuditCSV() {
+    window.location = '/audit/export/csv' + _getDateParams();
+  }
+
+  function exportAuditReport(format) {
+    const params = _getDateParams();
+    const sep = params ? '&' : '?';
+    window.open('/audit/report' + params + sep + 'format=' + format, '_blank');
+  }
+
+  loadAuditStats();
+  loadAuditLogs();
+</script>
+{% endblock %}

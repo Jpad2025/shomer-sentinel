@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920">
+<title>NOC — {{ site_name }}</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg2: #111827;
+    --bg3: #1a2235;
+    --border: #1e3a5f;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --green: #22c55e;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --cyan: #06b6d4;
+    --purple: #a855f7;
+    --orange: #f97316;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 16px;
+    min-height: 100vh;
+    padding: 16px;
+    overflow-x: hidden;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 24px;
+    margin-bottom: 14px;
+  }
+  .header-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--cyan);
+  }
+  .header-logo span { color: var(--text); }
+  .header-center { text-align: center; }
+  .header-title { font-size: 1.1rem; color: var(--muted); }
+  .header-clock { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .header-date { font-size: 0.85rem; color: var(--muted); }
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--green);
+    font-weight: 600;
+    letter-spacing: 2px;
+  }
+  .live-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+  }
+
+  /* ── KPI ROW ── */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .kpi-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .kpi-card.kpi-ok  { border-left-color: var(--green); }
+  .kpi-card.kpi-warn { border-left-color: var(--yellow); }
+  .kpi-card.kpi-err  { border-left-color: var(--red); }
+  .kpi-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+  .kpi-value { font-size: 2.2rem; font-weight: 800; line-height: 1.1; }
+  .kpi-value .kpi-denom { font-size: 1.2rem; font-weight: 400; color: var(--muted); }
+  .kpi-sub   { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+
+  /* ── ALERT BAND ── */
+  .alert-band {
+    display: none;
+    align-items: center;
+    gap: 14px;
+    background: rgba(239,68,68,.1);
+    border: 1px solid rgba(239,68,68,.5);
+    border-radius: 10px;
+    padding: 12px 20px;
+    margin-bottom: 14px;
+    animation: blink-border 2s ease-in-out infinite;
+  }
+  @keyframes blink-border {
+    0%,100% { border-color: rgba(239,68,68,.4); }
+    50%      { border-color: rgba(239,68,68,.9); }
+  }
+  .alert-band-icon { font-size: 1.4rem; flex-shrink: 0; }
+  .alert-band-text { font-weight: 700; color: var(--red); font-size: 1rem; }
+  .alert-band-sub  { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+  /* ── SERVICIOS ── */
+  .services-row {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .services-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    white-space: nowrap;
+    margin-right: 4px;
+  }
+  .svc-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .svc-ok   { background: rgba(34,197,94,.12);  color: var(--green);  border: 1px solid rgba(34,197,94,.25);  }
+  .svc-fail { background: rgba(239,68,68,.12);  color: var(--red);    border: 1px solid rgba(239,68,68,.25);  }
+  .svc-dot  { width: 7px; height: 7px; border-radius: 50%; }
+  .svc-dot-ok   { background: var(--green); }
+  .svc-dot-fail { background: var(--red);   }
+
+  /* ── GRID PRINCIPAL ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  /* ── CARDS ── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .card-badge {
+    font-size: 0.75rem;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+  .badge-green  { background: rgba(34,197,94,.15);  color: var(--green);  }
+  .badge-red    { background: rgba(239,68,68,.15);  color: var(--red);    }
+  .badge-yellow { background: rgba(245,158,11,.15); color: var(--yellow); }
+  .badge-blue   { background: rgba(59,130,246,.15); color: var(--blue);   }
+
+  /* ── STATUS DOTS ── */
+  .device-status-dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-online   { background: var(--green);  box-shadow: 0 0 6px var(--green); }
+  .dot-offline  { background: var(--red);    box-shadow: 0 0 6px var(--red);   }
+  .dot-degraded { background: var(--yellow); box-shadow: 0 0 6px var(--yellow);}
+  .dot-unknown  { background: var(--muted);  }
+
+  /* ── AP VISUAL GRID ── */
+  .ap-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .ap-box {
+    position: relative;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: default;
+    transition: border-color 0.2s;
+  }
+  .ap-box:hover { border-color: var(--cyan); }
+  .ap-box.ap-offline  { border-color: rgba(239,68,68,.45); background: rgba(239,68,68,.06); }
+  .ap-box.ap-degraded { border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.06); }
+  .ap-box-top  { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
+  .ap-box-icon { font-size: 1rem; }
+  .ap-box-name { font-size: 0.82rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ap-box-status  { font-size: 0.7rem; margin-top: 1px; }
+  .ap-box-latency { font-size: 0.72rem; color: var(--cyan); font-variant-numeric: tabular-nums; }
+  /* Tooltip */
+  .ap-tooltip {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0d1526;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 20;
+  }
+  .ap-box:hover .ap-tooltip { opacity: 1; }
+
+  /* ── SECTION DIVIDERS (within left card) ── */
+  .section-title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 12px 0 7px;
+    border-top: 1px solid var(--border);
+    margin-top: 8px;
+  }
+
+  /* ── DEVICE LIST (infra sections) ── */
+  .device-list { display: flex; flex-direction: column; gap: 6px; }
+  .device-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg3);
+    border-radius: 7px;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+  }
+  .device-icon { font-size: 1.1rem; flex-shrink: 0; }
+  .device-info { flex: 1; min-width: 0; }
+  .device-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .device-meta { font-size: 0.72rem; color: var(--muted); }
+  .device-latency {
+    font-size: 0.75rem;
+    color: var(--cyan);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .snmp-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .snmp-ok   { background: rgba(34,197,94,.12); color: var(--green); border: 1px solid rgba(34,197,94,.25); }
+  .snmp-fail { background: rgba(239,68,68,.12); color: var(--red);   border: 1px solid rgba(239,68,68,.25); }
+
+  /* ── RECURSOS ── */
+  .resources-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .gauge-wrap { text-align: center; }
+  .gauge-label { font-size: 0.75rem; color: var(--muted); margin-top: 6px; font-weight: 600; letter-spacing: 1px; }
+  .gauge-value { font-size: 1.5rem; font-weight: 700; }
+  .gauge-svg   { display: block; margin: 0 auto; }
+  .disk-list { display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+  .disk-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    margin-bottom: 4px;
+  }
+  .disk-label { color: var(--muted); font-weight: 600; }
+  .disk-pct   { font-weight: 700; }
+  .disk-bar-bg   { height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
+  .disk-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+  .disk-free { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+  /* ── SEGURIDAD ── */
+  .security-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .stat-box {
+    background: var(--bg3);
+    border-radius: 8px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .stat-value { font-size: 2.2rem; font-weight: 800; line-height: 1; }
+  .stat-label { font-size: 0.72rem; color: var(--muted); margin-top: 4px; letter-spacing: 1px; text-transform: uppercase; }
+  .last-alert-box {
+    background: var(--bg3);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.82rem;
+  }
+  .last-alert-title { color: var(--muted); font-size: 0.7rem; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+  .last-alert-sig   { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .last-alert-meta  { color: var(--muted); font-size: 0.72rem; margin-top: 3px; }
+
+  /* ── AGENTE IA ── */
+  .agent-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
+  .agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+  .agent-item { background: var(--bg3); border-radius: 8px; padding: 10px 12px; }
+  .agent-item-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .agent-item-val   { font-size: 1.1rem; font-weight: 700; }
+  .agent-item-sub   { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+  .agent-running { color: var(--green); }
+  .agent-stopped { color: var(--red);   }
+  .agent-unknown { color: var(--muted); }
+
+  /* ── TICKER ── */
+  .ticker-bar {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    overflow: hidden;
+  }
+  .ticker-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--cyan);
+    text-transform: uppercase;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .ticker-events { display: flex; gap: 24px; flex-wrap: wrap; font-size: 0.78rem; color: var(--muted); }
+  .ticker-event  { white-space: nowrap; }
+  .ticker-event-type { color: var(--text); font-weight: 600; }
+  .ticker-dot  { color: var(--border); margin: 0 4px; }
+
+  /* ── SUMMARY BAR ── */
+  .summary-bar { display: flex; gap: 20px; align-items: center; }
+  .sum-item    { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; }
+  .sum-value   { font-weight: 700; font-size: 1rem; }
+
+  /* ── SPINNER ── */
+  #loading-overlay {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; color: var(--muted);
+    z-index: 999;
+    transition: opacity 0.4s;
+  }
+
+  /* ── LAST UPDATE ── */
+  .last-update { font-size: 0.7rem; color: var(--muted); text-align: right; margin-top: 4px; }
+
+  /* ── RESPONSIVE ── */
+  @media (min-width: 1600px) {
+    body { font-size: 17px; }
+    .header-clock { font-size: 2rem; }
+    .stat-value   { font-size: 2.6rem; }
+    .kpi-value    { font-size: 2.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">Conectando…</div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-logo">
+    🛡️ <span>{{ site_name }}</span>
+  </div>
+  <div class="header-center">
+    <div class="header-clock" id="clock">--:--:--</div>
+    <div class="header-date" id="date-str"></div>
+    <div class="header-title">Centro de Operaciones de Red</div>
+  </div>
+  <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+    <div class="live-badge"><div class="live-dot"></div> EN VIVO</div>
+    <div id="summary-bar" class="summary-bar"></div>
+    <div class="last-update" id="last-update"></div>
+  </div>
+</div>
+
+<!-- KPI ROW -->
+<div class="kpi-row" id="kpi-row">
+  <div class="kpi-card"><div class="kpi-label">📶 Access Points</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
+  <div class="kpi-card"><div class="kpi-label">🔀 Infraestructura</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
+  <div class="kpi-card"><div class="kpi-label">🎯 Amenazas activas</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
+  <div class="kpi-card"><div class="kpi-label">🌐 Internet WAN</div><div class="kpi-value" style="font-size:1.6rem;">—</div><div class="kpi-sub">cargando…</div></div>
+  <div class="kpi-card"><div class="kpi-label">🛡️ Riesgos de Red</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
+</div>
+
+<!-- ALERT BAND -->
+<div class="alert-band" id="alert-band">
+  <span class="alert-band-icon">🚨</span>
+  <div>
+    <div class="alert-band-text" id="alert-band-text"></div>
+    <div class="alert-band-sub"  id="alert-band-sub"></div>
+  </div>
+</div>
+
+<!-- SERVICES ROW -->
+<div class="services-row" id="services-row">
+  <span class="services-label">Servicios</span>
+  <span style="color:var(--muted); font-size:0.8rem;">Cargando…</span>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main-grid">
+
+  <!-- LEFT: APs grid + Infra sections -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">👁️ Infraestructura de Red</span>
+      <span class="card-badge badge-blue" id="device-badge">— equipos</span>
+    </div>
+
+    <!-- AP visual grid (Guardian) -->
+    <div id="ap-section">
+      <div class="section-title" id="ap-section-title" style="border-top:none;padding-top:0;">📶 Access Points — Guardian</div>
+      <div class="ap-grid" id="ap-grid">
+        <div style="color:var(--muted);font-size:0.85rem;">Cargando…</div>
+      </div>
+    </div>
+
+    <!-- Infra sections by type -->
+    <div id="infra-sections"></div>
+  </div>
+
+  <!-- RIGHT: Security + Resources + Agent -->
+  <div style="display:flex; flex-direction:column; gap:14px;">
+
+    <!-- Security -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🎯 Seguridad — Hunter</span>
+        <span class="card-badge" id="hunter-badge" style="background:rgba(168,85,247,.15);color:var(--purple);">Hunter</span>
+      </div>
+      <div class="security-stats">
+        <div class="stat-box">
+          <div class="stat-value" id="active-blocks" style="color:var(--red);">—</div>
+          <div class="stat-label">IPs bloqueadas</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="blocks-24h" style="color:var(--orange);">—</div>
+          <div class="stat-label">Eventos 24h</div>
+        </div>
+      </div>
+      <div class="last-alert-box" id="last-alert-box">
+        <div class="last-alert-title">Último evento</div>
+        <div class="last-alert-sig" id="last-alert-sig">Sin datos</div>
+        <div class="last-alert-meta" id="last-alert-meta"></div>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🖥️ Recursos del Servidor</span>
+        <span class="card-badge badge-blue" id="res-uptime"></span>
+      </div>
+      <div class="resources-grid">
+        <div>
+          <div class="gauge-wrap">
+            <svg class="gauge-svg" width="100" height="60" viewBox="0 0 100 60">
+              <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#1a2235" stroke-width="10" stroke-linecap="round"/>
+              <path id="cpu-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#3b82f6" stroke-width="10" stroke-linecap="round"
+                    stroke-dasharray="0 125.6" style="transition:stroke-dasharray 0.8s ease;"/>
+            </svg>
+            <div class="gauge-value" id="cpu-val" style="color:var(--blue);">—%</div>
+            <div class="gauge-label">CPU</div>
+          </div>
+          <div class="gauge-wrap" style="margin-top:10px;">
+            <svg class="gauge-svg" width="100" height="60" viewBox="0 0 100 60">
+              <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#1a2235" stroke-width="10" stroke-linecap="round"/>
+              <path id="ram-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#a855f7" stroke-width="10" stroke-linecap="round"
+                    stroke-dasharray="0 125.6" style="transition:stroke-dasharray 0.8s ease;"/>
+            </svg>
+            <div class="gauge-value" id="ram-val" style="color:var(--purple);">—%</div>
+            <div class="gauge-label">RAM</div>
+          </div>
+        </div>
+        <div class="disk-list" id="disk-list"></div>
+      </div>
+    </div>
+
+    <!-- Agent IA -->
+    <div class="agent-card">
+      <div class="card-header" style="margin-bottom:0;padding-bottom:8px;">
+        <span class="card-title">🤖 Agente IA</span>
+        <span class="card-badge" id="agent-badge" style="background:rgba(148,163,184,.1);color:var(--muted);">—</span>
+      </div>
+      <div class="agent-grid">
+        <div class="agent-item">
+          <div class="agent-item-label">Contenedor</div>
+          <div class="agent-item-val agent-unknown" id="agent-state">—</div>
+          <div class="agent-item-sub" id="agent-uptime">—</div>
+        </div>
+        <div class="agent-item">
+          <div class="agent-item-label">Proveedor LLM</div>
+          <div class="agent-item-val" id="agent-llm" style="color:var(--cyan);">—</div>
+          <div class="agent-item-sub" id="agent-model">—</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /right col -->
+</div><!-- /main-grid -->
+
+<!-- TICKER -->
+<div class="ticker-bar">
+  <span class="ticker-label">📋 Eventos</span>
+  <div class="ticker-events" id="ticker-events">
+    <span style="color:var(--muted);">Sin eventos recientes</span>
+  </div>
+</div>
+
+<script>
+const TOKEN = "{{ token }}";
+const API   = "/noc/data?token=" + TOKEN;
+
+// ── Reloj ──
+function updateClock() {
+  const now  = new Date();
+  const hms  = now.toLocaleTimeString('es', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false});
+  const date = now.toLocaleDateString('es', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  document.getElementById('clock').textContent    = hms;
+  document.getElementById('date-str').textContent = date.charAt(0).toUpperCase() + date.slice(1);
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ── Gauge arc ──
+function setGauge(id, pct, color) {
+  const arc = document.getElementById(id);
+  if (!arc) return;
+  const total = 125.6;
+  const fill  = Math.min(pct, 100) / 100 * total;
+  arc.style.strokeDasharray = fill + ' ' + total;
+  arc.style.stroke = pct >= 85 ? 'var(--red)' : pct >= 60 ? 'var(--yellow)' : color;
+}
+
+// ── Status dot ──
+function dot(status) {
+  const s   = status || 'unknown';
+  const cls = s === 'online'                  ? 'dot-online'
+            : s === 'offline'                 ? 'dot-offline'
+            : (s === 'degraded' || s === 'no-internet') ? 'dot-degraded'
+            : 'dot-unknown';
+  return `<div class="device-status-dot ${cls}"></div>`;
+}
+
+// ── Device type icons ──
+const ICONS = {
+  access_point:'📶', router:'🌐', switch:'🔀', server:'🖥️',
+  camera:'📷', printer:'🖨️', pos:'🖨️', nas:'💾', ups:'🔋',
+  controller:'🎮', generic:'📡'
+};
+
+// ── Disk bar color ──
+function diskColor(pct) {
+  if (pct >= 85) return 'var(--red)';
+  if (pct >= 70) return 'var(--yellow)';
+  return 'var(--green)';
+}
+
+// ── Relative time ──
+function relTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts.replace(' ','T') + (ts.includes('+') ? '' : 'Z'));
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60)   return `${s}s`;
+  if (s < 3600) return `${Math.floor(s/60)}m`;
+  return `${Math.floor(s/3600)}h`;
+}
+
+// ── Severity colors ──
+const SCOLORS = {
+  'CRÍTICO':'var(--red)', 'ALTO':'var(--orange)',
+  'MEDIO':'var(--yellow)', 'BAJO':'var(--cyan)', 'INFO':'var(--muted)'
+};
+
+// ── KPI row ──
+function renderKpi(d) {
+  const g   = d.guardian;
+  const inf = d.inframonitor;
+  const h   = d.hunter;
+  const wan = d.wan || {};
+
+  const apOffline  = g.total - g.online;
+  const apClass    = g.total === 0 ? 'kpi-ok' : apOffline === 0 ? 'kpi-ok' : apOffline < g.total ? 'kpi-warn' : 'kpi-err';
+  const apColor    = apOffline === 0 ? 'var(--green)' : apOffline < g.total ? 'var(--yellow)' : 'var(--red)';
+
+  const infOffline = inf.total - inf.online;
+  const infClass   = inf.total === 0 ? 'kpi-ok' : infOffline === 0 ? 'kpi-ok' : infOffline < inf.total ? 'kpi-warn' : 'kpi-err';
+  const infColor   = infOffline === 0 ? 'var(--green)' : infOffline < inf.total ? 'var(--yellow)' : 'var(--red)';
+
+  const hunterClass = h.active_blocks === 0 ? 'kpi-ok' : 'kpi-err';
+  const hunterColor = h.active_blocks === 0 ? 'var(--green)' : 'var(--red)';
+
+  const wanClass = wan.ok ? 'kpi-ok' : wan.status === 'unknown' ? '' : 'kpi-err';
+  const wanColor = wan.ok ? 'var(--green)' : wan.status === 'unknown' ? 'var(--muted)' : 'var(--red)';
+  const wanVal   = wan.ok ? 'ONLINE' : wan.status === 'unknown' ? '?' : 'OFFLINE';
+  const wanSub   = wan.latency_ms ? `${wan.latency_ms.toFixed(0)} ms · 8.8.8.8`
+                 : wan.ok ? '—' : 'sin respuesta';
+
+  const r = d.risks || {counts:{critico:0,alto:0,medio:0,bajo:0}, total:0, level:'ok'};
+  const rColorMap = {critico:'var(--red)', alto:'#f97316', medio:'var(--yellow)', bajo:'var(--green)', ok:'var(--green)'};
+  const riskClass  = r.total === 0 ? 'kpi-ok' : (r.level === 'critico' || r.level === 'alto') ? 'kpi-err' : 'kpi-warn';
+  const riskColor  = rColorMap[r.level] || 'var(--green)';
+  const riskSub    = r.total === 0 ? 'sin riesgos pendientes'
+    : [r.counts.critico ? `${r.counts.critico} 🔴` : '',
+       r.counts.alto    ? `${r.counts.alto} 🟠`    : '',
+       r.counts.medio   ? `${r.counts.medio} 🟡`   : '',
+       r.counts.bajo    ? `${r.counts.bajo} 🟢`    : ''].filter(Boolean).join(' · ');
+
+  document.getElementById('kpi-row').innerHTML =
+    `<div class="kpi-card ${apClass}">
+       <div class="kpi-label">📶 Access Points</div>
+       <div class="kpi-value" style="color:${apColor}">${g.online}<span class="kpi-denom">/${g.total}</span></div>
+       <div class="kpi-sub">${apOffline > 0 ? `${apOffline} offline` : g.total === 0 ? 'sin equipos' : 'todos online'}</div>
+     </div>
+     <div class="kpi-card ${infClass}">
+       <div class="kpi-label">🔀 Infraestructura</div>
+       <div class="kpi-value" style="color:${infColor}">${inf.online}<span class="kpi-denom">/${inf.total}</span></div>
+       <div class="kpi-sub">${(inf.outages_24h||0) > 0 ? `${inf.outages_24h} caídas 24h` : inf.total === 0 ? 'sin equipos' : 'sin incidencias 24h'}</div>
+     </div>
+     <div class="kpi-card ${hunterClass}">
+       <div class="kpi-label">🎯 Amenazas activas</div>
+       <div class="kpi-value" style="color:${hunterColor}">${h.active_blocks}</div>
+       <div class="kpi-sub">${h.blocks_24h} bloqueos en 24h</div>
+     </div>
+     <div class="kpi-card ${wanClass}">
+       <div class="kpi-label">🌐 Internet WAN</div>
+       <div class="kpi-value" style="font-size:1.6rem;color:${wanColor}">${wanVal}</div>
+       <div class="kpi-sub">${wanSub}</div>
+     </div>
+     <div class="kpi-card ${riskClass}">
+       <div class="kpi-label">🛡️ Riesgos de Red</div>
+       <div class="kpi-value" style="color:${riskColor}">${r.total}</div>
+       <div class="kpi-sub">${riskSub}</div>
+     </div>`;
+
+  // Alert band
+  const band = document.getElementById('alert-band');
+  if (h.active_blocks > 0) {
+    band.style.display = 'flex';
+    const n = h.active_blocks;
+    document.getElementById('alert-band-text').textContent =
+      `⚠️ ${n} IP${n !== 1 ? 's' : ''} bloqueada${n !== 1 ? 's' : ''} actualmente`;
+    document.getElementById('alert-band-sub').textContent =
+      h.last_alert && h.last_alert.signature
+        ? `Último: ${h.last_alert.signature.substring(0, 70)}`
+        : '';
+  } else {
+    band.style.display = 'none';
+  }
+}
+
+// ── AP visual grid ──
+function renderApGrid(devices) {
+  if (!devices.length) {
+    return '<div style="color:var(--muted);font-size:0.85rem;padding:8px 0;">Sin APs registrados en Guardian</div>';
+  }
+  return devices.map(dev => {
+    const s      = dev.status || 'unknown';
+    const boxCls = s === 'offline' ? 'ap-offline'
+                 : (s === 'degraded' || s === 'no-internet') ? 'ap-degraded' : '';
+    const sCls   = s === 'online' ? 'var(--green)'
+                 : s === 'offline' ? 'var(--red)'
+                 : (s === 'degraded' || s === 'no-internet') ? 'var(--yellow)' : 'var(--muted)';
+    const sLabel = s === 'online' ? 'online'
+                 : s === 'offline' ? 'OFFLINE'
+                 : s === 'no-internet' ? 'sin WAN'
+                 : s === 'degraded' ? 'degradado' : 'desconocido';
+    const lat    = dev.latency_ms != null ? dev.latency_ms.toFixed(1) + ' ms' : '— ms';
+    const icon   = ICONS[dev.device_type] || '📶';
+    const ttip   = [
+      dev.location ? `📍 ${dev.location}` : '',
+      `⏱ Latencia: ${lat}`,
+      `📡 Tipo: ${dev.device_type || 'AP'}`,
+      dev.last_seen ? `🕐 ${relTime(dev.last_seen)} atrás` : '',
+    ].filter(Boolean).join('\n');
+    return `<div class="ap-box ${boxCls}">
+      <div class="ap-tooltip" style="white-space:pre;">${ttip}</div>
+      <div class="ap-box-top">
+        ${dot(s)}
+        <span class="ap-box-icon">${icon}</span>
+      </div>
+      <div class="ap-box-name">${dev.name}</div>
+      <div class="ap-box-status" style="color:${sCls}">${sLabel}</div>
+      <div class="ap-box-latency">${lat}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Infra sections by device type ──
+const TYPE_GROUPS = [
+  { types: ['switch', 'router'],      label: '🔀 Switches / Routers'  },
+  { types: ['server', 'nas'],         label: '🖥️ Servidores / NAS'    },
+  { types: ['printer', 'pos'],        label: '🖨️ Impresoras / POS'    },
+  { types: ['camera'],                label: '📷 Cámaras'              },
+  { types: ['ups', 'controller', 'generic'], label: '📡 Otros equipos' },
+];
+
+function renderInfraSections(devices) {
+  if (!devices.length) return '';
+  let html = '';
+  for (const grp of TYPE_GROUPS) {
+    const gdevs = devices.filter(d => grp.types.includes(d.device_type));
+    if (!gdevs.length) continue;
+    html += `<div class="section-title">${grp.label}</div><div class="device-list">`;
+    html += gdevs.map(dev => {
+      const lat      = dev.latency_ms != null ? `${dev.latency_ms.toFixed(1)} ms` : '';
+      const icon     = ICONS[dev.device_type] || '📡';
+      const snmpBadge = dev.snmp_ok === 1 ? '<span class="snmp-badge snmp-ok">SNMP ✓</span>'
+                      : dev.snmp_ok === 0 ? '<span class="snmp-badge snmp-fail">SNMP ✗</span>' : '';
+      const snmpMeta = dev.snmp && dev.snmp.model ? dev.snmp.model : '';
+      const portMeta = dev.snmp && dev.snmp.ports_total > 0
+        ? `${dev.snmp.ports_up}/${dev.snmp.ports_total} ptos` : '';
+      const meta = [snmpMeta || dev.location, portMeta, lat].filter(Boolean).join(' · ');
+      return `<div class="device-row">
+        ${dot(dev.status)}
+        <span class="device-icon">${icon}</span>
+        <div class="device-info">
+          <div class="device-name">${dev.name}</div>
+          <div class="device-meta">${meta}</div>
+        </div>
+        ${snmpBadge}
+      </div>`;
+    }).join('');
+    html += '</div>';
+  }
+  return html;
+}
+
+// ── Main render ──
+function render(d) {
+  // KPI + alert band
+  renderKpi(d);
+
+  // Summary bar (header)
+  const sum = d.summary;
+  document.getElementById('summary-bar').innerHTML =
+    `<div class="sum-item"><div class="device-status-dot dot-online" style="width:8px;height:8px;"></div> <span class="sum-value" style="color:var(--green)">${sum.online}</span> <span style="color:var(--muted);font-size:.75rem;">online</span></div>` +
+    (sum.offline > 0 ? `<div class="sum-item"><div class="device-status-dot dot-offline" style="width:8px;height:8px;"></div> <span class="sum-value" style="color:var(--red)">${sum.offline}</span> <span style="color:var(--muted);font-size:.75rem;">offline</span></div>` : '') +
+    `<div class="sum-item"><span style="color:var(--muted);font-size:.75rem;">${sum.total_devices} total</span></div>`;
+
+  // Services
+  const svcs = d.services;
+  document.getElementById('services-row').innerHTML = '<span class="services-label">Servicios</span>' +
+    svcs.map(s => `<div class="svc-pill ${s.active ? 'svc-ok' : 'svc-fail'}"><div class="svc-dot ${s.active ? 'svc-dot-ok' : 'svc-dot-fail'}"></div>${s.name}</div>`).join('');
+
+  // Device badge
+  const totOnline  = d.summary.online;
+  const totDevices = d.summary.total_devices;
+  const badgeEl    = document.getElementById('device-badge');
+  badgeEl.textContent  = `${totOnline}/${totDevices} online`;
+  badgeEl.className    = 'card-badge ' + (d.summary.offline > 0 ? 'badge-yellow' : 'badge-green');
+
+  // AP grid
+  const gDevs = d.guardian.devices;
+  document.getElementById('ap-section-title').style.display = gDevs.length === 0 ? 'none' : '';
+  document.getElementById('ap-grid').innerHTML = renderApGrid(gDevs);
+
+  // Infra sections
+  document.getElementById('infra-sections').innerHTML = renderInfraSections(d.inframonitor.devices);
+
+  // Hunter
+  const h = d.hunter;
+  document.getElementById('active-blocks').textContent = h.active_blocks;
+  document.getElementById('blocks-24h').textContent    = h.blocks_24h;
+  if (h.last_alert && h.last_alert.signature) {
+    const sev      = h.last_alert.severity || '';
+    const sevColor = SCOLORS[sev] || 'var(--muted)';
+    document.getElementById('last-alert-sig').textContent = h.last_alert.signature;
+    document.getElementById('last-alert-meta').innerHTML  =
+      `<span style="color:${sevColor};font-weight:600;">${sev}</span>` +
+      (h.last_alert.blocked_at ? ` · ${relTime(h.last_alert.blocked_at)} atrás` : '');
+  }
+  document.getElementById('hunter-badge').textContent = h.active_blocks > 0 ? `${h.active_blocks} bloqueadas` : 'sin amenazas';
+  document.getElementById('hunter-badge').className   = 'card-badge ' + (h.active_blocks > 0 ? 'badge-red' : 'badge-green');
+
+  // Resources
+  const srv = d.server;
+  setGauge('cpu-arc', srv.cpu_percent, 'var(--blue)');
+  setGauge('ram-arc', srv.ram_percent, 'var(--purple)');
+  document.getElementById('cpu-val').textContent = srv.cpu_percent + '%';
+  document.getElementById('cpu-val').style.color = srv.cpu_percent >= 85 ? 'var(--red)' : srv.cpu_percent >= 60 ? 'var(--yellow)' : 'var(--blue)';
+  document.getElementById('ram-val').textContent = srv.ram_percent + '%';
+  document.getElementById('ram-val').style.color = srv.ram_percent >= 85 ? 'var(--red)' : srv.ram_percent >= 60 ? 'var(--yellow)' : 'var(--purple)';
+  document.getElementById('disk-list').innerHTML = (srv.disks || []).map(disk => `
+    <div>
+      <div class="disk-header">
+        <span class="disk-label">${disk.label}</span>
+        <span class="disk-pct" style="color:${diskColor(disk.percent)}">${disk.percent}%</span>
+      </div>
+      <div class="disk-bar-bg">
+        <div class="disk-bar-fill" style="width:${disk.percent}%;background:${diskColor(disk.percent)};"></div>
+      </div>
+      <div class="disk-free">${disk.free_gb} GB libres</div>
+    </div>`).join('');
+
+  // Events ticker
+  const events = d.events || [];
+  document.getElementById('ticker-events').innerHTML = events.length === 0
+    ? '<span style="color:var(--muted)">Sin eventos recientes</span>'
+    : events.map(e =>
+        `<span class="ticker-event"><span class="ticker-event-type">${e.type}</span>` +
+        (e.details ? `<span class="ticker-dot">·</span>${e.details.substring(0,40)}` : '') +
+        `<span class="ticker-dot">·</span><span style="color:var(--muted)">${relTime(e.at)}</span></span>`
+      ).join('<span style="color:var(--border);margin:0 8px;">|</span>');
+
+  // Agent IA
+  const ag = d.agent || {};
+  const agStateEl  = document.getElementById('agent-state');
+  const agBadgeEl  = document.getElementById('agent-badge');
+  const agUptimeEl = document.getElementById('agent-uptime');
+  const agLlmEl    = document.getElementById('agent-llm');
+  const agModelEl  = document.getElementById('agent-model');
+  if (agStateEl) {
+    const cls = ag.state === 'running' ? 'agent-running' : ag.state === 'unknown' ? 'agent-unknown' : 'agent-stopped';
+    agStateEl.className   = 'agent-item-val ' + cls;
+    agStateEl.textContent = ag.state || '—';
+  }
+  if (agBadgeEl) {
+    agBadgeEl.textContent       = ag.ok ? 'activo' : 'detenido';
+    agBadgeEl.style.background  = ag.ok ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)';
+    agBadgeEl.style.color       = ag.ok ? 'var(--green)' : 'var(--red)';
+  }
+  if (agUptimeEl) agUptimeEl.textContent = ag.uptime ? 'uptime ' + ag.uptime : '—';
+  if (agLlmEl)   agLlmEl.textContent    = (ag.llm_provider || 'groq').toUpperCase();
+  if (agModelEl) agModelEl.textContent  = ag.llm_model || (ag.llm_provider === 'openai' ? 'gpt-4o-mini' : 'llama-3.3-70b');
+
+  // Last update
+  document.getElementById('last-update').textContent = 'Act. ' + new Date().toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+// ── Fetch loop ──
+async function fetchData() {
+  try {
+    const res = await fetch(API);
+    if (!res.ok) {
+      const ov = document.getElementById('loading-overlay');
+      ov.style.display  = 'flex';
+      ov.textContent    = 'Error ' + res.status;
+      return;
+    }
+    const data = await res.json();
+    render(data);
+    const overlay = document.getElementById('loading-overlay');
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.style.display = 'none', 400);
+  } catch (err) {
+    console.error('NOC fetch error:', err);
+  }
+}
+
+fetchData();
+setInterval(fetchData, 30000);
+</script>
+</body>
+</html>

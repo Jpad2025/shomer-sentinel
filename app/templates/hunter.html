@@ -1,0 +1,1548 @@
+{% extends "base.html" %}
+{% set active_module = "hunter" %}
+{% block page_title %}Hunter — SIEM / IDS-IPS{% endblock %}
+
+{% block extra_styles %}
+.page-header { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); background:var(--sidebar); padding:16px 24px; }
+.page-header-left h1 { font-size:18px; font-weight:700; color:var(--text); }
+.page-header-left p  { font-size:12px; color:var(--muted); margin-top:2px; }
+/* Botones header migrados a .btn .btn-blue/btn-outline del sistema unificado en base.html */
+.btn-hdr svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; }
+
+.stat-bar { display:flex; flex-wrap:wrap; align-items:stretch; gap:6px; margin-bottom:14px; }
+.sp { display:flex; align-items:center; gap:9px; background:var(--card); border:1px solid var(--border); border-radius:7px; padding:8px 14px; flex:1; min-width:100px; }
+.sp svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; flex-shrink:0; opacity:0.85; }
+.sp-v { font-size:19px; font-weight:700; line-height:1; }
+.sp-l { font-size:11px; color:var(--muted); white-space:nowrap; margin-top:1px; }
+.sp-sep { width:1px; background:var(--border); margin:0 2px; align-self:stretch; flex:0 0 1px; }
+.sp.critical { border-color:rgba(220,38,38,0.35); } .sp.critical .sp-v,.sp.critical svg { color:var(--offline); }
+.sp.high     { border-color:rgba(249,115,22,0.35); } .sp.high     .sp-v,.sp.high     svg { color:#f97316; }
+.sp.medium   { border-color:rgba(245,158,11,0.35); } .sp.medium   .sp-v,.sp.medium   svg { color:var(--warning); }
+.sp.low      { border-color:rgba(34,197,94,0.35);  } .sp.low      .sp-v,.sp.low      svg { color:var(--online); }
+/* compat aliases for JS que usa sc-val */
+.sc-val { font-size:19px; font-weight:700; line-height:1; }
+.sc-lbl { font-size:11px; color:var(--muted); margin-top:1px; }
+
+.search-wrap { position:relative; margin-bottom:14px; }
+.search-wrap svg { position:absolute; left:12px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--muted); fill:none; stroke:currentColor; stroke-width:2; pointer-events:none; }
+.search-input { width:100%; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:10px 14px 10px 38px; color:var(--text); font-size:13px; font-family:'Inter',sans-serif; outline:none; }
+.search-input:focus { border-color:var(--offline); }
+.search-input::placeholder { color:var(--muted); }
+
+.hunter-body { display:flex; gap:16px; overflow:hidden; align-items:stretch; }
+.hunter-main { flex:1; min-width:0; overflow:hidden; }
+.table-wrap { background:var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; min-width:0; }
+.table-scroll { overflow-x:auto; max-height:calc(100vh - 260px); overflow-y:auto; -webkit-overflow-scrolling: touch; }
+#alerts-table { width: 100%; min-width: 0; table-layout: auto; }
+table { width:100%; border-collapse:collapse; }
+thead tr { background:var(--sidebar); border-bottom:1px solid var(--border); }
+#alerts-table thead th { padding:7px 8px; text-align:left; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); white-space:nowrap; }
+#alerts-table th:nth-child(8) { text-align: right; width: 1%; }
+#alerts-table th:nth-child(7) { width: 1%; }
+#alerts-table td:nth-child(7) { white-space: nowrap; vertical-align: middle; }
+#alerts-table td:last-child { vertical-align: top; max-width: 6.5rem; }
+#alerts-table th:nth-child(1), #alerts-table td:nth-child(1) { max-width: 9rem; }
+#alerts-table th:nth-child(3), #alerts-table td:nth-child(3) { max-width: min(20rem, 32vw); }
+#alerts-table th:nth-child(5), #alerts-table td:nth-child(5),
+#alerts-table th:nth-child(6), #alerts-table td:nth-child(6) { max-width: 11rem; }
+tbody tr { border-bottom:1px solid var(--border); transition:background 0.15s; cursor:pointer; }
+tbody tr:hover { background:rgba(30,42,58,0.4); }
+tbody tr:last-child { border-bottom:none; }
+#alerts-table td { padding:6px 8px; font-size:11px; color:var(--text); vertical-align:top; word-wrap:break-word; overflow-wrap:break-word; }
+
+.sev-badge { display:inline-block; border-radius:4px; padding:3px 10px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; }
+.sev-critical { background:var(--offline);  color:#fff; }
+.sev-high     { background:#f97316;         color:#fff; }
+.sev-medium   { background:var(--warning);  color:#000; }
+.sev-low      { background:var(--online);   color:#fff; }
+
+.status-badge { display:inline-block; border-radius:20px; padding:3px 10px; font-size:11px; font-weight:500; }
+.status-new          { background:rgba(59,130,246,0.15);  color:var(--blue); }
+.status-investigating { background:rgba(245,158,11,0.15); color:var(--warning); }
+.status-resolved     { background:rgba(34,197,94,0.15);   color:var(--online); }
+
+.sid-link { color:#06b6d4; font-family:monospace; font-weight:600; }
+.td-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 3px;
+  min-width: 0;
+  max-width: 5.5rem;
+  margin-left: auto;
+  box-sizing: border-box;
+}
+.td-actions .btn-block,
+.td-actions .btn-revert,
+.td-actions .btn-ignore {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  padding: 3px 4px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.td-actions .btn-block svg,
+.td-actions .btn-revert svg { width: 10px; height: 10px; flex-shrink: 0; }
+/* .btn-inv migrado a .btn .btn-ghost .btn-sm */
+/* .btn-block migrado a .btn .btn-red .btn-sm */
+/* .btn-revert migrado a .btn .btn-outline .btn-sm */
+/* .btn-ignore migrado a .btn .btn-ghost .btn-sm */
+.btn-inv svg { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:2; }
+.status-blocked      { background:rgba(220,38,38,0.2);  color:var(--offline); }
+.status-ignored      { background:rgba(100,100,100,0.2); color:var(--muted); }
+.status-auto-blocked { background:rgba(220,38,38,0.3);  color:#ff6b6b; }
+
+/* ── CONFIG RED ── */
+.config-section { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.config-toggle { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; cursor: pointer; }
+.config-toggle span { font-size: 13px; font-weight: 600; color: var(--text); }
+.config-toggle svg { width: 16px; height: 16px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 2; transition: transform 0.2s; }
+.config-toggle.open svg { transform: rotate(180deg); }
+.config-body { display: none; padding: 16px; border-top: 1px solid var(--border); flex-direction: column; gap: 16px; }
+.config-body.open { display: flex; }
+.config-body input[type="text"],
+.config-body input[type="number"],
+.config-body input[type="password"] { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-size: 13px; font-family: 'Inter',sans-serif; outline: none; }
+.config-body input[type="text"] { width: 220px; }
+.config-body input[type="number"] { width: auto; min-width: 72px; }
+.config-body input:focus { border-color: var(--teal); }
+.cfg-section { border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.cfg-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.4px; color: var(--teal); margin-bottom: 2px; }
+.cfg-row { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.cfg-row label { font-size: 12px; color: var(--muted); flex: 0 0 150px; max-width: 150px; line-height: 1.3; }
+.cfg-hint { font-size: 11px; color: var(--muted); line-height: 1.4; flex: 1; min-width: 140px; }
+.cfg-hint code { font-size: 10px; }
+.cfg-tag-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cfg-tag { display: flex; align-items: center; gap: 4px; background: rgba(13,110,110,0.15); border: 1px solid rgba(13,110,110,0.4); border-radius: 4px; padding: 3px 8px; font-size: 12px; color: var(--teal); }
+.cfg-tag button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 2px; }
+.cfg-tag button:hover { color: var(--offline); }
+/* .btn-cfg-save migrado a .btn .btn-outline .btn-sm */
+.hidden { display: none !important; }
+.rule-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:5px; background:#0d1220; border:1px solid var(--border); font-size:12px; }
+.rule-row.disabled { opacity:0.45; }
+.rule-msg { flex:1; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rule-sid { color:var(--muted); font-size:11px; min-width:70px; }
+.rule-toggle { background:none; border:1px solid var(--border); color:var(--muted); border-radius:4px; padding:2px 7px; font-size:11px; cursor:pointer; }
+.rule-toggle.on { border-color:var(--teal); color:var(--teal); }
+.rule-del { background:none; border:none; color:#e55; cursor:pointer; font-size:15px; padding:0 2px; }
+/* .btn-cfg-auto migrado a .btn .btn-ghost .btn-sm */
+.origin-badge { display:inline-block; border-radius:4px; padding:2px 7px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-left:4px; }
+.origin-auto   { background:rgba(220,38,38,0.2);   color:var(--offline); }
+.origin-manual { background:rgba(59,130,246,0.2);  color:#93c5fd; }
+.origin-wazuh  { background:rgba(201,170,113,0.2); color:#c9aa71; }
+/* ── Riesgos de Red ── */
+.sev-badge { display:inline-block; border-radius:4px; padding:2px 7px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; }
+.sev-critico  { background:rgba(220,38,38,0.25);  color:#f87171; border:1px solid rgba(220,38,38,0.4); }
+.sev-alto     { background:rgba(249,115,22,0.25); color:#fb923c; border:1px solid rgba(249,115,22,0.4); }
+.sev-medio    { background:rgba(234,179,8,0.25);  color:#facc15; border:1px solid rgba(234,179,8,0.4); }
+.sev-bajo     { background:rgba(59,130,246,0.2);  color:#93c5fd; border:1px solid rgba(59,130,246,0.4); }
+.sev-info     { background:rgba(100,116,139,0.2); color:#94a3b8; border:1px solid rgba(100,116,139,0.3); }
+.risk-sel { font-size:11px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; padding:3px 6px; cursor:pointer; }
+.risk-sel:focus { outline:none; border-color:var(--teal); }
+.risk-stat-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+.risk-stat { display:flex; flex-direction:column; align-items:center; gap:2px; padding:8px 14px; border-radius:6px; min-width:72px; }
+.risk-stat-num { font-size:22px; font-weight:700; line-height:1; }
+.risk-stat-lbl { font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); }
+.risk-stat.s-critico { background:rgba(220,38,38,0.12); }
+.risk-stat.s-critico .risk-stat-num { color:#f87171; }
+.risk-stat.s-alto    { background:rgba(249,115,22,0.12); }
+.risk-stat.s-alto    .risk-stat-num { color:#fb923c; }
+.risk-stat.s-medio   { background:rgba(234,179,8,0.12); }
+.risk-stat.s-medio   .risk-stat-num { color:#facc15; }
+.risk-stat.s-bajo    { background:rgba(59,130,246,0.10); }
+.risk-stat.s-bajo    .risk-stat-num { color:#93c5fd; }
+.risk-stat.s-total   { background:rgba(30,42,58,0.6); }
+.risk-stat.s-total   .risk-stat-num { color:var(--text); }
+.risk-scan-bar { display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+.risk-scan-info { font-size:11px; color:var(--muted); flex:1; }
+.notes-td { max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--muted); }
+
+.logs-panel { width: 200px; min-width: 200px; max-width: 200px; background:var(--sidebar); border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; overflow:hidden; flex-shrink: 0; transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease; }
+.logs-panel.collapsed { width:44px; min-width:44px; max-width:44px; }
+.logs-panel.collapsed .logs-body,
+.logs-panel.collapsed h3,
+.logs-panel.collapsed .logs-count { display:none; }
+.logs-panel.collapsed .logs-header { padding:12px; justify-content:center; border-bottom:none; }
+.logs-header { display:flex; align-items:center; gap:4px; padding:6px 8px; border-bottom:1px solid var(--border); cursor:pointer; user-select:none; }
+.logs-header:hover { background: rgba(30,42,58,0.4); }
+.logs-header svg { width:12px; height:12px; color:var(--offline); fill:none; stroke:currentColor; stroke-width:2; flex-shrink:0; }
+.logs-header h3 { font-size:11px; font-weight:600; color:var(--text); flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.logs-count { background:var(--border); border-radius:20px; padding:1px 6px; font-size:10px; color:var(--muted); }
+.logs-body { flex:1; overflow-y:auto; overflow-x: hidden; padding:4px 6px; font-family:monospace; font-size:9px; line-height:1.3; }
+.log-entry { display:flex; gap:3px; padding:2px 4px; border-radius:3px; margin-bottom:1px; flex-wrap:wrap; align-items:flex-start; }
+.log-info    { background:rgba(59,130,246,0.08); }
+.log-success { background:rgba(34,197,94,0.08); }
+.log-warning { background:rgba(245,158,11,0.08); }
+.log-error   { background:rgba(220,38,38,0.08); }
+.log-time { color:var(--muted); flex-shrink:0; }
+.log-src { font-weight:700; flex-shrink:0; }
+.log-src.info    { color:var(--blue); }
+.log-src.success { color:var(--online); }
+.log-src.warning { color:var(--warning); }
+.log-src.error   { color:var(--offline); }
+.log-msg { color:var(--text); flex:1; min-width:0; word-break:break-word; line-height:1.25; font-size:9px; }
+.log-time, .log-src { font-size: 9px; }
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <h1>Hunter — SIEM / IDS-IPS</h1>
+    <p>Última actualización: <span id="last-update">--:--:--</span></p>
+  </div>
+  <div class="page-header-right" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto;">
+    <a id="btn-wazuh" class="btn btn-outline btn-hdr" href="javascript:void(0)" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
+      <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Wazuh
+    </a>
+    <!-- Toggle Hunter / Suricata: base unificada; el JS solo cambia color/label/icon según estado -->
+    <button id="btn-hunter-toggle" class="btn btn-outline btn-hdr" onclick="toggleHunter()">
+      <svg id="hunter-toggle-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span id="hunter-toggle-label">Hunter</span>
+    </button>
+    <a href="/incidentes" class="btn btn-red btn-hdr" style="text-decoration:none;">
+      <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Incidentes
+    </a>
+    <button class="btn btn-blue btn-hdr" id="btn-refresh" onclick="handleRefresh()">
+      <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Actualizar Alertas
+    </button>
+  </div>
+</div>
+
+<div style="padding:20px;display:flex;flex-direction:column;gap:16px;">
+
+  <!-- Barra de stats compacta: severidad + operativo -->
+  <div class="stat-bar">
+    <div class="sp critical">
+      <svg viewBox="0 0 24 24"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div><div class="sp-v" id="stat-critical">0</div><div class="sp-l">Critical</div></div>
+    </div>
+    <div class="sp high">
+      <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div><div class="sp-v" id="stat-high">0</div><div class="sp-l">High</div></div>
+    </div>
+    <div class="sp medium">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div><div class="sp-v" id="stat-medium">0</div><div class="sp-l">Medium</div></div>
+    </div>
+    <div class="sp low">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <div><div class="sp-v" id="stat-low">0</div><div class="sp-l">Low</div></div>
+    </div>
+    <div class="sp-sep"></div>
+    <div class="sp" style="border-color:rgba(59,130,246,0.3);">
+      <svg viewBox="0 0 24 24" style="color:#93c5fd"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <div><div class="sp-v" id="stat-alerts-today" style="color:#93c5fd;">—</div><div class="sp-l">Alertas hoy</div></div>
+    </div>
+    <div class="sp" style="border-color:rgba(220,38,38,0.3);">
+      <svg viewBox="0 0 24 24" style="color:var(--offline)"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <div><div class="sp-v" id="stat-active-blocks" style="color:var(--offline);">—</div><div class="sp-l">Activas</div></div>
+    </div>
+    <div class="sp" style="border-color:rgba(249,115,22,0.3);">
+      <svg viewBox="0 0 24 24" style="color:#f97316"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <div><div class="sp-v" id="stat-blocks-auto" style="color:#f97316;">—</div><div class="sp-l">Auto/Wazuh</div></div>
+    </div>
+    <div class="sp" style="border-color:rgba(59,130,246,0.2);">
+      <svg viewBox="0 0 24 24" style="color:#93c5fd"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <div><div class="sp-v" id="stat-blocks-manual" style="color:#93c5fd;">—</div><div class="sp-l">Manual</div></div>
+    </div>
+  </div>
+
+  <div class="search-wrap">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" class="search-input" id="search-input" placeholder="Buscar por firma, IP, SID..." oninput="filterAlerts()">
+  </div>
+
+  <div class="hunter-body">
+    <div class="hunter-main">
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table id="alerts-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Severidad</th>
+                <th>Firma</th>
+                <th>SID</th>
+                <th>IP Origen</th>
+                <th>IP Destino</th>
+                <th>Estado</th>
+                <th style="text-align:right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="logs-panel collapsed" id="logs-panel-wrap">
+      <div class="logs-header" onclick="toggleLogs()">
+        <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <h3>Logs Hunter</h3>
+        <span class="logs-count" id="logs-count">0</span>
+      </div>
+      <div class="logs-body" id="logs-panel"></div>
+    </div>
+  </div>
+
+  <!-- HISTORIAL DE BLOQUEOS -->
+  <div class="config-section" style="margin-top:12px;">
+    <div class="config-toggle" id="history-toggle" onclick="toggleHistoryPanel()">
+      <span>📋 Historial de Bloqueos Desbloqueados</span>
+      <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="config-body" id="history-body">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+        <button class="btn btn-outline btn-sm btn-cfg-save" onclick="loadBlockHistory()">↺ Actualizar</button>
+        <a id="btn-history-csv" href="/remedies/history/csv" download="hunter_historial_bloqueos.csv"
+           class="btn btn-outline btn-sm btn-cfg-save" style="text-decoration:none;">⬇ Descargar CSV</a>
+        <span id="history-count" style="font-size:11px;color:var(--muted);"></span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="history-table" style="width:100%;border-collapse:collapse;font-size:11px;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">IP</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Bloqueada</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Desbloqueada</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Origen</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Firma</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Sev</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Firewall</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody"><tr><td colspan="7" style="padding:12px 8px;color:var(--muted);text-align:center;">Haz clic en Actualizar para cargar el historial.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIESGOS DE RED -->
+  <div class="config-section" style="margin-top:12px;">
+    <div class="config-toggle" id="risk-toggle" onclick="toggleRiskPanel()">
+      <span>🔍 Riesgos de Red — Auditoría de Seguridad</span>
+      <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="config-body" id="risk-body">
+      <!-- Scan bar -->
+      <div class="risk-scan-bar">
+        <button class="btn btn-blue" id="btn-net-audit" onclick="startNetworkAudit()">
+          🔎 Escanear Activos
+        </button>
+        <span class="risk-scan-info" id="risk-scan-info">Haz clic en Escanear para iniciar una auditoría de puertos y servicios sobre los activos del Tracker.</span>
+        <button class="btn btn-outline" onclick="loadRiskFindings()">↺ Actualizar</button>
+        <button class="btn btn-outline" onclick="openReportModal()" style="margin-left:auto;">
+          📊 Generar Reporte
+        </button>
+      </div>
+
+      <!-- Modal Reporte -->
+      <div id="report-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:28px;width:380px;max-width:95vw;">
+          <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:18px;">📊 Generar Reporte PDF</div>
+
+          <div style="display:flex;gap:14px;margin-bottom:22px;">
+            <div style="display:flex;flex-direction:column;gap:5px;flex:1;">
+              <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Fecha inicio</label>
+              <input type="date" id="rep-from" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 10px;font-size:13px;font-family:inherit;width:100%;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;flex:1;">
+              <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Fecha fin</label>
+              <input type="date" id="rep-to" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 10px;font-size:13px;font-family:inherit;width:100%;">
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button class="btn btn-outline btn-sm" onclick="closeReportModal()">Cancelar</button>
+            <button class="btn btn-blue btn-sm" id="btn-rep-dl" onclick="downloadReport()">⬇ Descargar PDF</button>
+          </div>
+          <div id="rep-status" style="display:none;margin-top:12px;font-size:12px;color:var(--muted);text-align:center;">Generando PDF…</div>
+        </div>
+      </div>
+      <!-- Stats -->
+      <div class="risk-stat-row" id="risk-stats"></div>
+      <!-- Filtros -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <select class="risk-sel" id="risk-filter-sev" onchange="applyRiskFilters()">
+          <option value="">Todas las severidades</option>
+          <option value="critico">🔴 Crítico</option>
+          <option value="alto">🟠 Alto</option>
+          <option value="medio">🟡 Medio</option>
+          <option value="bajo">🔵 Bajo</option>
+          <option value="info">⚪ Info</option>
+        </select>
+        <select class="risk-sel" id="risk-filter-status" onchange="applyRiskFilters()">
+          <option value="">Todos los estados</option>
+          <option value="pendiente">Pendiente</option>
+          <option value="en_revision">En revisión</option>
+          <option value="terminado">Terminado</option>
+        </select>
+        <input type="text" id="risk-filter-ip" placeholder="Filtrar por IP…"
+          style="font-size:12px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;width:150px;"
+          oninput="applyRiskFilters()">
+        <span id="risk-count" style="font-size:11px;color:var(--muted);margin-left:auto;"></span>
+      </div>
+      <!-- Tabla -->
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">IP</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Puerto</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Hallazgo</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Sev</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Estado</th>
+              <th style="text-align:left;padding:5px 8px;color:var(--muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);">Cómo resolverlo</th>
+            </tr>
+          </thead>
+          <tbody id="risk-tbody">
+            <tr><td colspan="6" style="padding:16px;text-align:center;color:var(--muted);">Haz clic en "Escanear Activos" o "Actualizar" para ver hallazgos.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIG HUNTER -->
+  <div class="config-section">
+    <div class="config-toggle" id="hunter-config-toggle" onclick="toggleHunterConfig()">
+      <span>⚙ Configuración de Red — Hunter</span>
+      <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="config-body" id="hunter-config-body">
+
+      <!-- Interfaz Suricata -->
+      <div class="cfg-section">
+        <div class="cfg-section-title">Interfaz de Monitoreo</div>
+        <div class="cfg-row" style="opacity:0.6;">
+          <label>Interfaz SPAN</label>
+          <input type="text" id="cfg-hunter-interface" value="enp4s0" readonly
+            style="background:var(--bg);color:var(--muted);cursor:not-allowed;width:120px;">
+          <span style="font-size:11px;color:var(--muted);">Hardware fijo del Shomer — conectada al puerto SPAN del switch</span>
+        </div>
+      </div>
+
+      <!-- Subredes Hunter -->
+      <div class="cfg-section">
+        <div class="cfg-section-title">Hunter — Subredes a vigilar</div>
+        <div class="cfg-tag-list" id="cfg-hunter-subnets"></div>
+        <div class="cfg-row">
+          <input type="text" id="cfg-hunter-input" placeholder="ej: 192.168.1.0/24">
+          <button class="btn btn-ghost btn-sm btn-cfg-auto" onclick="addHunterSubnet()">+ Agregar</button>
+          <button class="btn btn-outline btn-sm btn-cfg-save" onclick="saveHunterConfig()">Guardar</button>
+        </div>
+      </div>
+
+      <!-- IP Firewall -->
+      <div class="cfg-section">
+        <div class="cfg-section-title">Firewall — MikroTik</div>
+        <div class="cfg-row">
+          <label>IP del Firewall</label>
+          <input type="text" id="cfg-firewall-ip" placeholder="ej: 192.168.1.1" style="width:160px;">
+        </div>
+        <div class="cfg-row">
+          <label>Usuario SSH</label>
+          <input type="text" id="cfg-firewall-user" placeholder="admin" style="width:120px;">
+        </div>
+        <div class="cfg-row">
+          <label>Password SSH</label>
+          <input type="password" id="cfg-firewall-pass" placeholder="••••••••" style="width:160px;">
+        </div>
+        <div class="cfg-row">
+          <label>Puerto SSH</label>
+          <input type="number" id="cfg-firewall-port" placeholder="22" min="1" max="65535" style="width:80px;">
+        </div>
+        <div class="cfg-row">
+          <label>Timeout SSH (seg)</label>
+          <input type="number" id="cfg-firewall-timeout" placeholder="10" min="3" max="60" style="width:80px;">
+        </div>
+        <div class="cfg-row">
+          <button class="btn btn-outline btn-sm btn-cfg-save" onclick="saveFirewallConfig()">Guardar Firewall</button>
+        </div>
+        <div class="cfg-row" style="gap:8px;flex-wrap:wrap;align-items:center;">
+          <button class="btn btn-outline btn-sm btn-cfg-save" onclick="syncFirewall()" id="btn-fw-sync" title="Re-aplica todas las IPs bloqueadas al router (útil tras reboot del OpenWrt)">↺ Sincronizar Firewall</button>
+          <button class="btn btn-red btn-sm" onclick="resetCircuitBreaker()" title="Resetear circuit breaker si el firewall fue inaccesible">⚡ Resetear Circuit Breaker</button>
+          <span id="fw-sync-result" style="font-size:11px;color:var(--muted);"></span>
+        </div>
+      </div>
+
+      <div class="cfg-section" id="hunter-wazuh-section">
+        <div class="cfg-section-title">Integración Wazuh → Shomer</div>
+        <p style="font-size:11px;color:var(--muted);line-height:1.45;max-width:640px;">
+          Suricata alimenta a Wazuh; las reglas de nivel de Wazuh disparan un script que llama a <code>POST /remedies/block</code>
+          con <code>blocked_by: wazuh</code> y esta clave. Alternativa: variable de entorno <code>SHOMER_WAZUH_INTEGRATION_KEY</code> en el servicio.
+          <a href="/static/docs/Wazuh_Integracion_ShomER.md" target="_blank" rel="noopener" style="color:var(--teal);">Documentación e instalar script</a>
+        </p>
+        <div class="cfg-row">
+          <label>Clave de integración</label>
+          <input type="password" id="cfg-wazuh-integration-key" placeholder="(misma clave en el script del manager)" style="width:220px;" autocomplete="off">
+          <span style="font-size:11px;color:var(--muted);">Cabecera <code>X-Shomer-Integration-Key</code></span>
+        </div>
+        <div class="cfg-row">
+          <label>URL dashboard Wazuh</label>
+          <input type="text" id="cfg-wazuh-dashboard-url" placeholder="ej: https://IP_WAZUH o http://IP:5601" style="width:380px;" spellcheck="false" autocomplete="off">
+          <span class="cfg-hint">Si queda vacío, el botón Wazuh usa <code>https://&lt;host&gt;/</code> (puerto <strong>443</strong>). Shomer suele ir en <strong>8443</strong>. Sin abrir <strong>443</strong> en UFW, el dashboard no carga — poned URL completa si hace falta.</span>
+        </div>
+        <div class="cfg-row">
+          <button class="btn btn-outline btn-sm btn-cfg-save" onclick="saveWazuhIntegrationConfig()">Guardar Wazuh (clave y URL)</button>
+        </div>
+      </div>
+
+      <!-- Política de auto-bloqueo -->
+      <div class="cfg-section">
+        <div class="cfg-section-title">Auto-bloqueo en Producción</div>
+        <div class="cfg-row">
+          <label>Habilitado</label>
+          <input type="checkbox" id="cfg-autoblock-enabled">
+          <span class="cfg-hint">Autobloqueo EVE <strong>desactivado</strong> por defecto. El bloqueo por Wazuh no usa esta casilla. Al marcar, se aplica otra vez el autobloqueo desde el panel.</span>
+        </div>
+        <div class="cfg-row">
+          <label>Severidad mínima</label>
+          <select id="cfg-autoblock-min-sev" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 10px;font-size:12px;">
+            <option value="1">1 (solo Critical)</option>
+            <option value="2" selected>2 (Critical + High)</option>
+            <option value="3">3 (Critical + High + Medium)</option>
+            <option value="4">4 (todas)</option>
+          </select>
+        </div>
+        <div class="cfg-row">
+          <label>Solo externas</label>
+          <input type="checkbox" id="cfg-autoblock-external" checked>
+          <span class="cfg-hint">No autobloquear internas salvo <strong>Critical (1)</strong>.</span>
+        </div>
+        <div class="cfg-row">
+          <label>ALTA: recurrencia mín.</label>
+          <input type="number" id="cfg-autoblock-recur-min" min="1" max="99" value="3" style="width:80px;"> eventos
+          <span class="cfg-hint">Solo severidad <strong>High</strong> (2): requiere N eventos en la ventana. <code>1</code> = sin recurrencia.</span>
+        </div>
+        <div class="cfg-row">
+          <label>Ventana (segundos)</label>
+          <input type="number" id="cfg-autoblock-recur-window" min="30" value="600" style="width:100px;">
+          <span class="cfg-hint">Misma IP + SID (Redis).</span>
+        </div>
+        <div class="cfg-row">
+          <label>Aviso Telegram en #</label>
+          <input type="number" id="cfg-autoblock-recur-warn" min="0" value="2" style="width:80px;"> evento
+          <span class="cfg-hint"><code>0</code> = sin aviso (Redis).</span>
+        </div>
+        <div class="cfg-row">
+          <label>Excepciones</label>
+          <input type="text" id="cfg-autoblock-exceptions" placeholder="IPs/CIDR separados por coma" style="width:380px;">
+          <span class="cfg-hint">Ej: 8.8.8.8, 1.1.1.0/24</span>
+        </div>
+        <div class="cfg-row">
+          <button class="btn btn-outline btn-sm btn-cfg-save" onclick="saveAutoBlockConfig()">Guardar Auto-bloqueo</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Debe ir antes de cualquier uso (evita ReferenceError y que falle el resto del script).
+  const _hunterCfg = {
+    subnets: [],
+    auto_block_enabled: false,
+    auto_block_min_severity: 2,
+    auto_block_only_external: true,
+    auto_block_exceptions: [],
+    high_recurrence_min: 3,
+    high_recurrence_window_sec: 600,
+    high_recurrence_warn_at: 2,
+    integration_key: '',
+    wazuh_dashboard_url: '',
+  };
+
+  document.getElementById('last-update').textContent = new Date().toLocaleTimeString('es-ES');
+
+  const logsEl = document.getElementById('logs-panel');
+  const logsCount = document.getElementById('logs-count');
+  let logN = 0;
+  function toggleLogs() {
+    const p = document.getElementById('logs-panel-wrap');
+    if (p) p.classList.toggle('collapsed');
+  }
+  function addLog(level, source, msg) {
+    logN++;
+    const t = new Date().toLocaleTimeString('es-ES');
+    const d = document.createElement('div');
+    d.className = 'log-entry log-' + level;
+    d.innerHTML = `<span class="log-time">${t}</span><span class="log-src ${level}">[${source}]</span><span class="log-msg">${msg}</span>`;
+    logsEl.appendChild(d); logsEl.scrollTop = logsEl.scrollHeight;
+    logsCount.textContent = logN;
+  }
+  addLog('info','SYSTEM','Módulo Hunter iniciado');
+  addLog('success','IDS','Suricata conectado');
+
+  // ── Severity map ─────────────────────────────────────
+  const SEV_MAP = { 1: 'critical', 2: 'high', 3: 'medium', 4: 'low' };
+
+  function sevLabel(n) { return SEV_MAP[n] || 'low'; }
+
+  function escHtml(s) {
+    if (s == null || s === '') return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── Build table ───────────────────────────────────────
+  const _alertsData = [];
+
+  function buildAlertsTable(alerts) {
+    const tbody = document.querySelector('#alerts-table tbody');
+    let critical = 0, high = 0, medium = 0, low = 0;
+    _alertsData.length = 0;
+
+    if (!alerts || alerts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Sin alertas detectadas</td></tr>';
+      ['stat-critical','stat-high','stat-medium','stat-low'].forEach(id => document.getElementById(id).textContent = 0);
+      return;
+    }
+
+    const rows = alerts.map((a, i) => {
+      _alertsData.push(a);
+      const sev = sevLabel(a.severity);
+      if (sev === 'critical') critical++;
+      else if (sev === 'high') high++;
+      else if (sev === 'medium') medium++;
+      else low++;
+
+      const ts = (a.timestamp || '').replace('T', ' ').replace(/\.\d+\+.*$/, '');
+      const isExt = a.is_external || false;
+      const isBlocked = a.is_blocked || false;
+
+      // Auto-bloqueo según política cargada desde /config/system
+      if (_shouldAutoBlock(a) && !isBlocked) {
+        autoBlock(a.src_ip, a.sid, a.signature, a.severity);
+      }
+
+      // Botones — todas las alertas tienen las 3 opciones
+      const blockDisabled = isBlocked ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : '';
+      const sigForBtn = (a.signature || '').replace(/'/g, "\\'");
+      const actionsHtml = `
+        <button class="btn btn-red btn-sm btn-block" ${blockDisabled} onclick="${isBlocked ? '' : `confirmBlock('${a.src_ip}', ${i}, ${a.sid}, '${sigForBtn}', ${a.severity})`}">
+          <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+          Bloquear
+        </button>
+        <button class="btn btn-outline btn-sm btn-revert" onclick="handleUnblock('${a.src_ip}', ${i})">
+          <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.96"/></svg>
+          Revertir
+        </button>
+        <button class="btn btn-ghost btn-sm btn-ignore" onclick="handleIgnore(${i})">Ignorar</button>`;
+
+      const originBy = (a.blocked_by || '').toLowerCase();
+      const originBadge = isBlocked
+        ? `<span class="origin-badge origin-${originBy || 'manual'}">${originBy === 'auto' ? 'auto' : originBy === 'wazuh' ? 'wazuh' : 'manual'}</span>`
+        : '';
+      const statusLabel = isBlocked ? 'blocked' : 'new';
+      const statusClass = isBlocked ? 'status-blocked' : 'status-new';
+      const extBadge = isExt ? '<span style="font-size:9px;background:rgba(220,38,38,0.2);color:var(--offline);border-radius:3px;padding:1px 4px;margin-left:4px;">EXT</span>' : '';
+
+      return `<tr id="alert-row-${i}">
+        <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${ts}</td>
+        <td><span class="sev-badge sev-${sev}">${sev}</span></td>
+        <td>${a.signature ? escHtml(a.signature) : '—'}</td>
+        <td style="font-family:monospace;font-size:11px;">${a.sid || '—'}</td>
+        <td style="font-family:monospace;font-size:11px;">${a.src_ip || '—'}:${a.src_port || 0}${extBadge}</td>
+        <td style="font-family:monospace;font-size:11px;">${a.dest_ip || '—'}:${a.dest_port || 0}</td>
+        <td><span class="status-badge ${statusClass}" id="status-${i}">${statusLabel}</span>${originBadge}</td>
+        <td><div class="td-actions">${actionsHtml}</div></td>
+      </tr>`;
+    });
+
+    tbody.innerHTML = rows.join('');
+    document.getElementById('stat-critical').textContent = critical;
+    document.getElementById('stat-high').textContent     = high;
+    document.getElementById('stat-medium').textContent   = medium;
+    document.getElementById('stat-low').textContent      = low;
+  }
+
+  // ── Fetch alerts ──────────────────────────────────────
+  function fetchAlerts(showFeedback) {
+    return shomerFetch('/remedies/suricata/recent?limit=200')
+      .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const msg = typeof data.detail === 'string' ? data.detail : ('Error HTTP ' + r.status);
+          throw new Error(msg);
+        }
+        return data;
+      })
+      .then(data => {
+        buildAlertsTable(data.alerts || []);
+        document.getElementById('last-update').textContent = new Date().toLocaleTimeString('es-ES');
+        if (showFeedback) {
+          const src = data.source_file ? ' — log: ' + data.source_file : '';
+          addLog('success', 'REFRESH', 'Alertas actualizadas — ' + (data.count || 0) + ' detectadas' + src);
+          showToast('Alertas actualizadas', 'success');
+        }
+      })
+      .catch((err) => {
+        const msg = (err && err.message) ? err.message : 'Error de red o respuesta inválida';
+        if (showFeedback) {
+          addLog('error', 'REFRESH', 'Error al actualizar alertas: ' + msg);
+          showToast(msg, 'error');
+        }
+      });
+  }
+
+  // ── Filter ────────────────────────────────────────────
+  function filterAlerts() {
+    const q = document.getElementById('search-input').value.toLowerCase();
+    document.querySelectorAll('#alerts-table tbody tr').forEach(r => {
+      r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  }
+
+  // ── Block / Unblock / Ignore ──────────────────────────
+  function autoBlock(ip, sid, signature, severity) {
+    shomerFetch('/remedies/block', {
+      method: 'POST',
+      body: JSON.stringify({ ip, blocked_by: 'auto', alert_sid: sid, alert_signature: signature, severity: Number(severity) })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success && !d.already_blocked)
+        addLog('warning', 'AUTO-BLOCK', `${ip} bloqueada automáticamente (${signature || 'regla'})`);
+      if (d.skipped && d.detail)
+        addLog('info', 'AUTO-BLOCK', String(d.detail));
+    })
+    .catch(() => {});
+  }
+
+  function confirmBlock(ip, idx, sid, signature, severity) {
+    confirmAction(`¿Bloquear ${ip} en el firewall MikroTik?`, () => handleBlock(ip, idx, sid, signature, severity));
+  }
+
+  function handleBlock(ip, idx, sid, signature, severity) {
+    shomerFetch('/remedies/block', {
+      method: 'POST',
+      body: JSON.stringify({ ip, blocked_by: 'manual', alert_sid: sid, alert_signature: signature, severity })
+    })
+    .then(async r => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const err = (typeof d.detail === 'string' && d.detail) || ('HTTP ' + r.status);
+        showToast('Error al bloquear: ' + err, 'error');
+        return;
+      }
+      if (!d.success) {
+        showToast('Error al bloquear: ' + (d.detail || ''), 'error');
+        return;
+      }
+      const badge = document.getElementById('status-' + idx);
+      if (d.already_blocked) {
+        if (badge) { badge.className = 'status-badge status-blocked'; badge.textContent = 'blocked'; }
+        showToast(`${ip} ya estaba en la lista de bloqueados`, 'warning');
+        return;
+      }
+      if (d.firewall_ok === false) {
+        addLog('error', 'BLOCK', (d.message || 'Firewall no aplicó el bloqueo') + ' — ' + ip);
+        showToast((d.message || 'El firewall no aplicó el bloqueo. Revisa SSH/credenciales o POST /remedies/firewall/reset'), 'error');
+        if (badge) { badge.className = 'status-badge status-blocked'; badge.textContent = 'blocked'; }
+        return;
+      }
+      addLog('warning', 'BLOCK', `IP ${ip} bloqueada manualmente en firewall`);
+      showToast(`${ip} bloqueada en MikroTik`, 'warning');
+      if (badge) { badge.className = 'status-badge status-blocked'; badge.textContent = 'blocked'; }
+    })
+    .catch(() => showToast('Error al bloquear', 'error'));
+  }
+
+  function handleUnblock(ip, idx) {
+    confirmAction(`¿Revertir bloqueo de ${ip}?`, () => {
+      shomerFetch('/remedies/unblock', {
+        method: 'POST',
+        body: JSON.stringify({ ip })
+      })
+      .then(async r => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          showToast('Error al revertir: ' + ((typeof d.detail === 'string' && d.detail) || ('HTTP ' + r.status)), 'error');
+          return;
+        }
+        if (!d.success) {
+          showToast('Error al revertir: ' + (d.detail || ''), 'error');
+          return;
+        }
+        if (d.firewall_ok === false) {
+          addLog('error', 'UNBLOCK', (d.message || 'Firewall no pudo quitar la regla') + ' — ' + ip);
+          showToast((d.message || 'Listado actualizado; el firewall pudo no haber quitado la regla.'), 'error');
+        } else {
+          addLog('success', 'UNBLOCK', `Bloqueo de ${ip} revertido en firewall`);
+          showToast(`${ip} desbloqueada`, 'success');
+        }
+        const badge = document.getElementById('status-' + idx);
+        if (badge) { badge.className = 'status-badge status-new'; badge.textContent = 'new'; }
+      })
+      .catch(() => showToast('Error al revertir', 'error'));
+    });
+  }
+
+  function handleIgnore(idx) {
+    const badge = document.getElementById('status-' + idx);
+    if (badge) { badge.className = 'status-badge status-ignored'; badge.textContent = 'ignored'; }
+    addLog('info', 'IGNORE', `Alerta ${idx} ignorada`);
+  }
+
+  // ── Stats operativos (alertas hoy + bloqueadas) ───────
+  function fetchStats() {
+    shomerFetch('/remedies/stats')
+      .then(r => r.ok ? r.json() : {})
+      .then(d => {
+        if (!d.success) return;
+        const el = id => document.getElementById(id);
+        if (el('stat-alerts-today'))  el('stat-alerts-today').textContent  = d.alerts_today ?? '—';
+        if (el('stat-active-blocks')) el('stat-active-blocks').textContent = d.active_blocks ?? '—';
+        const byO = d.blocks_by_origin || {};
+        const autoN   = (byO.auto || 0) + (byO.wazuh || 0);
+        const manualN = byO.manual || 0;
+        if (el('stat-blocks-auto'))   el('stat-blocks-auto').textContent   = autoN;
+        if (el('stat-blocks-manual')) el('stat-blocks-manual').textContent = manualN;
+      })
+      .catch(() => {});
+  }
+
+  // ── Refresh ───────────────────────────────────────────
+  function handleRefresh() {
+    const btn = document.getElementById('btn-refresh');
+    setBtnRunning(btn, true, 'Actualizando...');
+    showProcessBanner('Actualizando alertas de seguridad');
+    addLog('info', 'REFRESH', 'Actualizando alertas...');
+    Promise.all([fetchAlerts(true), fetchStats()]).finally(() => {
+      setBtnRunning(btn, false);
+      hideProcessBanner();
+    });
+  }
+
+  // ── Carga inicial + auto-refresh 30s ─────────────────
+  _applyWazuhDashboardButtonHref();
+  fetchAlerts(false);
+  fetchStats();
+  setInterval(() => fetchAlerts(false), 30000);
+  setInterval(fetchStats, 60000);
+
+  // ── Polling blocked IPs cada 10s — toast en auto-bloqueos nuevos ─────
+  let _knownBlocked = new Set();
+  let _blockedPollReady = false;  // espera carga inicial antes de notificar
+
+  function pollBlockedIPs() {
+    shomerFetch('/remedies/blocked')
+      .then(r => r.ok ? r.json() : {})
+      .then(data => {
+        const list = data.blocked || [];
+        if (!Array.isArray(list)) return;
+        list.forEach(entry => {
+          const ip = entry.ip;
+          if (!ip) return;
+          if (!_knownBlocked.has(ip)) {
+            _knownBlocked.add(ip);
+            // Solo notificar después de la carga inicial y si fue auto-bloqueo
+            if (_blockedPollReady && entry.blocked_by === 'auto') {
+              const sig = entry.alert_signature ? ` — ${entry.alert_signature}` : '';
+              showToast(`🚨 Auto-bloqueo: ${ip}${sig}`, 'error');
+              addLog('warning', 'AUTO-BLOCK', `IP bloqueada automáticamente: ${ip}${sig}`);
+            }
+          }
+        });
+        // Limpiar IPs que ya fueron desbloqueadas
+        const activeIPs = new Set(list.map(e => e.ip));
+        _knownBlocked.forEach(ip => { if (!activeIPs.has(ip)) _knownBlocked.delete(ip); });
+        _blockedPollReady = true;
+      })
+      .catch(() => {});
+  }
+
+  // Carga inicial de IPs bloqueadas conocidas (sin notificar)
+  pollBlockedIPs();
+  setInterval(pollBlockedIPs, 10000);
+
+  // ── Hunter Config ─────────────────────────────────────
+  const _AUTO_SEV_SCORE = { critical: 1, high: 2, medium: 3, low: 4 };
+
+  function _parseCSVList(raw) {
+    return String(raw || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  function _isIpInAutoExceptions(ip) {
+    if (!ip) return false;
+    const list = _hunterCfg.auto_block_exceptions || [];
+    if (!Array.isArray(list)) return false;
+    for (const item of list) {
+      const v = String(item || '').trim();
+      if (!v) continue;
+      if (v === ip) return true;
+      // CIDR simple en frontend (fallback de seguridad: backend vuelve a validar)
+      if (v.includes('/')) {
+        const [base, maskRaw] = v.split('/');
+        const mask = Number(maskRaw);
+        const okMask = Number.isInteger(mask) && mask >= 0 && mask <= 32;
+        const toInt = (x) => x.split('.').reduce((a, p) => (a << 8) + (Number(p) & 255), 0) >>> 0;
+        if (okMask && /^(\d{1,3}\.){3}\d{1,3}$/.test(base) && /^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
+          const m = mask === 0 ? 0 : ((0xFFFFFFFF << (32 - mask)) >>> 0);
+          if ((toInt(base) & m) === (toInt(ip) & m)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function _shouldAutoBlock(alert) {
+    if (!_hunterCfg.auto_block_enabled) return false;
+    if (!alert || !alert.src_ip) return false;
+    const sev = sevLabel(alert.severity);
+    const sevScore = _AUTO_SEV_SCORE[sev] || 4;
+    const minSev = Number(_hunterCfg.auto_block_min_severity || 2);
+    if (sevScore > minSev) return false;
+    if (_hunterCfg.auto_block_only_external && !alert.is_external) {
+      if (Number(alert.severity) !== 1) return false;
+    }
+    if (_isIpInAutoExceptions(alert.src_ip)) return false;
+    return true;
+  }
+
+  function syncFirewall() {
+    const btn = document.getElementById('btn-fw-sync');
+    const res = document.getElementById('fw-sync-result');
+    if (btn) btn.disabled = true;
+    if (res) res.textContent = 'Sincronizando…';
+    shomerFetch('/remedies/firewall/sync', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        if (res) {
+          const icon = d.success ? '✔' : (d.circuit_open ? '⚡ CB abierto' : '⚠');
+          res.textContent = `${icon} ${d.message || ''}`;
+          res.style.color = d.success ? 'var(--online)' : 'var(--offline)';
+        }
+        showToast(d.message || 'Sync firewall', d.success ? 'success' : 'error');
+      })
+      .catch(() => {
+        if (res) { res.textContent = 'Error al sincronizar'; res.style.color = 'var(--offline)'; }
+        showToast('Error al sincronizar firewall', 'error');
+      })
+      .finally(() => { if (btn) btn.disabled = false; });
+  }
+
+  function resetCircuitBreaker() {
+    shomerFetch('/remedies/firewall/reset', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => showToast(d.message || 'Circuit breaker reseteado', d.success ? 'success' : 'error'))
+      .catch(() => showToast('Error al resetear circuit breaker', 'error'));
+  }
+
+  function toggleHistoryPanel() {
+    document.getElementById('history-toggle').classList.toggle('open');
+    const body = document.getElementById('history-body');
+    body.classList.toggle('open');
+    if (body.classList.contains('open')) loadBlockHistory();
+  }
+
+  function loadBlockHistory() {
+    const tbody = document.getElementById('history-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:12px 8px;color:var(--muted);text-align:center;">Cargando…</td></tr>';
+    shomerFetch('/remedies/history?limit=500')
+      .then(r => r.json())
+      .then(data => {
+        const rows = data.history || [];
+        const count = document.getElementById('history-count');
+        if (count) count.textContent = rows.length ? `${rows.length} registros` : '';
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="7" style="padding:12px 8px;color:var(--muted);text-align:center;">Sin historial de bloqueos desbloqueados.</td></tr>';
+          return;
+        }
+        const sevMap = {1:'🔴 CRÍTICA', 2:'🟠 ALTA', 3:'🟡 MEDIA', 4:'⚪ BAJA'};
+        const originMap = {manual:'👤 manual', auto:'🤖 auto', wazuh:'🛡 wazuh'};
+        tbody.innerHTML = rows.map(r => {
+          const blocked  = r.blocked_at  ? r.blocked_at.replace('T',' ').slice(0,16)  : '—';
+          const unblocked= r.unblocked_at? r.unblocked_at.replace('T',' ').slice(0,16): '—';
+          const fw = r.firewall_blocked ? '<span style="color:var(--online)">✔ red</span>' : '<span style="color:var(--muted)">solo BD</span>';
+          return `<tr>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);font-family:monospace;">${r.ip||'—'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--muted);">${blocked}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--muted);">${unblocked}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);">${originMap[r.blocked_by]||r.blocked_by||'—'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.alert_signature||''}">${r.alert_signature||'—'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);">${sevMap[r.severity]||r.severity||'—'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);">${fw}</td>
+          </tr>`;
+        }).join('');
+      })
+      .catch(() => {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:12px 8px;color:var(--offline);text-align:center;">Error al cargar historial.</td></tr>';
+      });
+  }
+
+  function toggleHunterConfig() {
+    const toggle = document.getElementById('hunter-config-toggle');
+    const body   = document.getElementById('hunter-config-body');
+    toggle.classList.toggle('open');
+    body.classList.toggle('open');
+  }
+
+  function renderHunterTags() {
+    const el = document.getElementById('cfg-hunter-subnets');
+    if (!el) return;
+    el.innerHTML = _hunterCfg.subnets.map((v, i) =>
+      `<span class="cfg-tag">${v}<button onclick="removeHunterSubnet(${i})" title="Eliminar">×</button></span>`
+    ).join('');
+  }
+
+  function addHunterSubnet() {
+    const inp = document.getElementById('cfg-hunter-input');
+    const val = (inp.value || '').trim();
+    if (!val) return;
+    if (!_hunterCfg.subnets.includes(val)) _hunterCfg.subnets.push(val);
+    inp.value = '';
+    renderHunterTags();
+  }
+
+  function removeHunterSubnet(i) { _hunterCfg.subnets.splice(i, 1); renderHunterTags(); }
+
+  function saveHunterConfig() {
+    shomerFetch('/config/system', {
+      method: 'POST',
+      body: JSON.stringify({ hunter: { subnets: _hunterCfg.subnets } })
+    })
+    .then(r => r.json())
+    .then(d => showToast(d.success ? 'Hunter guardado' : 'Error al guardar', d.success ? 'success' : 'error'))
+    .catch(() => showToast('Error al guardar Hunter', 'error'));
+  }
+
+  function saveFirewallConfig() {
+    const ip      = (document.getElementById('cfg-firewall-ip')?.value      || '').trim();
+    const user    = (document.getElementById('cfg-firewall-user')?.value    || '').trim();
+    const pass    = (document.getElementById('cfg-firewall-pass')?.value    || '').trim();
+    const portRaw = parseInt(document.getElementById('cfg-firewall-port')?.value || '22', 10);
+    const toRaw   = parseInt(document.getElementById('cfg-firewall-timeout')?.value || '10', 10);
+    const port    = (portRaw >= 1 && portRaw <= 65535) ? portRaw : 22;
+    const timeout = (toRaw >= 3 && toRaw <= 60) ? toRaw : 10;
+    if (!ip) { showToast('Ingresa la IP del firewall', 'error'); return; }
+    shomerFetch('/config/system', {
+      method: 'POST',
+      body: JSON.stringify({ hunter: { firewall_ip: ip, firewall_user: user, firewall_pass: pass, firewall_port: port, firewall_timeout: timeout } })
+    })
+    .then(r => r.json())
+    .then(d => showToast(d.success ? 'Firewall guardado' : 'Error al guardar', d.success ? 'success' : 'error'))
+    .catch(() => showToast('Error al guardar Firewall', 'error'));
+  }
+
+  function _applyWazuhDashboardButtonHref() {
+    const a = document.getElementById('btn-wazuh');
+    if (!a) return;
+    const u = (document.getElementById('cfg-wazuh-dashboard-url')?.value || _hunterCfg.wazuh_dashboard_url || '').trim();
+    if (u) {
+      a.href = u;
+      a.title = 'Abrir dashboard Wazuh (URL guardada)';
+    } else {
+      // En el lab USB-SHOMER: wazuh-dashboard (Node) escucha en **443** (https). El panel Shomer
+      // suele ir por nginx en **8443**; :5601 no aplica. Si hace timeout, revisa UFW: debe permitir 443 desde la LAN.
+      const h = window.location.hostname;
+      a.href = `https://${h}/`;
+      a.title = 'Por defecto: https://' + h + ' (Wazuh en :443 en este despliegue). Si no carga, revisa firewall (UFW) o guarda otra URL abajo.';
+    }
+  }
+
+  function saveWazuhIntegrationConfig() {
+    const integration_key = (document.getElementById('cfg-wazuh-integration-key')?.value || '').trim();
+    const wazuh_dashboard_url = (document.getElementById('cfg-wazuh-dashboard-url')?.value || '').trim();
+    shomerFetch('/config/system', {
+      method: 'POST',
+      body: JSON.stringify({ hunter: { integration_key, wazuh_dashboard_url } })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        _hunterCfg.integration_key = integration_key;
+        _hunterCfg.wazuh_dashboard_url = wazuh_dashboard_url;
+        _applyWazuhDashboardButtonHref();
+      }
+      showToast(d.success ? 'Wazuh (clave/URL) guardado' : 'Error al guardar', d.success ? 'success' : 'error');
+    })
+    .catch(() => showToast('Error al guardar Wazuh', 'error'));
+  }
+
+  function saveAutoBlockConfig() {
+    const enabled = !!document.getElementById('cfg-autoblock-enabled')?.checked;
+    const minSev = Number(document.getElementById('cfg-autoblock-min-sev')?.value || 2);
+    const onlyExternal = !!document.getElementById('cfg-autoblock-external')?.checked;
+    const exceptionsRaw = document.getElementById('cfg-autoblock-exceptions')?.value || '';
+    const exceptions = _parseCSVList(exceptionsRaw);
+    const hmin = Math.max(1, Number(document.getElementById('cfg-autoblock-recur-min')?.value || 3));
+    const wsec = Math.max(30, Number(document.getElementById('cfg-autoblock-recur-window')?.value || 600));
+    const warnAt = Math.max(0, Number(document.getElementById('cfg-autoblock-recur-warn')?.value || 0));
+
+    shomerFetch('/config/system', {
+      method: 'POST',
+      body: JSON.stringify({
+        hunter: {
+          auto_block_enabled: enabled,
+          auto_block_min_severity: minSev,
+          auto_block_only_external: onlyExternal,
+          auto_block_exceptions: exceptions,
+          high_recurrence_min: hmin,
+          high_recurrence_window_sec: wsec,
+          high_recurrence_warn_at: warnAt,
+        }
+      })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        _hunterCfg.auto_block_enabled = enabled;
+        _hunterCfg.auto_block_min_severity = minSev;
+        _hunterCfg.auto_block_only_external = onlyExternal;
+        _hunterCfg.auto_block_exceptions = exceptions;
+        _hunterCfg.high_recurrence_min = hmin;
+        _hunterCfg.high_recurrence_window_sec = wsec;
+        _hunterCfg.high_recurrence_warn_at = warnAt;
+      }
+      showToast(d.success ? 'Auto-bloqueo guardado' : 'Error al guardar', d.success ? 'success' : 'error');
+    })
+    .catch(() => showToast('Error al guardar Auto-bloqueo', 'error'));
+  }
+
+  // Cargar config al inicio
+  shomerFetch('/config/system')
+    .then(r => r.json())
+    .then(data => {
+      const h = data.hunter || {};
+      _hunterCfg.subnets = h.subnets || [];
+      _hunterCfg.auto_block_enabled = h.auto_block_enabled === true;
+      _hunterCfg.auto_block_min_severity = Number(h.auto_block_min_severity || 2);
+      _hunterCfg.auto_block_only_external = h.auto_block_only_external !== false;
+      _hunterCfg.auto_block_exceptions = Array.isArray(h.auto_block_exceptions) ? h.auto_block_exceptions : [];
+      _hunterCfg.high_recurrence_min = Math.max(1, Number(h.high_recurrence_min ?? 3));
+      _hunterCfg.high_recurrence_window_sec = Math.max(30, Number(h.high_recurrence_window_sec ?? 600));
+      _hunterCfg.high_recurrence_warn_at = Math.max(0, Number(h.high_recurrence_warn_at ?? 2));
+      _hunterCfg.integration_key = h.integration_key || '';
+      _hunterCfg.wazuh_dashboard_url = h.wazuh_dashboard_url || '';
+      renderHunterTags();
+      if (document.getElementById('cfg-firewall-ip'))
+        document.getElementById('cfg-firewall-ip').value = h.firewall_ip || '';
+      if (document.getElementById('cfg-firewall-user'))
+        document.getElementById('cfg-firewall-user').value = h.firewall_user || '';
+      if (document.getElementById('cfg-firewall-pass') && h.firewall_pass)
+        document.getElementById('cfg-firewall-pass').value = h.firewall_pass || '';
+      if (document.getElementById('cfg-firewall-port'))
+        document.getElementById('cfg-firewall-port').value = h.firewall_port || '22';
+      if (document.getElementById('cfg-firewall-timeout'))
+        document.getElementById('cfg-firewall-timeout').value = h.firewall_timeout || '10';
+      if (document.getElementById('cfg-autoblock-enabled'))
+        document.getElementById('cfg-autoblock-enabled').checked = _hunterCfg.auto_block_enabled;
+      if (document.getElementById('cfg-autoblock-min-sev'))
+        document.getElementById('cfg-autoblock-min-sev').value = String(_hunterCfg.auto_block_min_severity);
+      if (document.getElementById('cfg-autoblock-external'))
+        document.getElementById('cfg-autoblock-external').checked = _hunterCfg.auto_block_only_external;
+      if (document.getElementById('cfg-autoblock-exceptions'))
+        document.getElementById('cfg-autoblock-exceptions').value = (_hunterCfg.auto_block_exceptions || []).join(', ');
+      if (document.getElementById('cfg-autoblock-recur-min'))
+        document.getElementById('cfg-autoblock-recur-min').value = String(_hunterCfg.high_recurrence_min);
+      if (document.getElementById('cfg-autoblock-recur-window'))
+        document.getElementById('cfg-autoblock-recur-window').value = String(_hunterCfg.high_recurrence_window_sec);
+      if (document.getElementById('cfg-autoblock-recur-warn'))
+        document.getElementById('cfg-autoblock-recur-warn').value = String(_hunterCfg.high_recurrence_warn_at);
+      if (document.getElementById('cfg-wazuh-integration-key') && h.integration_key)
+        document.getElementById('cfg-wazuh-integration-key').value = h.integration_key;
+      if (document.getElementById('cfg-wazuh-dashboard-url'))
+        document.getElementById('cfg-wazuh-dashboard-url').value = h.wazuh_dashboard_url || '';
+      _applyWazuhDashboardButtonHref();
+    })
+    .catch(function () { _applyWazuhDashboardButtonHref(); });
+
+  /* ── Reglas Suricata ─────────────────────────────────────── */
+  function loadSuricataRules() {
+    const container = document.getElementById('suricata-rules-list');
+    container.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:6px;">Cargando…</div>';
+    shomerFetch('/remedies/rules')
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success || !data.rules.length) {
+          container.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:6px;text-align:center;">Sin reglas personalizadas — agrega la primera con "+ Nueva Regla"</div>';
+          return;
+        }
+        container.innerHTML = data.rules.map(rule => `
+          <div class="rule-row ${rule.enabled ? '' : 'disabled'}" id="rule-${rule.sid}">
+            <span class="rule-sid">SID ${rule.sid || '—'}</span>
+            <span class="rule-msg" title="${rule.raw}">${rule.msg}</span>
+            <button class="rule-toggle ${rule.enabled ? 'on' : ''}"
+              onclick="toggleRule(${rule.sid}, ${!rule.enabled})">
+              ${rule.enabled ? 'ON' : 'OFF'}
+            </button>
+            <button class="rule-del" onclick="deleteRule(${rule.sid})" title="Eliminar">✕</button>
+          </div>`).join('');
+      })
+      .catch(() => {
+        container.innerHTML = '<div style="font-size:12px;color:#e55;padding:6px;">Error al cargar reglas</div>';
+      });
+  }
+
+  function addSuricataRule() {
+    const body = {
+      action:  document.getElementById('rule-action').value,
+      proto:   document.getElementById('rule-proto').value,
+      src:     document.getElementById('rule-src').value.trim() || 'any',
+      dst:     document.getElementById('rule-dst').value.trim() || 'any',
+      port:    document.getElementById('rule-port').value.trim() || 'any',
+      msg:     document.getElementById('rule-msg').value.trim(),
+      content: document.getElementById('rule-content').value.trim(),
+    };
+    if (!body.msg) { showToast('Ingresa un mensaje de alerta', 'error'); return; }
+    shomerFetch('/remedies/rules', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        showToast('Regla agregada', 'success');
+        document.getElementById('rule-form').style.display = 'none';
+        document.getElementById('rule-msg').value = '';
+        document.getElementById('rule-content').value = '';
+        loadSuricataRules();
+      } else {
+        showToast(d.detail || 'Error al agregar regla', 'error');
+      }
+    })
+    .catch(() => showToast('Error de red', 'error'));
+  }
+
+  function deleteRule(sid) {
+    confirmAction(`¿Eliminar regla SID ${sid}?`, () => {
+      shomerFetch(`/remedies/rules/${sid}`, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(d => {
+          showToast(d.success ? `SID ${sid} eliminado` : 'Error', d.success ? 'success' : 'error');
+          if (d.success) loadSuricataRules();
+        })
+        .catch(() => showToast('Error de red', 'error'));
+    });
+  }
+
+  function toggleRule(sid, enable) {
+    shomerFetch(`/remedies/rules/${sid}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled: enable }),
+    })
+    .then(r => r.json())
+    .then(d => {
+      showToast(d.success ? (enable ? 'Regla activada' : 'Regla desactivada') : 'Error', d.success ? 'success' : 'error');
+      if (d.success) loadSuricataRules();
+    })
+    .catch(() => showToast('Error de red', 'error'));
+  }
+
+  function reloadSuricata() {
+    shomerFetch('/remedies/rules/reload', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => showToast(d.message || (d.success ? 'Recargado' : 'Error'), d.success ? 'success' : 'error'))
+      .catch(() => showToast('Error de red', 'error'));
+  }
+
+  // Cargar reglas al abrir la sección de configuración
+  const _origToggleHunterConfig = window.toggleHunterConfig;
+  window.toggleHunterConfig = function() {
+    if (typeof _origToggleHunterConfig === 'function') _origToggleHunterConfig();
+    loadSuricataRules();
+  };
+
+  // ── Toggle Hunter (Suricata) ─────────────────────────────────────────
+  let _hunterEnabled = true;
+
+  function _updateHunterToggleUI(enabled, running) {
+    const btn = document.getElementById('btn-hunter-toggle');
+    const lbl = document.getElementById('hunter-toggle-label');
+    const ico = document.getElementById('hunter-toggle-icon');
+    if (!btn) return;
+    if (enabled && running) {
+      btn.style.background = '';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+      lbl.textContent = 'Hunter activo';
+      ico.innerHTML = '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>';
+    } else {
+      btn.style.background = 'transparent';
+      btn.style.borderColor = 'rgba(150,150,150,0.4)';
+      btn.style.color = '#9ca3af';
+      lbl.textContent = 'Hunter pausado';
+      ico.innerHTML = '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" stroke-width="2"/>';
+    }
+    _hunterEnabled = enabled;
+  }
+
+  async function loadHunterToggleStatus() {
+    try {
+      const r = await fetch('/remedies/suricata/status', {credentials:'include'});
+      const d = await r.json();
+      if (d.success) _updateHunterToggleUI(d.enabled, d.running);
+    } catch(e) {}
+  }
+
+  async function toggleHunter() {
+    const btn = document.getElementById('btn-hunter-toggle');
+    const lbl = document.getElementById('hunter-toggle-label');
+    btn.disabled = true;
+    lbl.textContent = 'Espera...';
+    try {
+      const r = await fetch('/remedies/suricata/toggle', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({enable: !_hunterEnabled})
+      });
+      const d = await r.json();
+      if (d.success) {
+        _updateHunterToggleUI(d.enabled, d.running);
+        addLog(d.message, d.enabled ? 'success' : 'warning');
+      } else {
+        addLog('Error: ' + (d.error || 'desconocido'), 'error');
+        await loadHunterToggleStatus();
+      }
+    } catch(e) {
+      addLog('Error de conexión', 'error');
+      await loadHunterToggleStatus();
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Cargar estado del toggle al iniciar
+  loadHunterToggleStatus();
+
+  // ── Riesgos de Red ──────────────────────────────────────────────────────
+  let _allFindings = [];
+  let _auditPollTimer = null;
+
+  const SEV_LABELS = { critico:'🔴 Crítico', alto:'🟠 Alto', medio:'🟡 Medio', bajo:'🔵 Bajo', info:'⚪ Info' };
+  const SEV_CLASS  = { critico:'sev-critico', alto:'sev-alto', medio:'sev-medio', bajo:'sev-bajo', info:'sev-info' };
+  const STATUS_OPTS = [
+    {v:'pendiente',   l:'Pendiente'},
+    {v:'en_revision', l:'En revisión'},
+    {v:'terminado',   l:'Terminado'},
+  ];
+
+  function toggleRiskPanel() {
+    document.getElementById('risk-toggle').classList.toggle('open');
+    const b = document.getElementById('risk-body');
+    if (b.classList.toggle('open') && _allFindings.length === 0) loadRiskFindings();
+  }
+
+  async function loadRiskFindings() {
+    try {
+      const [fr, sr] = await Promise.all([
+        shomerFetch('/audit/network/findings'),
+        shomerFetch('/audit/network/status'),
+      ]);
+      const fd = await fr.json();
+      const sd = await sr.json();
+      _allFindings = (fd.findings || []);
+      _renderRiskStats(_allFindings);
+      _renderScanInfo(sd);
+      applyRiskFilters();
+    } catch(e) {
+      document.getElementById('risk-scan-info').textContent = 'Error al cargar hallazgos.';
+    }
+  }
+
+  function _renderScanInfo(sd) {
+    const el = document.getElementById('risk-scan-info');
+    const btn = document.getElementById('btn-net-audit');
+    if (sd.running) {
+      el.textContent = '';
+      btn.disabled = true;
+      btn.textContent = '🔎 Escanear Activos';
+      showProcessBanner('Auditoría de red en progreso…');
+      if (!_auditPollTimer) _auditPollTimer = setInterval(_pollAuditStatus, 5000);
+    } else {
+      btn.disabled = false;
+      btn.textContent = '🔎 Escanear Activos';
+      hideProcessBanner();
+      if (_auditPollTimer) { clearInterval(_auditPollTimer); _auditPollTimer = null; }
+      const scan = sd.scan;
+      if (!scan) { el.textContent = 'Sin escaneos previos.'; return; }
+      const ts = scan.finished_at ? new Date(scan.finished_at+'Z').toLocaleString('es') : '—';
+      const status = scan.status === 'completed' ? '✅' : scan.status === 'failed' ? '❌' : '🟡';
+      el.textContent = `${status} Último escaneo: ${ts} — ${scan.total_hosts} equipos, ${scan.findings_count} hallazgos ${scan.error_msg ? '('+scan.error_msg+')' : ''}`;
+    }
+  }
+
+  async function _pollAuditStatus() {
+    try {
+      const r = await shomerFetch('/audit/network/status');
+      const sd = await r.json();
+      if (!sd.running) {
+        _renderScanInfo(sd);
+        await loadRiskFindings();
+      }
+    } catch(e) {}
+  }
+
+  function _renderRiskStats(findings) {
+    const active = findings.filter(f => f.finding_status !== 'terminado');
+    const counts = { critico:0, alto:0, medio:0, bajo:0, info:0 };
+    active.forEach(f => { if (counts[f.severity] !== undefined) counts[f.severity]++; });
+    const el = document.getElementById('risk-stats');
+    el.innerHTML = [
+      `<div class="risk-stat s-critico"><span class="risk-stat-num">${counts.critico}</span><span class="risk-stat-lbl">Críticos</span></div>`,
+      `<div class="risk-stat s-alto"><span class="risk-stat-num">${counts.alto}</span><span class="risk-stat-lbl">Altos</span></div>`,
+      `<div class="risk-stat s-medio"><span class="risk-stat-num">${counts.medio}</span><span class="risk-stat-lbl">Medios</span></div>`,
+      `<div class="risk-stat s-bajo"><span class="risk-stat-num">${counts.bajo}</span><span class="risk-stat-lbl">Bajos</span></div>`,
+      `<div class="risk-stat s-total"><span class="risk-stat-num">${active.length}</span><span class="risk-stat-lbl">Activos</span></div>`,
+    ].join('');
+  }
+
+  function applyRiskFilters() {
+    const sev    = document.getElementById('risk-filter-sev').value;
+    const status = document.getElementById('risk-filter-status').value;
+    const ip     = (document.getElementById('risk-filter-ip').value || '').toLowerCase();
+    const filtered = _allFindings.filter(f =>
+      (!sev || f.severity === sev) &&
+      (status ? f.finding_status === status : f.finding_status !== 'terminado') &&
+      (!ip || f.ip.includes(ip) || (f.hostname||'').toLowerCase().includes(ip))
+    );
+    document.getElementById('risk-count').textContent = `${filtered.length} hallazgo${filtered.length !== 1 ? 's' : ''}`;
+    _renderRiskTable(filtered);
+  }
+
+  function _renderRiskTable(findings) {
+    const tbody = document.getElementById('risk-tbody');
+    if (!findings.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--muted);">Sin hallazgos para los filtros seleccionados.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = findings.map(f => {
+      const sevCls  = SEV_CLASS[f.severity] || 'sev-info';
+      const sevLbl  = SEV_LABELS[f.severity] || f.severity;
+      const opts    = STATUS_OPTS.map(o =>
+        `<option value="${o.v}" ${f.finding_status===o.v?'selected':''}>${o.l}</option>`
+      ).join('');
+      const port    = f.port ? `${f.port}/${f.protocol||'tcp'}` : '—';
+      const service = f.service ? ` <span style="color:var(--muted)">(${f.service})</span>` : '';
+      const title   = f.title;
+      const rec     = f.recommendation || '—';
+      return `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:6px 8px;">
+          <div style="color:#06b6d4;font-family:monospace;">${f.ip}</div>
+          ${f.hostname ? `<div style="color:var(--muted);font-size:10px;margin-top:2px;">${f.hostname}</div>` : ''}
+        </td>
+        <td style="padding:6px 8px;font-family:monospace;">${port}${service}</td>
+        <td style="padding:6px 8px;max-width:240px;">
+          <div style="font-weight:600;color:var(--text);">${title}</div>
+        </td>
+        <td style="padding:6px 8px;"><span class="sev-badge ${sevCls}">${sevLbl}</span></td>
+        <td style="padding:6px 8px;">
+          <select class="risk-sel" onchange="updateFindingStatus(${f.id}, this.value)">${opts}</select>
+        </td>
+        <td style="padding:6px 8px;font-size:11px;color:var(--text);max-width:260px;line-height:1.4;white-space:normal;">${rec}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function updateFindingStatus(id, status) {
+    try {
+      await shomerFetch(`/audit/network/findings/${id}`, {
+        method: 'PATCH',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ finding_status: status })
+      });
+      // Update local cache
+      const f = _allFindings.find(x => x.id === id);
+      if (f) f.finding_status = status;
+      _renderRiskStats(_allFindings);
+      applyRiskFilters();
+      showToast('Estado actualizado', 'success');
+    } catch(e) {
+      showToast('Error al actualizar', 'error');
+    }
+  }
+
+  async function startNetworkAudit() {
+    const btn = document.getElementById('btn-net-audit');
+    btn.disabled = true;
+    showProcessBanner('Iniciando auditoría de red…');
+    try {
+      const r = await shomerFetch('/audit/network/scan', { method: 'POST' });
+      const d = await r.json();
+      if (d.success) {
+        addLog('Auditoría de red iniciada (scan_id=' + d.scan_id + ')', 'info');
+        document.getElementById('risk-scan-info').textContent = '';
+        showProcessBanner('Auditoría de red en progreso…');
+        if (!_auditPollTimer) _auditPollTimer = setInterval(_pollAuditStatus, 5000);
+      } else {
+        showToast(d.error || 'Error al iniciar escaneo', 'error');
+        btn.disabled = false;
+        hideProcessBanner();
+      }
+    } catch(e) {
+      showToast('Error de red', 'error');
+      btn.disabled = false;
+      hideProcessBanner();
+    }
+  }
+
+  // ── Modal Reporte ─────────────────────────────────────────────────────────
+  function _fmtDate(d) { return d.toISOString().slice(0, 10); }
+
+  function openReportModal() {
+    const today = new Date();
+    document.getElementById('rep-from').value = _fmtDate(new Date(today.getFullYear(), today.getMonth(), 1));
+    document.getElementById('rep-to').value   = _fmtDate(today);
+    document.getElementById('rep-status').style.display = 'none';
+    document.getElementById('btn-rep-dl').disabled = false;
+    const m = document.getElementById('report-modal');
+    m.style.display = 'flex';
+    m.onclick = e => { if (e.target === m) closeReportModal(); };
+  }
+
+  function closeReportModal() {
+    document.getElementById('report-modal').style.display = 'none';
+  }
+
+  async function downloadReport() {
+    const from = document.getElementById('rep-from').value;
+    const to   = document.getElementById('rep-to').value;
+    if (!from || !to) { showToast('Selecciona el período', 'error'); return; }
+    if (from > to)    { showToast('La fecha inicio debe ser anterior al fin', 'error'); return; }
+
+    const btn = document.getElementById('btn-rep-dl');
+    btn.disabled = true;
+    document.getElementById('rep-status').style.display = 'block';
+
+    try {
+      const resp = await shomerFetch(`/reports/network-audit?from_date=${from}&to_date=${to}`);
+      if (!resp.ok) { showToast('Error al generar el reporte (' + resp.status + ')', 'error'); return; }
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `shomer-auditoria-${from}-${to}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('PDF descargado', 'success');
+    } catch(e) {
+      showToast('Error al generar el reporte', 'error');
+    } finally {
+      btn.disabled = false;
+      document.getElementById('rep-status').style.display = 'none';
+    }
+  }
+</script>
+{% endblock %}

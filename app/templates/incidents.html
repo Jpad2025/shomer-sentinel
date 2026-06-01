@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% set active_module = "hunter" %}
+{% block page_title %}Incidentes de Seguridad{% endblock %}
+
+{% block extra_styles %}
+.page-header { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); background:var(--sidebar); padding:16px 24px; flex-wrap:wrap; gap:12px; }
+.page-header-left h1 { font-size:18px; font-weight:700; color:var(--text); }
+.page-header-left p  { font-size:12px; color:var(--muted); margin-top:2px; }
+/* .btn-hdr: solo styles del SVG; padding/border/font los dan .btn .btn-blue/.btn-outline del sistema unificado en base.html */
+.btn-hdr svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; }
+
+.stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:16px; }
+.sc { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; }
+.sc-row { display:flex; align-items:center; gap:12px; }
+.sc-row svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; }
+.sc-val { font-size:22px; font-weight:700; }
+.sc-lbl { font-size:12px; color:var(--muted); margin-top:2px; }
+.sc.red    { border-color:rgba(220,38,38,0.3);  } .sc.red    svg,.sc.red    .sc-val { color:var(--offline); }
+.sc.yellow { border-color:rgba(245,158,11,0.3); } .sc.yellow svg,.sc.yellow .sc-val { color:var(--warning); }
+.sc.green  { border-color:rgba(34,197,94,0.3);  } .sc.green  svg,.sc.green  .sc-val { color:var(--online); }
+.sc.hunter { border-color:rgba(226,75,74,0.3);  } .sc.hunter svg,.sc.hunter .sc-val { color:var(--hunter); }
+
+.filter-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+.filter-bar select { background:var(--card); border:1px solid var(--border); border-radius:6px; padding:7px 10px; color:var(--text); font-size:13px; font-family:'Inter',sans-serif; outline:none; }
+.filter-bar select:focus { border-color:var(--hunter); }
+
+.table-wrap { background:var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:16px; }
+.table-scroll { overflow-x:auto; max-height:calc(100vh - 360px); overflow-y:auto; }
+table { width:100%; border-collapse:collapse; }
+thead tr { background:var(--sidebar); border-bottom:1px solid var(--border); }
+thead th { padding:7px 8px; text-align:left; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); white-space:nowrap; }
+tbody tr { border-bottom:1px solid var(--border); transition:background 0.15s; }
+tbody tr:hover { background:rgba(30,42,58,0.35); }
+tbody tr:last-child { border-bottom:none; }
+tbody td { padding:6px 8px; font-size:11px; color:var(--text); }
+
+.sev-badge { display:inline-block; border-radius:4px; padding:3px 8px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; }
+.sev-1 { background:var(--offline); color:#fff; }
+.sev-2 { background:#f97316; color:#fff; }
+.sev-3 { background:var(--warning); color:#000; }
+.sev-4 { background:var(--blue); color:#fff; }
+.sev-5 { background:rgba(100,116,139,0.3); color:var(--muted); }
+
+.status-open  { background:rgba(220,38,38,0.15); color:var(--offline); border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; }
+.status-ack   { background:rgba(245,158,11,0.15); color:var(--warning); border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; }
+.status-closed { background:rgba(34,197,94,0.15); color:var(--online); border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; }
+.status-grey   { background:rgba(100,116,139,0.15); color:var(--muted); border-radius:20px; padding:3px 10px; font-size:11px; font-weight:600; }
+
+.metrics-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.metric-card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+.metric-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:6px; }
+.metric-value { font-size:26px; font-weight:700; color:var(--hunter); }
+.metric-sub   { font-size:11px; color:var(--muted); margin-top:2px; }
+
+/* .btn-action/.btn-ack/.btn-close migrados al sistema unificado .btn .btn-outline/btn-blue .btn-sm */
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <h1>Incidentes de Seguridad</h1>
+    <p>Registro de eventos bloqueados — seguimiento y cierre</p>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <button class="btn btn-outline btn-hdr" onclick="window.location='/incidents/export/csv'">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Exportar CSV
+    </button>
+    <button class="btn btn-blue btn-hdr" onclick="loadIncidents()">
+      <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Actualizar
+    </button>
+  </div>
+</div>
+
+<div style="padding:20px;display:flex;flex-direction:column;gap:16px;">
+
+  <!-- Stats -->
+  <div class="stat-grid">
+    <div class="sc hunter">
+      <div class="sc-row">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+        <div><div class="sc-val" id="stat-total">—</div><div class="sc-lbl">Total incidentes</div></div>
+      </div>
+    </div>
+    <div class="sc red">
+      <div class="sc-row">
+        <svg viewBox="0 0 24 24"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div><div class="sc-val" id="stat-open">—</div><div class="sc-lbl">Abiertos</div></div>
+      </div>
+    </div>
+    <div class="sc yellow">
+      <div class="sc-row">
+        <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <div><div class="sc-val" id="stat-ack">—</div><div class="sc-lbl">Reconocidos</div></div>
+      </div>
+    </div>
+    <div class="sc green">
+      <div class="sc-row">
+        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        <div><div class="sc-val" id="stat-closed">—</div><div class="sc-lbl">Cerrados</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;">Estado:</label>
+    <select id="filter-status" onchange="applyFilter()">
+      <option value="all">Todos</option>
+      <option value="open">Abiertos</option>
+      <option value="acknowledged">Reconocidos</option>
+      <option value="closed">Cerrados</option>
+    </select>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Fecha</th>
+            <th>IP</th>
+            <th>Firma (alerta)</th>
+            <th>Severidad</th>
+            <th>Estado</th>
+            <th>MTTA</th>
+            <th>MTTR</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="incidents-tbody">
+          <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px;">Cargando incidentes...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Metrics row -->
+  <div class="metrics-row">
+    <div class="metric-card">
+      <div class="metric-title">MTTA — Tiempo medio hasta reconocimiento</div>
+      <div class="metric-value" id="metric-mtta">—</div>
+      <div class="metric-sub">Mean Time To Acknowledge</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-title">MTTR — Tiempo medio hasta resolución</div>
+      <div class="metric-value" id="metric-mttr">—</div>
+      <div class="metric-sub">Mean Time To Resolve</div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  let _allIncidents = [];
+
+  const SEV_LABELS = { 1:'CRÍTICO', 2:'ALTO', 3:'MEDIO', 4:'BAJO', 5:'INFO' };
+
+  function loadIncidents() {
+    shomerFetch('/incidents?status=all&limit=100')
+      .then(r => r.json())
+      .then(d => {
+        _allIncidents = Array.isArray(d.incidents) ? d.incidents : [];
+        applyFilter();
+      })
+      .catch(() => {
+        document.getElementById('incidents-tbody').innerHTML =
+          '<tr><td colspan="9" style="text-align:center;color:var(--offline);padding:20px;">Error al cargar incidentes.</td></tr>';
+      });
+  }
+
+  function loadStats() {
+    shomerFetch('/incidents/stats')
+      .then(r => r.json())
+      .then(d => {
+        const el = id => document.getElementById(id);
+        if (el('stat-total'))  el('stat-total').textContent  = d.total ?? '—';
+        if (el('stat-open'))   el('stat-open').textContent   = d.open ?? '—';
+        if (el('stat-ack'))    el('stat-ack').textContent    = d.acknowledged ?? '—';
+        if (el('stat-closed')) el('stat-closed').textContent = d.closed ?? '—';
+        if (el('metric-mtta')) el('metric-mtta').textContent = d.mtta_avg_formatted || '—';
+        if (el('metric-mttr')) el('metric-mttr').textContent = d.mttr_avg_formatted || '—';
+      })
+      .catch(() => {});
+  }
+
+  function applyFilter() {
+    const status = document.getElementById('filter-status').value;
+    const filtered = status === 'all'
+      ? _allIncidents
+      : _allIncidents.filter(i => i.status === status);
+    renderIncidents(filtered);
+  }
+
+  function renderIncidents(rows) {
+    const tbody = document.getElementById('incidents-tbody');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px;">Sin incidentes para los filtros seleccionados.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(inc => {
+      const sev = inc.severity || 5;
+      const sevLabel = SEV_LABELS[sev] || 'INFO';
+      const sevBadge = `<span class="sev-badge sev-${sev}">${sevLabel}</span>`;
+
+      let statusBadge;
+      if (inc.status === 'open')         statusBadge = `<span class="status-open">Abierto</span>`;
+      else if (inc.status === 'acknowledged') statusBadge = `<span class="status-ack">Reconocido</span>`;
+      else                               statusBadge = `<span class="status-closed">Cerrado</span>`;
+
+      const sig = (inc.alert_signature || '—').slice(0, 40);
+      const fecha = inc.created_at ? new Date(inc.created_at).toLocaleString('es-ES') : '—';
+      const mtta = inc.mtta_formatted || '—';
+      const mttr = inc.mttr_formatted || '—';
+
+      let actions = '';
+      if (inc.status === 'open') {
+        actions = `<button class="btn btn-outline btn-sm" onclick="ackIncident(${inc.id})">Ack</button>`;
+      } else if (inc.status === 'acknowledged') {
+        actions = `<button class="btn btn-blue btn-sm" onclick="closeIncident(${inc.id})">Cerrar</button>`;
+      } else {
+        actions = `<span class="status-grey">Cerrado</span>`;
+      }
+
+      return `<tr>
+        <td style="font-family:monospace;color:var(--hunter);font-weight:600;">#${inc.id}</td>
+        <td style="color:var(--muted);">${fecha}</td>
+        <td style="font-family:monospace;color:#06b6d4;">${inc.ip || '—'}</td>
+        <td title="${inc.alert_signature || ''}">${sig}</td>
+        <td>${sevBadge}</td>
+        <td>${statusBadge}</td>
+        <td style="color:var(--muted);">${mtta}</td>
+        <td style="color:var(--muted);">${mttr}</td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function ackIncident(id) {
+    shomerFetch('/incidents/' + id + '/ack', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || 'Incidente reconocido', d.success ? 'success' : 'error');
+        if (d.success) { loadStats(); loadIncidents(); }
+      })
+      .catch(() => showToast('Error al reconocer incidente', 'error'));
+  }
+
+  function closeIncident(id) {
+    const notes = prompt('Notas de cierre (opcional):') || '';
+    shomerFetch('/incidents/' + id + '/close', {
+      method: 'POST',
+      body: JSON.stringify({ notes })
+    })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || 'Incidente cerrado', d.success ? 'success' : 'error');
+        if (d.success) { loadStats(); loadIncidents(); }
+      })
+      .catch(() => showToast('Error al cerrar incidente', 'error'));
+  }
+
+  loadStats();
+  loadIncidents();
+</script>
+{% endblock %}

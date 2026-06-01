@@ -1,9 +1,30 @@
 venv/
 __pycache__/
 *.pyc
+*.pyo
 logs/
 *.log
 .cursor*
+
+# Bases de datos — nunca al repo
+*.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Credenciales y secretos
+.env
+*.env
+shomer-runtime.env
+.restic-local-pass
+
+# Archivos de runtime y temporales
+api.log
+*.bak
+*.bak.*
+*.disabled.bak*
+archive_backups/
+backups/
+
+# Pytest
+.pytest_cache/

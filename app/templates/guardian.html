@@ -1,0 +1,1234 @@
+{% extends "base.html" %}
+{% set active_module = "guardian" %}
+
+{% block page_title %}Guardian — Monitoreo en Tiempo Real{% endblock %}
+
+{% block extra_styles %}
+/* ── HEADER ── */
+.page-header {
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: var(--sidebar);
+  padding: 16px 24px;
+}
+.page-header-left h1 { font-size: 18px; font-weight: 700; color: var(--text); }
+.page-header-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+/* .btn-refresh migrado a .btn .btn-outline del sistema unificado */
+.btn-refresh svg { width: 15px; height: 15px; }
+
+/* ── STAT CARDS ── */
+.stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 20px; }
+.stat-card {
+  background: var(--card); border-radius: 8px;
+  border: 1px solid var(--border); padding: 16px;
+}
+.stat-card-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.stat-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.stat-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
+.stat-value { font-size: 28px; font-weight: 700; }
+.stat-label { font-size: 13px; color: var(--muted); font-weight: 500; }
+
+.stat-online  .stat-icon { background: rgba(34,197,94,0.1);  color: var(--online);  }
+.stat-online  .stat-value { color: var(--online); }
+.stat-online  { border-color: rgba(34,197,94,0.3); }
+
+.stat-offline .stat-icon { background: rgba(220,38,38,0.1);  color: var(--offline); }
+.stat-offline .stat-value { color: var(--offline); }
+.stat-offline { border-color: rgba(220,38,38,0.3); }
+
+.stat-unknown .stat-icon { background: rgba(245,158,11,0.1); color: var(--warning);  }
+.stat-unknown .stat-value { color: var(--warning); }
+.stat-unknown { border-color: rgba(245,158,11,0.3); }
+
+.stat-total   .stat-icon { background: rgba(13,110,110,0.1); color: var(--teal);    }
+.stat-total   .stat-value { color: var(--teal); }
+.stat-total   { border-color: rgba(13,110,110,0.3); }
+
+/* ── LAYOUT TABLA + LOGS ── */
+.guardian-body { display: flex; gap: 16px; align-items: flex-start; }
+.nodes-panel   { flex: 1; display: flex; flex-direction: column; gap: 12px; padding-bottom: 8px; }
+.logs-panel    { width: 340px; min-width: 340px; background: var(--sidebar); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; align-self: flex-start; position: sticky; top: 0; transition: width 0.2s ease, min-width 0.2s ease; }
+.logs-panel.collapsed { width: 44px; min-width: 44px; }
+.logs-panel.collapsed .logs-body,
+.logs-panel.collapsed h3,
+.logs-panel.collapsed .logs-count { display: none; }
+.logs-panel.collapsed .logs-header { padding: 12px; justify-content: center; border-bottom: none; cursor: pointer; }
+
+/* ── TABLA NODOS ── */
+.table-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0; display: flex; flex-direction: column; }
+.table-head-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.table-head-bar h3 { font-size: 13px; font-weight: 600; color: var(--text); }
+.table-scroll { overflow-x: auto; overflow-y: auto; max-height: 380px; }
+table { width: 100%; border-collapse: collapse; }
+thead tr { background: var(--sidebar); border-bottom: 1px solid var(--border); }
+thead th { padding: 10px 16px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); white-space: nowrap; }
+tbody tr { border-bottom: 1px solid var(--border); transition: background 0.15s; }
+tbody tr:hover { background: rgba(30,42,58,0.4); }
+tbody tr:last-child { border-bottom: none; }
+td { padding: 10px 16px; font-size: 13px; }
+.td-ip    { font-weight: 600; color: #06b6d4; }
+.td-host  { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.dot-online  { background: var(--online);  box-shadow: 0 0 5px var(--online);  animation: pulse 2s infinite; }
+.dot-offline { background: var(--offline); }
+.dot-unknown { background: var(--warning); }
+.latency-ok   { color: var(--online);  font-family: monospace; }
+.latency-mid  { color: var(--warning); font-family: monospace; }
+.latency-bad  { color: var(--offline); font-family: monospace; }
+.failures-ok  { color: var(--muted); font-size: 11px; font-weight: 500; padding: 2px 8px; }
+.failures-bad { background: #E24B4A; color: #fff; border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 700; cursor: pointer; border: none; font-family: 'Inter',sans-serif; transition: background 0.15s; }
+.failures-bad:hover { background: #c83a39; }
+.td-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.btn-icon { background: none; border: none; cursor: pointer; color: var(--muted); padding: 5px; border-radius: 5px; transition: all 0.15s; display: flex; align-items: center; }
+.btn-icon:hover { background: var(--border); color: var(--text); }
+.btn-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; }
+/* .btn-reboot migrado a .btn .btn-red .btn-sm */
+.btn-reboot svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+.row-offline { background: rgba(220,38,38,0.06) !important; }
+.row-offline:hover { background: rgba(220,38,38,0.12) !important; }
+.row-unknown { background: rgba(245,158,11,0.05) !important; }
+.row-unknown:hover { background: rgba(245,158,11,0.1) !important; }
+
+/* ── DISPOSITIVOS DESCUBIERTOS ── */
+.discovered-section { display: none; background: var(--card); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+.discovered-head-bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.discovered-head-bar h3 { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; }
+.discovered-badge { background: rgba(245,158,11,0.15); color: var(--warning); border-radius: 20px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+/* .btn-promote migrado a .btn .btn-outline .btn-sm */
+/* .btn-discard migrado a .btn .btn-ghost .btn-sm */
+
+/* ── CONFIG RED ── */
+.config-section { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.config-toggle { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; cursor: pointer; }
+.config-toggle span { font-size: 13px; font-weight: 600; color: var(--text); }
+.config-toggle svg { width: 16px; height: 16px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 2; transition: transform 0.2s; }
+.config-toggle.open svg { transform: rotate(180deg); }
+.config-body { display: none; padding: 16px; border-top: 1px solid var(--border); flex-direction: column; gap: 16px; }
+.config-body.open { display: flex; }
+.config-body input[type="text"], .config-body input[type="number"] { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-size: 13px; font-family: 'Inter',sans-serif; outline: none; width: 220px; }
+.config-body input:focus { border-color: var(--teal); }
+.cfg-section { border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.cfg-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.4px; color: var(--teal); margin-bottom: 2px; }
+.cfg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cfg-row label { font-size: 12px; color: var(--muted); min-width: 90px; }
+.cfg-tag-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cfg-tag { display: flex; align-items: center; gap: 4px; background: rgba(13,110,110,0.15); border: 1px solid rgba(13,110,110,0.4); border-radius: 4px; padding: 3px 8px; font-size: 12px; color: var(--teal); }
+.cfg-tag button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 2px; }
+.cfg-tag button:hover { color: var(--offline); }
+/* .btn-scan migrado a .btn .btn-blue */
+/* .btn-cfg-save migrado a .btn .btn-outline .btn-sm */
+/* .btn-cfg-auto migrado a .btn .btn-ghost .btn-sm */
+
+/* ── MANTENIMIENTO ── */
+#maintenance-banner {
+  display: none; padding: 9px 24px;
+  background: rgba(245,158,11,0.12); border-bottom: 1px solid rgba(245,158,11,0.35);
+  font-size: 12px; font-weight: 600; color: #f59e0b; letter-spacing: 0.04em;
+}
+.btn-maint-off {
+  background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.4);
+  color: #f59e0b; border-radius: 6px; padding: 8px 14px;
+  font-size: 12px; font-weight: 600; font-family: 'Inter',sans-serif;
+  cursor: pointer; transition: background 0.2s; white-space: nowrap;
+}
+.btn-maint-off:hover { background: rgba(245,158,11,0.22); }
+.btn-maint-on {
+  background: rgba(220,38,38,0.12); border: 1px solid rgba(220,38,38,0.45);
+  color: #f87171; border-radius: 6px; padding: 8px 14px;
+  font-size: 12px; font-weight: 600; font-family: 'Inter',sans-serif;
+  cursor: pointer; animation: pulse-maint 1.5s infinite; white-space: nowrap;
+}
+.btn-maint-on:hover { background: rgba(220,38,38,0.22); }
+@keyframes pulse-maint {
+  0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.4); }
+  50%      { box-shadow: 0 0 0 5px rgba(220,38,38,0); }
+}
+
+/* ── MANTENIMIENTO POR NODO ── */
+.btn-node-maint {
+  display: flex; align-items: center; gap: 3px;
+  background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.35);
+  color: #f59e0b; border-radius: 5px; padding: 5px 8px;
+  font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-node-maint:hover { background: rgba(245,158,11,0.22); }
+.btn-node-maint.active {
+  background: rgba(220,38,38,0.12); border-color: rgba(220,38,38,0.45);
+  color: #f87171; animation: pulse-maint 1.5s infinite;
+}
+.btn-node-maint svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+.row-node-maint { background: rgba(245,158,11,0.05) !important; }
+.row-node-maint:hover { background: rgba(245,158,11,0.1) !important; }
+
+/* ── LOGS ── */
+.logs-header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+.logs-header:hover { background: rgba(30,42,58,0.4); }
+.logs-header svg { width: 15px; height: 15px; color: var(--teal); fill: none; stroke: currentColor; stroke-width: 2; }
+.logs-header h3 { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; }
+.logs-count { background: var(--border); border-radius: 20px; padding: 2px 8px; font-size: 11px; color: var(--muted); }
+.logs-body { flex: 1; overflow-y: auto; padding: 8px; font-family: monospace; font-size: 11px; }
+.log-entry { display: flex; gap: 8px; padding: 5px 8px; border-radius: 4px; margin-bottom: 2px; }
+.log-info    { background: rgba(59,130,246,0.08); }
+.log-success { background: rgba(34,197,94,0.08);  }
+.log-warning { background: rgba(245,158,11,0.08); }
+.log-error   { background: rgba(220,38,38,0.08);  }
+.log-time    { color: var(--muted); flex-shrink: 0; }
+.log-src-info    { color: var(--blue);    font-weight: 700; flex-shrink: 0; }
+.log-src-success { color: var(--online);  font-weight: 700; flex-shrink: 0; }
+.log-src-warning { color: var(--warning); font-weight: 700; flex-shrink: 0; }
+.log-src-error   { color: var(--offline); font-weight: 700; flex-shrink: 0; }
+.log-msg { color: var(--text); }
+{% endblock %}
+
+{% block content %}
+<!-- HEADER -->
+<div class="page-header">
+  <div class="page-header-left">
+    <h1>Guardian — Monitoreo en Tiempo Real</h1>
+    <p>Última actualización: <span id="last-update">--:--:--</span></p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <button id="btn-maintenance" class="btn-maint-off" onclick="toggleMaintenance()">🔧 Activar Mantenimiento</button>
+    <button class="btn btn-outline btn-refresh" id="btn-refresh" onclick="handleRefresh()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Actualizar
+    </button>
+  </div>
+</div>
+<!-- BANNER MANTENIMIENTO -->
+<div id="maintenance-banner">⚠️ Modo mantenimiento activo — el Guardian no ejecutará reboots automáticos</div>
+
+<div style="padding:20px;display:flex;flex-direction:column;gap:16px;">
+
+  <!-- STAT CARDS -->
+  <div class="stat-grid">
+    <div class="stat-card stat-online">
+      <div class="stat-card-row">
+        <div class="stat-icon"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></div>
+        <span class="stat-value" id="stat-online">{{ stats.online if stats else 0 }}</span>
+      </div>
+      <div class="stat-label">Online</div>
+    </div>
+    <div class="stat-card stat-offline">
+      <div class="stat-card-row">
+        <div class="stat-icon"><svg viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></div>
+        <span class="stat-value" id="stat-offline">{{ stats.offline if stats else 0 }}</span>
+      </div>
+      <div class="stat-label">Offline</div>
+    </div>
+    <div class="stat-card stat-unknown">
+      <div class="stat-card-row">
+        <div class="stat-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+        <span class="stat-value" id="stat-unknown">{{ stats.unknown if stats else 0 }}</span>
+      </div>
+      <div class="stat-label">Desconocido</div>
+    </div>
+    <div class="stat-card stat-total">
+      <div class="stat-card-row">
+        <div class="stat-icon"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></div>
+        <span class="stat-value" id="stat-total">{{ stats.total if stats else 0 }}</span>
+      </div>
+      <div class="stat-label">Total</div>
+    </div>
+  </div>
+
+  <!-- BODY: TABLA + LOGS -->
+  <div class="guardian-body">
+
+    <!-- NODOS -->
+    <div class="nodes-panel">
+      <div class="table-wrap">
+        <div class="table-head-bar">
+          <h3>Nodos de Red</h3>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>IP</th>
+                <th>Estado</th>
+                <th>Latencia</th>
+                <th>Clientes</th>
+                <th>Uptime</th>
+                <th>Fallos</th>
+                <th style="text-align:right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="nodes-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- DISPOSITIVOS DESCUBIERTOS -->
+      <div class="discovered-section" id="discovered-section">
+        <div class="discovered-head-bar">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:var(--warning);stroke-width:2;flex-shrink:0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <h3>Dispositivos Descubiertos</h3>
+          <span class="discovered-badge" id="discovered-badge">0</span>
+        </div>
+        <div class="table-scroll" style="max-height:360px; overflow-y:auto; scrollbar-width:thin;">
+          <table>
+            <thead>
+              <tr>
+                <th>IP</th>
+                <th>MAC</th>
+                <th>Estado</th>
+                <th>Tipo</th>
+                <th>Último visto</th>
+                <th style="text-align:right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="discovered-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- CONFIG RED -->
+      <div class="config-section">
+        <div class="config-toggle" id="config-toggle" onclick="toggleConfig()">
+          <span>⚙ Configuración de Red — Guardian</span>
+          <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="config-body" id="config-body">
+
+          <!-- Red Base -->
+          <div class="cfg-section">
+            <div class="cfg-section-title">Red Base</div>
+            <div class="cfg-row" style="opacity:0.6;">
+              <label>Interfaz de gestión</label>
+              <input type="text" id="cfg-interface" value="enp2s0" readonly
+                style="background:var(--bg);color:var(--muted);cursor:not-allowed;width:120px;">
+              <span style="font-size:11px;color:var(--muted);margin-left:8px;">Hardware fijo del Shomer</span>
+            </div>
+            <div class="cfg-row">
+              <label>Gateway</label>
+              <input type="text" id="cfg-gateway" placeholder="ej: 192.168.1.1">
+            </div>
+            <div class="cfg-row">
+              <button class="btn btn-ghost btn-sm btn-cfg-auto" onclick="detectNetworkAuto()">Detectar automáticamente</button>
+              <button class="btn btn-outline btn-sm btn-cfg-save" onclick="saveBaseConfig()">Guardar base</button>
+            </div>
+          </div>
+
+          <!-- Guardian -->
+          <div class="cfg-section">
+            <div class="cfg-section-title">Guardian — Subredes a monitorear</div>
+            <div class="cfg-tag-list" id="cfg-guardian-subnets"></div>
+            <div class="cfg-row">
+              <input type="text" id="cfg-guardian-input" placeholder="ej: 192.168.1.0/24">
+              <button class="btn btn-ghost btn-sm btn-cfg-auto" onclick="addSubnet('guardian')">+ Agregar</button>
+              <button class="btn btn-outline btn-sm btn-cfg-save" onclick="saveModuleConfig('guardian')">Guardar</button>
+              <button class="btn btn-blue btn-scan" id="btn-config-scan" onclick="handleScan()">Iniciar Escaneo</button>
+            </div>
+          </div>
+
+          <!-- Dispositivos SSH -->
+          <div class="cfg-section">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div class="cfg-section-title">Dispositivos — Credenciales SSH</div>
+              <button class="btn btn-ghost btn-sm btn-cfg-auto" onclick="showAddDeviceForm()">+ Agregar</button>
+            </div>
+            <div id="add-device-form" style="display:none;background:rgba(13,110,110,0.05);border:1px solid rgba(13,110,110,0.2);border-radius:8px;padding:12px;flex-direction:column;gap:10px;">
+              <div style="font-size:12px;font-weight:700;color:var(--teal);margin-bottom:2px;" id="dev-form-title">Agregar dispositivo</div>
+              <input type="hidden" id="dev-is-active" value="1">
+              <input type="hidden" id="dev-from-discovered" value="">
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <label style="font-size:11px;color:var(--muted);font-weight:600;">Nombre</label>
+                  <input type="text" id="dev-name" placeholder="AP Recepción">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <label style="font-size:11px;color:var(--muted);font-weight:600;">IP</label>
+                  <input type="text" id="dev-ip" placeholder="ej: 192.168.1.50">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <label style="font-size:11px;color:var(--muted);font-weight:600;">Tipo</label>
+                  <select id="dev-type" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:220px;">
+                    <option value="router">Router</option>
+                    <option value="access_point">Access Point</option>
+                    <option value="switch">Switch</option>
+                    <option value="server">Servidor</option>
+                  </select>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <label style="font-size:11px;color:var(--muted);font-weight:600;">Usuario SSH</label>
+                  <input type="text" id="dev-user" placeholder="admin">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <label style="font-size:11px;color:var(--muted);font-weight:600;">Contraseña SSH</label>
+                  <input type="password" id="dev-pass" placeholder="••••••••">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <label style="font-size:11px;color:var(--muted);font-weight:600;">Ubicación</label>
+                  <input type="text" id="dev-location" placeholder="Recepción">
+                </div>
+              </div>
+              <div class="cfg-row">
+                <button class="btn btn-outline btn-sm btn-cfg-save" onclick="saveDevice()">Guardar dispositivo</button>
+                <button class="btn btn-ghost btn-sm btn-cfg-auto" onclick="cancelAddDevice()">Cancelar</button>
+              </div>
+            </div>
+            <div id="devices-list" style="margin-top:4px;"></div>
+          </div>
+
+          <!-- Guardian Parámetros -->
+          <div class="cfg-section">
+            <div class="cfg-section-title">Guardian — Parámetros</div>
+            <div class="cfg-row">
+              <label>Umbral de fallos para reboot</label>
+              <input type="number" id="cfg-fail-threshold" min="1" max="10" style="width:80px;">
+              <span style="font-size:11px;color:var(--muted);margin-left:8px;">fallos consecutivos antes de reiniciar</span>
+            </div>
+            <div class="cfg-row">
+              <label>Cooldown entre reboots (seg)</label>
+              <input type="number" id="cfg-cooldown-sec" min="60" max="7200" style="width:80px;">
+              <span style="font-size:11px;color:var(--muted);margin-left:8px;">segundos mínimos entre reboots del mismo nodo</span>
+            </div>
+            <div class="cfg-row" style="font-size:11px;color:var(--muted);">
+              La configuración de Telegram (token y Chat ID) se gestiona en <a href="/setup" style="color:var(--teal);">Instalación</a>.
+            </div>
+            <div class="cfg-row">
+              <button class="btn btn-outline btn-sm btn-cfg-save" onclick="saveGuardianParams()">Guardar parámetros</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGS -->
+    <div class="logs-panel collapsed" id="logs-panel-wrap">
+      <div class="logs-header" onclick="toggleLogs()">
+        <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <h3>Logs Guardian</h3>
+        <span class="logs-count" id="logs-count">0 entradas</span>
+      </div>
+      <div class="logs-body" id="logs-panel"></div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // ── Actualizar timestamp ─────────────────────────────
+  function updateTimestamp() {
+    const now = new Date();
+    document.getElementById('last-update').textContent = now.toLocaleTimeString('es-ES');
+  }
+  updateTimestamp();
+
+  // ── Logs ─────────────────────────────────────────────
+  const logsEl   = document.getElementById('logs-panel');
+  const logsCount = document.getElementById('logs-count');
+  let logEntries = 0;
+
+  function toggleLogs() {
+    const p = document.getElementById('logs-panel-wrap');
+    if (p) p.classList.toggle('collapsed');
+  }
+  function expandLogs() {
+    const p = document.getElementById('logs-panel-wrap');
+    if (p) p.classList.remove('collapsed');
+  }
+
+  function addLog(level, source, message) {
+    logEntries++;
+    const now  = new Date().toLocaleTimeString('es-ES');
+    const div  = document.createElement('div');
+    div.className = 'log-entry log-' + level;
+    div.innerHTML = `<span class="log-time">${now}</span><span class="log-src-${level}">[${source}]</span><span class="log-msg">${message}</span>`;
+    logsEl.appendChild(div);
+    logsEl.scrollTop = logsEl.scrollHeight;
+    logsCount.textContent = logEntries + ' entradas';
+  }
+
+  // Logs iniciales
+  addLog('info',    'SYSTEM',  'Sistema Guardian iniciado');
+  addLog('success', 'NETWORK', 'Conexión establecida con nodos');
+  addLog('info',    'SCAN',    'Escaneando estado de clientes');
+
+  // Carga inicial de nodos y descubiertos
+  fetchNodes(false);
+  fetchDiscovered();
+
+  // ── Uptime formatter ─────────────────────────────────
+  function formatUptime(seconds) {
+    if (seconds == null) return '—';
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const parts = [];
+    if (d > 0) parts.push(d + 'd');
+    if (h > 0) parts.push(h + 'h');
+    parts.push(m + 'm');
+    return parts.join(' ');
+  }
+
+  // ── Build table ──────────────────────────────────────
+  function buildTable(nodes) {
+    const tbody = document.getElementById('nodes-table-body');
+    if (!nodes || nodes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Sin nodos disponibles</td></tr>';
+      return;
+    }
+    const SVG_REBOOT = '<svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+    const SVG_TRASH  = '<svg viewBox="0 0 24 24" style="width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>';
+    const SVG_WRENCH = '<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
+
+    let online = 0, offline = 0, unknown = 0;
+    const rows = nodes.map(n => {
+      const status   = n.status || 'unknown';
+      const latency  = n.latency_ms != null ? n.latency_ms : null;
+      const hostname = n.hostname || '';
+      const clients  = n.clients  != null ? n.clients  : '—';
+      const failures = n.failures != null ? n.failures : 0;
+
+      if (status === 'online')  online++;
+      else if (status === 'offline') offline++;
+      else unknown++;
+
+      const statusLabel = status === 'online' ? 'Online' : status === 'offline' ? 'Offline' : 'Desconocido';
+      const latencyHtml = latency == null
+        ? '<span class="latency-mid">—</span>'
+        : `<span class="${latency < 50 ? 'latency-ok' : latency < 100 ? 'latency-mid' : 'latency-bad'}">${latency}ms</span>`;
+      const failuresHtml = failures > 0
+        ? `<button class="failures-bad" id="fail-badge-${n.ip.replace(/\./g,'_')}"
+             onclick="confirmAction('¿Resetear ${failures} fallos acumulados de ${n.ip}?', () => resetFailures('${n.ip}', ${failures}))"
+           >${failures}</button>`
+        : `<span class="failures-ok">0</span>`;
+      const rebootDisabled = status === 'offline' ? 'disabled' : '';
+      const confirmMsg = `¿Reiniciar ${hostname || n.ip} (${n.ip})? Se desconectarán ${clients} clientes temporalmente.`;
+
+      const nodeMaint = !!n.node_maintenance;
+      const maintTtl  = n.node_maintenance_ttl;
+      const maintLabel = nodeMaint
+        ? (maintTtl ? `🔧 MAINT ${Math.ceil(maintTtl/60)}m` : '🔧 MAINT')
+        : '🔧 Mant.';
+      const maintTitle = nodeMaint
+        ? 'Mantenimiento activo — reboots automáticos pausados para este nodo. Click para desactivar.'
+        : 'Activar modo mantenimiento para este nodo (pausa reboots automáticos)';
+      const ipSafe = n.ip.replace(/\./g, '_');
+
+      const rowClass = [
+        status === 'offline'  ? 'row-offline'    : '',
+        status === 'unknown'  ? 'row-unknown'     : '',
+        nodeMaint             ? 'row-node-maint'  : '',
+      ].filter(Boolean).join(' ');
+
+      const deviceName = n.name || hostname || '—';
+      return `<tr class="${rowClass}">
+        <td><div class="td-ip">${deviceName}</div></td>
+        <td><div class="td-ip">${n.ip}</div></td>
+        <td><span class="status-dot dot-${status}"></span><span>${statusLabel}</span></td>
+        <td>${latencyHtml}</td>
+        <td>${clients}</td>
+        <td>${formatUptime(n.uptime)}</td>
+        <td>${failuresHtml}</td>
+        <td>
+          <div class="td-actions">
+            <button class="btn-node-maint ${nodeMaint ? 'active' : ''}" id="btn-maint-${ipSafe}"
+              title="${maintTitle}"
+              onclick="toggleNodeMaintenance('${n.ip}', ${nodeMaint})">
+              ${SVG_WRENCH} ${maintLabel}
+            </button>
+            <button class="btn btn-red btn-sm btn-reboot" id="btn-reboot-${n.ip}" ${rebootDisabled}
+              onclick="confirmAction('${confirmMsg.replace(/'/g, "\\'")}', () => rebootNode('${n.ip}', '${(hostname || n.ip).replace(/'/g, "\\'")}'))">
+              ${SVG_REBOOT} REBOOT
+            </button>
+            <button class="btn-icon" title="Quitar del monitoreo (queda en catálogo)" style="color:var(--offline)"
+              onclick="confirmAction('¿Quitar ${n.ip} del monitoreo?\\nEl dispositivo quedará guardado en Dispositivos y Credenciales y podrás reactivarlo cuando quieras.', () => deactivateNode('${n.ip}'))">
+              ${SVG_TRASH}
+            </button>
+          </div>
+        </td>
+      </tr>`;
+    });
+
+    tbody.innerHTML = rows.join('');
+    document.getElementById('stat-online').textContent  = online;
+    document.getElementById('stat-offline').textContent = offline;
+    // stat-unknown es actualizado exclusivamente por fetchDiscovered() → data.count
+    document.getElementById('stat-total').textContent   = nodes.length;
+  }
+
+  // ── Fetch nodes ──────────────────────────────────────
+  function fetchNodes(showFeedback) {
+    return shomerFetch('/nodes')
+      .then(r => r.json())
+      .then(data => {
+        buildTable(data.nodes || []);
+        updateTimestamp();
+        if (showFeedback) {
+          addLog('success', 'REFRESH', 'Estado de nodos actualizado (' + (data.count || 0) + ' nodos)');
+          showToast('Nodos actualizados correctamente', 'success');
+        }
+      })
+      .catch(() => {
+        if (showFeedback) addLog('warning', 'REFRESH', 'Error al actualizar, reintentando...');
+      });
+  }
+
+  // ── Refresh ──────────────────────────────────────────
+  function handleRefresh() {
+    const btn = document.getElementById('btn-refresh');
+    setBtnRunning(btn, true, 'Actualizando...');
+    showProcessBanner('Actualizando estado de nodos');
+    addLog('info', 'REFRESH', 'Iniciando actualización de estado');
+    fetchNodes(true).finally(() => {
+      setBtnRunning(btn, false);
+      hideProcessBanner();
+    });
+  }
+
+  // ── Reboot ───────────────────────────────────────────
+  function rebootNode(ip, hostname) {
+    const btn = document.getElementById('btn-reboot-' + ip);
+    setBtnRunning(btn, true, 'Reiniciando...');
+    showProcessBanner('Reiniciando ' + hostname);
+    addLog('warning', 'REBOOT', 'Iniciando reinicio de ' + hostname);
+    shomerFetch('/reboot/' + ip, { method: 'POST' })
+    .then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data })))
+    .then(({ ok, data }) => {
+      if (!ok) throw new Error(data.detail || 'Error en el reinicio');
+      addLog('success', 'REBOOT', hostname + ' reiniciado exitosamente');
+      showToast(hostname + ' reiniciado correctamente', 'success');
+    })
+    .catch(err => {
+      addLog('error', 'REBOOT', 'Error al reiniciar ' + hostname + ': ' + err.message);
+      showToast('Error al reiniciar ' + hostname + ': ' + err.message, 'error');
+    })
+    .finally(() => {
+      setBtnRunning(btn, false);
+      hideProcessBanner();
+    });
+  }
+
+  // ── Mantenimiento por nodo ────────────────────────────
+  let _maintPopup = null;
+
+  function _closeMaintPopup() {
+    if (_maintPopup) { _maintPopup.remove(); _maintPopup = null; }
+  }
+
+  function toggleNodeMaintenance(ip, currentlyActive) {
+    const ipSafe = ip.replace(/\./g, '_');
+    const btn = document.getElementById('btn-maint-' + ipSafe);
+
+    if (currentlyActive) {
+      confirmAction(
+        `¿Desactivar mantenimiento en ${ip}? Guardian volverá a reiniciar automáticamente si detecta fallos.`,
+        () => {
+          if (btn) { btn.disabled = true; }
+          shomerFetch('/node_maintenance/' + ip + '/off', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+              if (data.success) {
+                addLog('success', 'MANTENIMIENTO-NODO', 'Mantenimiento desactivado para ' + ip);
+                showToast('Mantenimiento desactivado en ' + ip, 'success');
+              } else {
+                showToast('Error al desactivar mantenimiento', 'error');
+              }
+            })
+            .catch(() => showToast('Error de red al desactivar mantenimiento', 'error'))
+            .finally(() => { if (btn) btn.disabled = false; fetchNodes(false); });
+        }
+      );
+      return;
+    }
+
+    // Activar — mini popup de duración anclado al botón
+    _closeMaintPopup();
+    if (!btn) return;
+    const popup = document.createElement('div');
+    popup.id = 'maint-popup';
+    popup.style.cssText = `
+      position:fixed; z-index:9999; background:var(--card,#1a1f2e);
+      border:1px solid rgba(245,158,11,0.5); border-radius:8px;
+      padding:10px; box-shadow:0 4px 20px rgba(0,0,0,0.5);
+      min-width:190px;
+    `;
+    const rect = btn.getBoundingClientRect();
+    popup.style.top  = (rect.bottom + 6 + window.scrollY) + 'px';
+    popup.style.left = Math.max(8, rect.left + window.scrollX - 60) + 'px';
+
+    popup.innerHTML = `
+      <div style="font-size:11px;color:#f59e0b;font-weight:700;margin-bottom:8px;letter-spacing:.05em;">
+        🔧 MANTENIMIENTO — ${ip}
+      </div>
+      <div style="font-size:11px;color:var(--muted,#64748b);margin-bottom:10px;line-height:1.4;">
+        Guardian no reiniciará este nodo<br>automáticamente mientras esté activo.
+      </div>
+    `;
+    const opts = [
+      { label: '30 minutos', minutes: 30 },
+      { label: '1 hora',     minutes: 60 },
+      { label: '2 horas',    minutes: 120 },
+      { label: 'Sin límite', minutes: null },
+    ];
+    opts.forEach(o => {
+      const b = document.createElement('button');
+      b.textContent = '🔧 ' + o.label;
+      b.style.cssText = `
+        display:block; width:100%; margin:3px 0; padding:7px 12px;
+        background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.35);
+        color:#f59e0b; border-radius:5px; font-size:12px; font-weight:600;
+        cursor:pointer; font-family:inherit; text-align:left;
+      `;
+      b.onmouseover = () => { b.style.background = 'rgba(245,158,11,0.22)'; };
+      b.onmouseout  = () => { b.style.background = 'rgba(245,158,11,0.1)'; };
+      b.onclick = () => { _closeMaintPopup(); applyNodeMaint(ip, o.minutes); };
+      popup.appendChild(b);
+    });
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '✕ Cancelar';
+    cancelBtn.style.cssText = `
+      display:block; width:100%; margin-top:6px; padding:5px 12px;
+      background:none; border:1px solid var(--border,#2d3748);
+      color:var(--muted,#64748b); border-radius:5px; font-size:11px;
+      cursor:pointer; font-family:inherit;
+    `;
+    cancelBtn.onclick = _closeMaintPopup;
+    popup.appendChild(cancelBtn);
+
+    document.body.appendChild(popup);
+    _maintPopup = popup;
+    setTimeout(() => document.addEventListener('click', _closeMaintPopup, { once: true }), 10);
+  }
+
+  function applyNodeMaint(ip, minutes) {
+    const body = minutes ? JSON.stringify({ minutes }) : '{}';
+    shomerFetch('/node_maintenance/' + ip + '/on', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        const label = minutes ? `${minutes} min` : 'sin límite';
+        addLog('warning', 'MANTENIMIENTO-NODO', `Mantenimiento activado en ${ip} (${label})`);
+        showToast(`Mantenimiento activo en ${ip} (${label})`, 'warning');
+        fetchNodes(false);
+      } else {
+        showToast('Error al activar mantenimiento', 'error');
+      }
+    })
+    .catch(() => showToast('Error de red', 'error'));
+  }
+
+  // ── Sistema de Configuración ─────────────────────────
+  const _cfgState = { guardian: [] };
+
+  function renderTags(containerId, arr, onRemove) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = arr.map((v, i) =>
+      `<span class="cfg-tag">${v}<button onclick="${onRemove}(${i})" title="Eliminar">×</button></span>`
+    ).join('');
+  }
+
+  function addSubnet(mod) {
+    const inp = document.getElementById('cfg-guardian-input');
+    const val = (inp.value || '').trim();
+    if (!val) return;
+    if (!_cfgState.guardian.includes(val)) _cfgState.guardian.push(val);
+    inp.value = '';
+    refreshCfgUI();
+  }
+
+  function removeGuardianSubnet(i) { _cfgState.guardian.splice(i, 1); refreshCfgUI(); }
+
+  function refreshCfgUI() {
+    renderTags('cfg-guardian-subnets', _cfgState.guardian, 'removeGuardianSubnet');
+  }
+
+  function fetchSystemConfig() {
+    shomerFetch('/config/system')
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) return;
+        const b    = data.base || {};
+        const auto = data.auto_detected || {};
+        if (document.getElementById('cfg-interface'))
+          document.getElementById('cfg-interface').value = b.interface || auto.interface || 'enp2s0';
+        if (document.getElementById('cfg-gateway'))
+          document.getElementById('cfg-gateway').value = b.gateway || auto.gateway || '';
+        _cfgState.guardian = data.guardian?.subnets || [];
+        const scanInput = document.getElementById('cfg-guardian-input');
+        if (scanInput && !scanInput.value && _cfgState.guardian.length > 0)
+          scanInput.value = _cfgState.guardian[0];
+        const g = data.guardian || {};
+        if (document.getElementById('cfg-fail-threshold'))
+          document.getElementById('cfg-fail-threshold').value = g.fail_threshold ?? 3;
+        if (document.getElementById('cfg-cooldown-sec'))
+          document.getElementById('cfg-cooldown-sec').value = g.cooldown_sec ?? 360;
+        refreshCfgUI();
+      })
+      .catch(() => {});
+  }
+
+  function detectNetworkAuto() {
+    shomerFetch('/network_context')
+      .then(r => r.json())
+      .then(data => {
+        if (document.getElementById('cfg-interface'))
+          document.getElementById('cfg-interface').value = 'enp2s0';
+        if (document.getElementById('cfg-gateway'))
+          document.getElementById('cfg-gateway').value = data.auto_detected?.gateway || data.gateway || '';
+        const subnet = data.auto_detected?.subnet || data.subnet || '';
+        if (subnet) {
+          if (!_cfgState.guardian.includes(subnet)) _cfgState.guardian = [subnet];
+          refreshCfgUI();
+          const scanInput = document.getElementById('cfg-guardian-input');
+          if (scanInput) scanInput.value = subnet;
+        }
+        showToast('Red detectada: enp2s0 — ' + (subnet || '?') + ' — gateway ' + (data.auto_detected?.gateway || '?'), 'success');
+      })
+      .catch(() => showToast('Error al detectar red', 'error'));
+  }
+
+  function saveBaseConfig() {
+    const iface = (document.getElementById('cfg-interface')?.value || '').trim();
+    const gw    = (document.getElementById('cfg-gateway')?.value  || '').trim();
+    shomerFetch('/config/system', {
+      method: 'POST',
+      body: JSON.stringify({ base: { interface: iface || undefined, gateway: gw || undefined } })
+    })
+    .then(r => r.json())
+    .then(d => showToast(d.success ? 'Configuración base guardada' : 'Error al guardar', d.success ? 'success' : 'error'))
+    .catch(() => showToast('Error al guardar config base', 'error'));
+  }
+
+  function saveModuleConfig(mod) {
+    const payload = { guardian: { subnets: _cfgState.guardian } };
+    shomerFetch('/config/system', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(d => showToast(d.success ? 'Guardian guardado' : 'Error al guardar', d.success ? 'success' : 'error'))
+    .catch(() => showToast('Error al guardar Guardian', 'error'));
+  }
+
+  function saveGuardianParams() {
+    const threshold = parseInt(document.getElementById('cfg-fail-threshold')?.value);
+    const cooldown  = parseInt(document.getElementById('cfg-cooldown-sec')?.value);
+    const payload   = { guardian: {} };
+    if (!isNaN(threshold) && threshold > 0) payload.guardian.fail_threshold = threshold;
+    if (!isNaN(cooldown)  && cooldown  > 0) payload.guardian.cooldown_sec   = cooldown;
+    shomerFetch('/config/system', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(d => showToast(d.success ? 'Parámetros Guardian guardados' : 'Error al guardar', d.success ? 'success' : 'error'))
+    .catch(() => showToast('Error al guardar parámetros', 'error'));
+  }
+
+  function testTelegram() {
+    shomerFetch('/telegram/test', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => showToast(d.success ? '✅ Telegram OK — mensaje enviado' : '❌ Error: ' + (d.detail || 'fallo'), d.success ? 'success' : 'error'))
+    .catch(() => showToast('Error al probar Telegram', 'error'));
+  }
+
+  // ── Config / Scan ─────────────────────────────────────
+  function toggleConfig() {
+    const toggle = document.getElementById('config-toggle');
+    const body   = document.getElementById('config-body');
+    toggle.classList.toggle('open');
+    body.classList.toggle('open');
+  }
+
+  // ── Dispositivos Descubiertos ─────────────────────────
+  function buildDiscoveredTable(devices) {
+    const section = document.getElementById('discovered-section');
+    const tbody   = document.getElementById('discovered-table-body');
+    const badge   = document.getElementById('discovered-badge');
+
+    if (!devices || devices.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    badge.textContent = devices.length;
+    section.style.display = 'block';
+
+    const SVG_PLUS  = '<svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+    const SVG_TRASH = '<svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>';
+
+    const rows = devices.map(d => {
+      const status      = d.status || 'unknown';
+      const statusLabel = status === 'online' ? 'Online' : status === 'offline' ? 'Offline' : 'Desconocido';
+      const tipo        = d.inferred_type && d.inferred_type !== 'unknown' ? d.inferred_type : '—';
+      const lastSeen    = d.last_seen ? d.last_seen.replace('T', ' ').substring(0, 16) : '—';
+      const ipSafe      = d.ip.replace(/\./g, '_');
+      const confirmAdd  = `¿Agregar ${d.ip} a nodos monitoreados?`;
+      const confirmDel  = `¿Descartar ${d.ip} de dispositivos descubiertos?`;
+
+      return `<tr id="disc-row-${ipSafe}">
+        <td><div class="td-ip">${d.ip}</div>${d.hostname ? `<div class="td-host">${d.hostname}</div>` : ''}</td>
+        <td style="font-family:monospace;font-size:11px;color:var(--muted)">${d.mac || '—'}</td>
+        <td><span class="status-dot dot-${status}"></span><span>${statusLabel}</span></td>
+        <td style="font-size:11px;color:var(--muted)">${tipo}</td>
+        <td style="font-size:11px;color:var(--muted)">${lastSeen}</td>
+        <td>
+          <div class="td-actions">
+            <button class="btn btn-outline btn-sm btn-promote" id="btn-promote-${ipSafe}"
+              onclick="promoteToDeviceForm('${d.ip}', '${(d.hostname||'').replace(/'/g,"\\'")}', '${d.inferred_type||''}')">
+              ${SVG_PLUS} Agregar
+            </button>
+            <button class="btn btn-ghost btn-sm btn-discard" id="btn-discard-${ipSafe}"
+              onclick="confirmAction('${confirmDel}', () => discardDevice('${d.ip}'))">
+              ${SVG_TRASH} Descartar
+            </button>
+          </div>
+        </td>
+      </tr>`;
+    });
+
+    tbody.innerHTML = rows.join('');
+  }
+
+  function fetchDiscovered() {
+    return shomerFetch('/discovered')
+      .then(r => r.json())
+      .then(data => {
+        buildDiscoveredTable(data.devices || []);
+        document.getElementById('stat-unknown').textContent = data.count || 0;
+      })
+      .catch(() => {});
+  }
+
+  function promoteDevice(ip) {
+    const ipSafe = ip.replace(/\./g, '_');
+    const btnP = document.getElementById('btn-promote-' + ipSafe);
+    const btnD = document.getElementById('btn-discard-' + ipSafe);
+    if (btnP) { btnP.disabled = true; btnP.textContent = '…'; }
+    if (btnD) btnD.disabled = true;
+    addLog('info', 'PROMOTE', 'Agregando ' + ip + ' a nodos monitoreados');
+    shomerFetch('/promote/' + ip, { method: 'POST' })
+      .then(r => r.json().then(data => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.detail || 'Error del servidor');
+        addLog('success', 'PROMOTE', ip + ' agregado a nodos monitoreados');
+        showToast(ip + ' agregado a nodos', 'success');
+        fetchNodes(false);
+        fetchDiscovered();
+      })
+      .catch(err => {
+        addLog('error', 'PROMOTE', 'Error al agregar ' + ip + ': ' + err.message);
+        showToast('Error al agregar ' + ip + ': ' + err.message, 'error');
+        if (btnP) { btnP.disabled = false; btnP.innerHTML = '+ Agregar'; }
+        if (btnD) btnD.disabled = false;
+      });
+  }
+
+  function deactivateNode(ip) {
+    addLog('warning', 'GUARDIAN', 'Quitando ' + ip + ' del monitoreo');
+    shomerFetch('/api/router-devices/by-ip/' + ip + '/deactivate', { method: 'POST' })
+      .then(r => r.json().then(data => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.detail || 'Error del servidor');
+        addLog('success', 'GUARDIAN', ip + ' quitado del monitoreo — sigue en catálogo de dispositivos');
+        showToast(ip + ' quitado del monitoreo', 'success');
+        fetchNodes(false);
+        loadDevices();
+      })
+      .catch(err => {
+        addLog('error', 'GUARDIAN', 'Error al quitar ' + ip + ': ' + err.message);
+        showToast('Error: ' + err.message, 'error');
+      });
+  }
+
+  function discardDevice(ip) {
+    const ipSafe = ip.replace(/\./g, '_');
+    const btnP = document.getElementById('btn-promote-' + ipSafe);
+    const btnD = document.getElementById('btn-discard-' + ipSafe);
+    if (btnD) { btnD.disabled = true; btnD.textContent = '…'; }
+    if (btnP) btnP.disabled = true;
+    addLog('info', 'DISCARD', 'Descartando ' + ip);
+    shomerFetch('/discovered/' + ip, { method: 'DELETE' })
+      .then(r => r.json())
+      .then(() => {
+        addLog('success', 'DISCARD', ip + ' descartado');
+        showToast(ip + ' descartado', 'success');
+        fetchDiscovered();
+      })
+      .catch(() => {
+        addLog('error', 'DISCARD', 'Error al descartar ' + ip);
+        showToast('Error al descartar ' + ip, 'error');
+        if (btnD) { btnD.disabled = false; btnD.innerHTML = '🗑 Descartar'; }
+        if (btnP) btnP.disabled = false;
+      });
+  }
+
+  // ── Mantenimiento ────────────────────────────────────
+  let _maintenanceOn = false;
+
+  function updateMaintenanceUI(on) {
+    _maintenanceOn = on;
+    const btn    = document.getElementById('btn-maintenance');
+    const banner = document.getElementById('maintenance-banner');
+    if (on) {
+      btn.textContent = '🔧 EN MANTENIMIENTO — Desactivar';
+      btn.className = 'btn-maint-on';
+      banner.style.display = 'block';
+    } else {
+      btn.textContent = '🔧 Activar Mantenimiento';
+      btn.className = 'btn-maint-off';
+      banner.style.display = 'none';
+    }
+  }
+
+  function fetchMaintenanceStatus() {
+    shomerFetch('/maintenance')
+      .then(r => r.json())
+      .then(data => updateMaintenanceUI(data.maintenance === true))
+      .catch(() => {});
+  }
+
+  function toggleMaintenance() {
+    const endpoint = _maintenanceOn ? '/maintenance/off' : '/maintenance/on';
+    shomerFetch(endpoint, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        updateMaintenanceUI(data.maintenance === true);
+        const msg = data.maintenance
+          ? 'Mantenimiento ACTIVADO — reboots automáticos pausados'
+          : 'Mantenimiento DESACTIVADO — reboots automáticos reanudados';
+        addLog(data.maintenance ? 'warning' : 'success', 'MANTENIMIENTO', msg);
+        showToast(msg, data.maintenance ? 'warning' : 'success');
+      })
+      .catch(() => showToast('Error al cambiar modo mantenimiento', 'error'));
+  }
+
+  fetchMaintenanceStatus();
+  fetchSystemConfig();
+
+  // ── Reset de fallos ──────────────────────────────────
+  function resetFailures(ip, prevCount) {
+    shomerFetch('/reset_failures/' + ip, { method: 'POST' })
+      .then(r => r.json().then(data => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.detail || 'Error al resetear');
+        const ipKey = ip.replace(/\./g, '_');
+        const badge = document.getElementById('fail-badge-' + ipKey);
+        if (badge) {
+          const span = document.createElement('span');
+          span.className = 'failures-ok';
+          span.textContent = '0';
+          badge.replaceWith(span);
+        }
+        addLog('success', 'GUARDIAN', 'Fallos reseteados para ' + ip + ' (antes: ' + prevCount + ')');
+        showToast('Fallos de ' + ip + ' reseteados', 'success');
+      })
+      .catch(err => {
+        addLog('error', 'GUARDIAN', 'Error al resetear fallos de ' + ip + ': ' + err.message);
+        showToast('Error: ' + err.message, 'error');
+      });
+  }
+
+  // ── Polling de eventos del servidor ──────────────────
+  let _lastEventTs = Date.now() - 60000; // Cargar eventos del último minuto al inicio
+
+  function pollServerEvents() {
+    shomerFetch('/events?since=' + _lastEventTs)
+      .then(r => r.json())
+      .then(data => {
+        const events = data.events || [];
+        events.forEach(e => {
+          addLog(e.level || 'info', e.source || 'SERVER', e.msg || '');
+          if (e.ts > _lastEventTs) _lastEventTs = e.ts;
+        });
+      })
+      .catch(() => {});
+  }
+
+  pollServerEvents();
+  setInterval(pollServerEvents, 5000);
+  setInterval(() => { fetchNodes(false); fetchDiscovered(); }, 15000);
+
+  // ── Config / Scan ─────────────────────────────────────
+  function handleScan() {
+    const inp   = document.getElementById('cfg-guardian-input') || document.getElementById('input-range');
+    const range = (_cfgState.guardian[0] || (inp ? inp.value.trim() : '')).trim();
+    const btn   = document.getElementById('btn-config-scan');
+    if (!range) { showToast('Ingrese un rango IP en la sección Guardian', 'warning'); return; }
+    setBtnRunning(btn, true, 'Escaneando...');
+    showProcessBanner('Escaneando rango ' + range);
+    addLog('info', 'SCAN', 'Iniciando escaneo de ' + range);
+    shomerFetch('/config/scan', {
+      method: 'POST',
+      body: JSON.stringify({ subnets: [range] })
+    })
+    .then(r => r.json())
+    .then(data => {
+      addLog('success', 'SCAN', 'Escaneo completado: ' + (data.devices || []).length + ' dispositivos encontrados');
+      showToast('Escaneo completado', 'success');
+      fetchNodes(false);
+      fetchDiscovered();
+    })
+    .catch(() => {
+      addLog('error', 'SCAN', 'Error durante el escaneo');
+      showToast('Error durante el escaneo', 'error');
+    })
+    .finally(() => {
+      setBtnRunning(btn, false);
+      hideProcessBanner();
+    });
+  }
+
+  /* ── Dispositivos SSH (tabla devices) ────────────────── */
+  function showAddDeviceForm() {
+    document.getElementById('dev-form-title').textContent = 'Agregar dispositivo';
+    document.getElementById('dev-is-active').value = '1';
+    document.getElementById('dev-from-discovered').value = '';
+    const ip = document.getElementById('dev-ip');
+    if (ip) ip.readOnly = false;
+    document.getElementById('add-device-form').style.display = 'flex';
+    document.getElementById('dev-name').focus();
+  }
+
+  const _typeMap = { router:'router', gateway:'router', ap:'access_point', access_point:'access_point', switch:'switch', server:'server' };
+  function promoteToDeviceForm(ip, hostname, inferredType) {
+    const mappedType = _typeMap[inferredType] || 'access_point';
+    document.getElementById('dev-form-title').textContent = 'Agregar a monitoreo — ' + ip;
+    document.getElementById('dev-name').value     = hostname || ip;
+    document.getElementById('dev-ip').value       = ip;
+    document.getElementById('dev-ip').readOnly    = true;
+    document.getElementById('dev-type').value     = mappedType;
+    document.getElementById('dev-user').value     = '';
+    document.getElementById('dev-pass').value     = '';
+    document.getElementById('dev-location').value = '';
+    document.getElementById('dev-is-active').value      = '1';
+    document.getElementById('dev-from-discovered').value = ip;
+    document.getElementById('add-device-form').style.display = 'flex';
+    document.getElementById('dev-name').focus();
+    document.getElementById('dev-name').select();
+    document.getElementById('add-device-form').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+  function editDevice(dev) {
+    document.getElementById('dev-form-title').textContent = 'Editar dispositivo — ' + dev.ip_address;
+    document.getElementById('dev-name').value     = dev.name || '';
+    document.getElementById('dev-ip').value       = dev.ip_address || '';
+    document.getElementById('dev-ip').readOnly    = true;
+    document.getElementById('dev-type').value     = dev.device_type || 'router';
+    document.getElementById('dev-user').value     = dev.ssh_user || '';
+    document.getElementById('dev-pass').value     = '';
+    document.getElementById('dev-location').value = dev.location || '';
+    document.getElementById('dev-is-active').value = dev.is_active ? '1' : '0';
+    document.getElementById('add-device-form').style.display = 'flex';
+    document.getElementById('dev-name').focus();
+    document.getElementById('add-device-form').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+  function cancelAddDevice() {
+    document.getElementById('add-device-form').style.display = 'none';
+    document.getElementById('dev-form-title').textContent = 'Agregar dispositivo';
+    document.getElementById('dev-from-discovered').value = '';
+    document.getElementById('dev-is-active').value = '1';
+    ['dev-name','dev-ip','dev-user','dev-pass','dev-location'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    const t = document.getElementById('dev-type');
+    if (t) t.value = 'router';
+    const ip = document.getElementById('dev-ip');
+    if (ip) ip.readOnly = false;
+  }
+  function loadDevices() {
+    shomerFetch('/api/router-devices')
+    .then(r => r.json())
+    .then(d => {
+      const el = document.getElementById('devices-list');
+      if (!el) return;
+      const devs = d.devices || [];
+      if (devs.length === 0) {
+        el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:4px 0;">Sin dispositivos configurados.</div>';
+        return;
+      }
+      el.innerHTML = devs.map(dev => `
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:4px;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span style="font-size:13px;font-weight:600;color:${dev.is_active?'var(--text)':'var(--muted)'};">${dev.name}</span>
+            <span style="font-family:monospace;font-size:11px;color:#06b6d4;">${dev.ip_address}</span>
+            <span style="font-size:11px;background:rgba(13,110,110,0.15);color:var(--teal);border-radius:4px;padding:2px 6px;">${dev.device_type}</span>
+            <span style="font-size:11px;color:var(--muted);">${dev.ssh_user || '—'}</span>
+            ${dev.location ? `<span style="font-size:11px;color:var(--muted);">${dev.location}</span>` : ''}
+            ${!dev.is_active ? '<span style="font-size:11px;color:var(--muted);">[inactivo]</span>' : ''}
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            ${!dev.is_active ? `
+            <button onclick="activateDevice('${dev.ip_address}')"
+              style="background:rgba(16,185,129,0.12);color:var(--teal);border:none;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;">
+              ▶ Activar
+            </button>` : `
+            <span style="font-size:11px;color:var(--teal);padding:4px 6px;">● En monitoreo</span>`}
+            <button onclick="editDevice(${JSON.stringify(dev).replace(/"/g,'&quot;')})"
+              style="background:rgba(59,130,246,0.1);color:#60a5fa;border:none;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;">
+              ✏ Editar
+            </button>
+            <button onclick="removeDevice(${dev.id}, '${(dev.name||'').replace(/'/g,"\\'")}')"
+              style="background:rgba(220,38,38,0.1);color:var(--offline);border:none;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;">
+              Eliminar
+            </button>
+          </div>
+        </div>
+      `).join('');
+    })
+    .catch(() => {});
+  }
+  function saveDevice() {
+    const name     = (document.getElementById('dev-name')?.value || '').trim();
+    const ip       = (document.getElementById('dev-ip')?.value || '').trim();
+    const dtype    = document.getElementById('dev-type')?.value || 'router';
+    const user     = (document.getElementById('dev-user')?.value || '').trim();
+    const passwd   = document.getElementById('dev-pass')?.value || '';
+    const loc      = (document.getElementById('dev-location')?.value || '').trim();
+    const isActive = document.getElementById('dev-is-active')?.value !== '0';
+    if (!name || !ip) { showToast('Nombre e IP son requeridos', 'warning'); return; }
+    shomerFetch('/api/router-devices', {
+      method: 'POST',
+      body: JSON.stringify({name, ip, device_type: dtype, ssh_user: user, ssh_password: passwd, location: loc, is_active: isActive})
+    })
+    .then(r => r.json())
+    .then(d => {
+      showToast(d.message || 'Guardado', d.success ? 'success' : 'error');
+      if (d.success) {
+        const fromDisc = document.getElementById('dev-from-discovered').value;
+        cancelAddDevice();
+        loadDevices();
+        fetchNodes(false);
+        if (fromDisc) {
+          shomerFetch('/discovered/' + fromDisc, { method: 'DELETE' }).catch(() => {});
+          fetchDiscovered();
+        }
+      }
+    })
+    .catch(() => showToast('Error al guardar', 'error'));
+  }
+  function activateDevice(ip) {
+    shomerFetch('/api/router-devices/by-ip/' + ip + '/activate', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || (d.success ? 'Activado' : 'Error'), d.success ? 'success' : 'error');
+        if (d.success) { loadDevices(); fetchNodes(false); }
+      })
+      .catch(() => showToast('Error al activar', 'error'));
+  }
+  function removeDevice(id, nombre) {
+    confirmAction('¿Eliminar dispositivo ' + nombre + '? Esta acción no se puede deshacer.', () => {
+      shomerFetch('/api/router-devices/' + id, {method:'DELETE'})
+      .then(r => r.json())
+      .then(d => { showToast(d.message || (d.success ? 'Eliminado' : 'Error'), d.success ? 'success' : 'error'); loadDevices(); })
+      .catch(() => showToast('Error al eliminar', 'error'));
+    });
+  }
+  loadDevices();
+
+</script>
+{% endblock %}

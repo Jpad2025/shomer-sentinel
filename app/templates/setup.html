@@ -1,0 +1,1430 @@
+{% extends "base.html" %}
+{% block page_title %}Configuración de red base{% endblock %}
+{% block extra_styles %}
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep:   #0a0e1a;
+      --bg-card:   #0f1628;
+      --bg-row:    #141c30;
+      --teal:      #0d6e6e;
+      --teal-l:    #0f8080;
+      --gold:      #f5c518;
+      --red:       #f87171;
+      --red-bg:    rgba(220,38,38,0.15);
+      --red-bdr:   rgba(220,38,38,0.4);
+      --green:     #34d399;
+      --green-bg:  rgba(52,211,153,0.12);
+      --green-bdr: rgba(52,211,153,0.4);
+      --muted:     #6b7a99;
+      --text:      #e2e8f0;
+      --border:    rgba(255,255,255,0.07);
+    }
+
+    .setup-page-inner {
+      width: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 8px 4px 32px;
+    }
+
+    /* ── HEADER (compacto, coherente con sidebar) ── */
+    .setup-page-header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 40px;
+      text-align: center;
+    }
+    .logo-wrap img {
+      width: 200px;
+      border: 1.5px solid rgba(13,110,110,0.5);
+      border-radius: 10px;
+      background: rgba(13,110,110,0.08);
+      padding: 8px;
+    }
+    .brand-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 2px;
+    }
+    .brand-sub {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 13px;
+      color: var(--text);
+      letter-spacing: 1px;
+      opacity: 0.85;
+    }
+    .badge-install {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--red);
+      background: var(--red-bg);
+      border: 1px solid var(--red-bdr);
+      border-radius: 20px;
+      padding: 3px 12px;
+      letter-spacing: 0.5px;
+      margin-top: 2px;
+    }
+
+    /* ── LAYOUT ── */
+    .setup-wrap {
+      width: 100%;
+      max-width: 640px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ── CARD ── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px;
+    }
+    .card-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--teal-l);
+      letter-spacing: 1.5px;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* .btn-teal — solo layout (color/hover viene de .btn .btn-blue del sistema unificado) */
+    .btn-teal { width: 100%; padding: 13px 20px; font-size: 14px; letter-spacing: 0.3px; border-radius: 8px; justify-content: center; }
+
+    /* ── SPINNER ── */
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── SCAN RESULT ── */
+    .scan-result {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .field-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .field-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .field-input {
+      background: var(--bg-row);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 10px 13px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .field-input:focus { border-color: var(--teal); }
+    .field-input[readonly] { opacity: 0.7; cursor: default; }
+
+    .scan-stats {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .scan-stats span { color: var(--text); font-weight: 600; }
+
+    /* ── IP GRID ── */
+    .ip-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 8px;
+    }
+    .ip-btn {
+      padding: 8px 6px;
+      background: var(--bg-row);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      text-align: center;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .ip-btn:hover { border-color: var(--teal); }
+    .ip-btn.selected {
+      border-color: var(--teal);
+      background: rgba(13,110,110,0.18);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    /* ── IP VALIDATION ── */
+    .ip-validation {
+      font-size: 12px;
+      font-weight: 500;
+      min-height: 18px;
+      margin-top: 4px;
+    }
+    .ip-validation.ok  { color: var(--green); }
+    .ip-validation.err { color: var(--red); }
+
+    /* ── RADIO OPTIONS ── */
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .radio-opt {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px;
+      background: var(--bg-row);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .radio-opt:hover { border-color: var(--teal); }
+    .radio-opt.active { border-color: var(--teal); background: rgba(13,110,110,0.1); }
+    .radio-opt input[type="radio"] { margin-top: 2px; accent-color: var(--teal); }
+    .radio-label-wrap { display: flex; flex-direction: column; gap: 3px; }
+    .radio-label { font-size: 14px; font-weight: 600; color: var(--text); }
+    .radio-muted { font-size: 12px; color: var(--muted); }
+
+    /* ── WIFI FIELDS ── */
+    .wifi-fields {
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .wifi-fields.visible { display: flex; }
+    .pass-wrap { position: relative; }
+    .pass-wrap .field-input { padding-right: 44px; }
+    .btn-eye {
+      position: absolute; right: 10px; top: 50%;
+      transform: translateY(-50%);
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 18px; line-height: 1;
+    }
+    .btn-eye:hover { color: var(--text); }
+
+    .wifi-test-result {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      min-height: 20px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+
+    /* ── RESUMEN TABLE ── */
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    .summary-table tr { border-bottom: 1px solid var(--border); }
+    .summary-table tr:last-child { border-bottom: none; }
+    .summary-table td { padding: 10px 6px; }
+    .summary-table td:first-child {
+      color: var(--muted); font-size: 12px;
+      text-transform: uppercase; letter-spacing: 0.4px; width: 40%;
+    }
+    .summary-table td:last-child { font-weight: 600; color: var(--text); }
+
+    /* ── APPLY RESULT ── */
+    .apply-result { display: none; }
+    .apply-ok {
+      background: var(--green-bg);
+      border: 1px solid var(--green-bdr);
+      border-radius: 10px;
+      padding: 24px;
+      text-align: center;
+    }
+    .apply-ok .check { font-size: 36px; margin-bottom: 8px; }
+    .apply-ok h3 { font-size: 17px; font-weight: 700; color: var(--green); margin-bottom: 6px; }
+    .apply-ok p  { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+    .apply-ok a  {
+      display: inline-block;
+      background: var(--teal);
+      color: #fff;
+      padding: 11px 28px;
+      border-radius: 7px;
+      font-weight: 600;
+      font-size: 15px;
+      text-decoration: none;
+      letter-spacing: 0.3px;
+    }
+    .apply-ok a:hover { background: var(--teal-l); }
+    .apply-err {
+      background: var(--red-bg);
+      border: 1px solid var(--red-bdr);
+      border-radius: 10px;
+      padding: 16px;
+      color: var(--red);
+      font-size: 13px;
+    }
+
+    /* ── PROCESS MSG ── */
+    .process-msg {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 12px;
+    }
+    .process-msg.visible { display: flex; }
+    .process-msg .spinner { display: block; }
+
+    /* ── FOOTER ── */
+    /* ── FADE IN ── */
+    .fade-card {
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+    .fade-card.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Pasos del asistente ── */
+    .setup-stepper {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 22px;
+      padding: 14px 12px;
+      background: rgba(15, 22, 40, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .setup-step {
+      flex: 1;
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .setup-step span.num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--bg-row);
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .setup-step.active { color: var(--text); font-weight: 600; }
+    .setup-step.active span.num {
+      background: rgba(13, 110, 110, 0.35);
+      border-color: var(--teal);
+      color: #fff;
+    }
+    .setup-wizard-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 1.5px;
+      margin-bottom: 18px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .factory-banner {
+      display: none;
+      margin-bottom: 18px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(52, 211, 153, 0.35);
+      background: rgba(52, 211, 153, 0.08);
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .factory-banner-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #34d399;
+      margin-bottom: 8px;
+    }
+    .factory-banner code { font-size: 11px; color: #a5f3fc; }
+    .factory-banner-code {
+      font-family: ui-monospace, monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gold);
+      margin: 8px 0;
+      word-break: break-all;
+    }
+    .factory-banner-meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="setup-page-inner">
+
+<!-- HEADER -->
+<div class="setup-page-header">
+  <div class="brand-title" style="font-size:18px;letter-spacing:3px;">CONFIGURACIÓN DE RED BASE</div>
+  <p style="max-width:560px;margin:10px auto 0;font-size:13px;color:var(--muted);line-height:1.55;">
+    Asistente en 3 pasos: red → internet → aplicar.
+    Usuarios y contraseñas en <a href="/admin" style="color:var(--teal);font-weight:600;">Administración</a>.
+  </p>
+</div>
+
+<!-- CARDS WRAP -->
+<div class="setup-wrap">
+
+  <nav class="setup-stepper" aria-label="Pasos">
+    <div class="setup-step active" id="setup-step-1"><span class="num">1</span><br/>Red e IPs</div>
+    <div class="setup-step" id="setup-step-2"><span class="num">2</span><br/>Internet</div>
+    <div class="setup-step" id="setup-step-3"><span class="num">3</span><br/>Resumen</div>
+  </nav>
+
+  <div class="setup-wizard-title" id="setupWizardTitle">Instalación de red</div>
+
+  <!-- Banner reconfiguración (visible solo si el sistema ya está configurado) -->
+  <div class="factory-banner" id="reconfigBanner" style="display:none;background:rgba(245,197,24,0.08);border-color:rgba(245,197,24,0.35);" aria-live="polite"></div>
+
+  <div class="factory-banner" id="factoryBanner" aria-live="polite"></div>
+
+  <!-- ══════════════════════════════════════
+       CARD 0 — IDENTIFICACIÓN DEL SITIO
+  ══════════════════════════════════════ -->
+  <div class="card" id="card0" style="border-color:rgba(52,211,153,0.35);background:rgba(52,211,153,0.04);">
+    <div class="card-title">IDENTIFICACIÓN DEL SITIO</div>
+    <p style="font-size:13px;color:var(--muted);margin:-8px 0 16px;line-height:1.5;">
+      Estos datos identifican esta instalación en reportes, Telegram y en el bucket B2 (backups). Se pueden editar después sin reconfigurar la red.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field-row">
+        <label class="field-label">Nombre del cliente / sitio</label>
+        <input class="field-input" id="fieldClientName" placeholder="ej: Hotel Plaza Bogotá"
+          oninput="state.clientName = this.value.trim();" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Se usa como carpeta B2 y en reportes Telegram: <code id="slugPreview">—</code></div>
+      </div>
+      <div class="field-row">
+        <label class="field-label">Zona horaria del sitio</label>
+        <select class="field-input" id="fieldTimezone" onchange="state.timezone = this.value;">
+          <option value="America/Bogota">América/Bogotá (COT UTC-5)</option>
+          <option value="America/Denver">América/Denver (MT UTC-6/-7)</option>
+          <option value="America/New_York">América/Nueva York (ET UTC-5/-4)</option>
+          <option value="America/Chicago">América/Chicago (CT UTC-6/-5)</option>
+          <option value="America/Los_Angeles">América/Los Ángeles (PT UTC-8/-7)</option>
+          <option value="America/Mexico_City">América/Ciudad de México (CST UTC-6)</option>
+          <option value="America/Lima">América/Lima (PET UTC-5)</option>
+          <option value="America/Santiago">América/Santiago (CLT UTC-4/-3)</option>
+          <option value="America/Sao_Paulo">América/São Paulo (BRT UTC-3)</option>
+          <option value="America/Panama">América/Panamá (EST UTC-5)</option>
+          <option value="UTC">UTC</option>
+        </select>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Controla hora de backups automáticos y timestamps del sistema.</div>
+      </div>
+    </div>
+    <div style="height:1px;background:rgba(52,211,153,0.15);margin:12px 0;"></div>
+    <div style="font-size:12px;color:#34d399;font-weight:700;letter-spacing:0.5px;margin-bottom:10px;">USUARIO DE SERVICIO (cuenta Shomer en cada equipo)</div>
+    <p style="font-size:12px;color:var(--muted);margin:-4px 0 12px;line-height:1.5;">
+      Se crea este usuario en cada PC/Mac/servidor antes de registrarlo en Protector y Tracker.
+      Si hay Active Directory: créalo en el AD y aplicará a todos los equipos del dominio.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field-row">
+        <label class="field-label">Usuario de servicio</label>
+        <input class="field-input" id="fieldServiceUser" placeholder="ej: shomer"
+          oninput="state.serviceUser = this.value.trim();" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Se pre-rellena automáticamente al agregar equipos en Protector y Tracker.</div>
+      </div>
+      <div class="field-row">
+        <label class="field-label">Contraseña de servicio</label>
+        <input class="field-input" type="password" id="fieldServicePass"
+          oninput="state.servicePass = this.value;" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Override por equipo siempre disponible si alguno tiene credenciales distintas.</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn btn-blue" onclick="saveSiteInfo()">
+        Guardar nombre y zona horaria
+      </button>
+      <button class="btn btn-outline" onclick="saveServiceCredentials()">
+        Guardar usuario de servicio
+      </button>
+      <span id="siteInfoStatus" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       CARD TELEGRAM — Bot y notificaciones
+  ══════════════════════════════════════ -->
+  <div class="card" id="cardTelegram" style="border-color:rgba(13,110,110,0.35);">
+    <div class="card-title">TELEGRAM — BOT Y NOTIFICACIONES</div>
+    <p style="font-size:13px;color:var(--muted);margin:-8px 0 16px;line-height:1.5;">
+      El appliance envía alertas y acepta comandos del técnico vía Telegram. El Bot Token viene preconfigurado por USB Ingeniería. El técnico solo necesita escribir su Chat ID.
+    </p>
+
+    <!-- Token: readonly para no-admin, editable para admin -->
+    <div class="field-row" style="margin-bottom:14px;">
+      <label class="field-label">Bot Token <span id="tg-token-badge" style="font-size:10px;color:var(--muted);font-weight:400;">(solo admin)</span></label>
+      <input class="field-input" id="tg-token" type="password"
+             placeholder="Preconfigurado por USB Ingeniería"
+             autocomplete="new-password" />
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+        Un token por appliance, configurado antes de la entrega. Los técnicos no necesitan tocarlo.
+      </div>
+    </div>
+
+    <!-- Chat ID: editable para todos -->
+    <div class="field-row" style="margin-bottom:14px;">
+      <label class="field-label">Chat ID del técnico</label>
+      <input class="field-input" id="tg-chat-id"
+             placeholder="ej: 6513540405 — obtener con @userinfobot"
+             style="max-width:300px;" />
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+        En Telegram: envía un mensaje a <code>@userinfobot</code> y copia el número que te da como «Id».
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px;">
+      <button class="btn btn-blue" onclick="saveTelegramConfig()">
+        Guardar
+      </button>
+      <button class="btn btn-outline" onclick="testTelegramConfig()">
+        Probar Telegram
+      </button>
+      <span id="tg-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       CARD 1 — RED DEL CLIENTE
+  ══════════════════════════════════════ -->
+  <div class="card" id="card1">
+    <div class="card-title">PASO 1 — RED DEL CLIENTE Y DIRECCIONES</div>
+
+    <p style="font-size:13px;color:var(--muted);margin:-8px 0 16px;line-height:1.5;">
+      Pulsa <strong style="color:var(--text);">Escanear red</strong> para detectar subnet y hosts (usa la NIC de gestión si la indicaste). Si falla, escribe <strong>Subnet</strong> y <strong>Gateway</strong> a mano y vuelve a escanear.
+    </p>
+
+    <button class="btn btn-blue btn-teal" id="btnScan" onclick="doScan()">
+      <div class="spinner" id="spinScan"></div>
+      <span id="lblScan">Escanear red</span>
+    </button>
+
+    <div class="process-msg" id="msgScan">
+      <div class="spinner" style="display:block"></div>
+      Escaneando red… esto toma ~30 segundos
+    </div>
+
+    <!-- Resultado del scan -->
+    <div class="scan-result" id="scanResult">
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div class="field-row">
+          <label class="field-label">Subnet del cliente</label>
+          <input class="field-input" id="fieldSubnet"
+            placeholder="ej: 192.168.1.0/24"
+            oninput="state.subnet = this.value.trim(); validateIp();" />
+        </div>
+        <div class="field-row">
+          <label class="field-label">Gateway del cliente</label>
+          <input class="field-input" id="fieldGateway"
+            placeholder="ej: 192.168.1.1"
+            oninput="state.gateway = this.value.trim();" />
+        </div>
+      </div>
+
+      <p style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.45;">
+        <strong style="color:var(--text);">NIC gestión</strong>: panel y API (Guardian). <strong style="color:var(--text);">NIC mirror</strong>: tráfico SPAN hacia Hunter/Suricata — ambas en la <em>misma subnet</em> del cliente, IPs distintas.
+      </p>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px;">
+        <div class="field-row">
+          <label class="field-label">Interfaz — gestión (panel)</label>
+          <input class="field-input" id="fieldMgmtIface" placeholder="ej: enp2s0"
+            oninput="state.mgmtIface = this.value.trim(); validateIp();" />
+        </div>
+        <div class="field-row">
+          <label class="field-label">Interfaz — mirror (Hunter)</label>
+          <input class="field-input" id="fieldMirrorIface" placeholder="ej: enp4s0"
+            oninput="state.mirrorIface = this.value.trim(); validateIp();" />
+        </div>
+      </div>
+
+      <div class="scan-stats" id="scanStats"></div>
+
+      <div class="field-row">
+        <label class="field-label">IPs sugeridas (libres)</label>
+        <div class="ip-grid" id="ipGrid"></div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div class="field-row">
+          <label class="field-label">IP del Shomer (panel / API)</label>
+          <input
+            class="field-input"
+            id="fieldIp"
+            placeholder="Ej: 192.168.1.204"
+            oninput="validateIp()"
+          />
+          <div class="ip-validation" id="ipValidation"></div>
+        </div>
+        <div class="field-row">
+          <label class="field-label">IP del NIC mirror (opcional)</label>
+          <input
+            class="field-input"
+            id="fieldMirrorIp"
+            placeholder="Ej: 192.168.1.205"
+            oninput="validateIp()"
+          />
+          <div class="ip-validation" id="mirrorValidation"></div>
+        </div>
+      </div>
+
+      <button class="btn btn-blue btn-teal" id="btnCard1Next" onclick="showCard2()" disabled>
+        Continuar →
+      </button>
+
+    </div><!-- /scan-result -->
+  </div><!-- /card1 -->
+
+
+  <!-- ══════════════════════════════════════
+       CARD 2 — INTERNET DEL SHOMER
+  ══════════════════════════════════════ -->
+  <div class="card fade-card" id="card2" style="display:none">
+    <div class="card-title">PASO 2 — CONEXIÓN A INTERNET</div>
+    <p style="font-size:13px; color:var(--muted); margin-bottom:18px;">
+      Necesario para alertas Telegram y actualizaciones
+    </p>
+
+    <div class="radio-group">
+
+      <label class="radio-opt active" id="optA" onclick="selectInternet('client')">
+        <input type="radio" name="internet" value="client" checked />
+        <div class="radio-label-wrap">
+          <span class="radio-label">Usar internet de la red del cliente</span>
+          <span class="radio-muted">El gateway del cliente provee internet al Shomer</span>
+        </div>
+      </label>
+
+      <label class="radio-opt" id="optB" onclick="selectInternet('wifi')">
+        <input type="radio" name="internet" value="wifi" />
+        <div class="radio-label-wrap">
+          <span class="radio-label">Conectar a WiFi independiente</span>
+          <span class="radio-muted">Si la red del cliente no tiene internet</span>
+        </div>
+      </label>
+
+    </div><!-- /radio-group -->
+
+    <!-- Campos WiFi (ocultos hasta seleccionar opción B) -->
+    <div class="wifi-fields" id="wifiFields">
+
+      <div class="field-row">
+        <label class="field-label">SSID (nombre de la red WiFi)</label>
+        <input class="field-input" id="fieldSsid" placeholder="Nombre de la red" />
+      </div>
+
+      <div class="field-row">
+        <label class="field-label">Password WiFi</label>
+        <div class="pass-wrap">
+          <input class="field-input" id="fieldPass" type="password" placeholder="••••••••" />
+          <button class="btn-eye" type="button" onclick="togglePass()" id="btnEye">👁</button>
+        </div>
+      </div>
+
+      <button class="btn btn-blue btn-teal" id="btnTestWifi" onclick="doTestWifi()">
+        <div class="spinner" id="spinWifi"></div>
+        <span id="lblWifi">Probar conexión</span>
+      </button>
+
+      <div class="wifi-test-result" id="wifiResult"></div>
+
+    </div><!-- /wifi-fields -->
+
+    <div style="margin-top:20px;">
+      <button class="btn btn-blue btn-teal" id="btnCard2Next" onclick="showCard3()">
+        Continuar →
+      </button>
+    </div>
+  </div><!-- /card2 -->
+
+
+  <!-- ══════════════════════════════════════
+       CARD 3 — RESUMEN Y APLICAR
+  ══════════════════════════════════════ -->
+  <div class="card fade-card" id="card3" style="display:none">
+    <div class="card-title">PASO 3 — RESUMEN Y APLICAR</div>
+
+    <table class="summary-table">
+      <tr><td>NIC gestión</td>   <td id="sumMgmtIface">—</td></tr>
+      <tr><td>IP panel / API</td><td id="sumIp">—</td></tr>
+      <tr><td>NIC mirror</td>    <td id="sumMirrorIface">—</td></tr>
+      <tr><td>IP mirror</td>     <td id="sumMirrorIp">—</td></tr>
+      <tr><td>Subnet</td>        <td id="sumSubnet">—</td></tr>
+      <tr><td>Gateway</td>       <td id="sumGateway">—</td></tr>
+      <tr><td>Internet</td>      <td id="sumInternet">—</td></tr>
+    </table>
+
+    <button class="btn btn-blue btn-teal" id="btnApply" onclick="doApply()">
+      <div class="spinner" id="spinApply"></div>
+      <span id="lblApply">Aplicar configuración</span>
+    </button>
+
+    <div class="process-msg" id="msgApply">
+      <div class="spinner" style="display:block"></div>
+      Aplicando… esto puede tomar 15 segundos
+    </div>
+
+    <div class="apply-result" id="applyResult" style="margin-top:16px;"></div>
+
+  </div><!-- /card3 -->
+
+</div><!-- /setup-wrap -->
+
+<div style="margin-top:32px;text-align:center;padding-bottom:8px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;">
+  <a href="/" style="color:#0d6e6e;font-size:13px;font-weight:600;text-decoration:none;">← Guardian</a>
+  <a href="/admin" style="color:#0d6e6e;font-size:13px;font-weight:600;text-decoration:none;">Administración (licencia y usuarios)</a>
+</div>
+
+</div><!-- /setup-page-inner -->
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+/* ══════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════ */
+const state = {
+  clientName:   "",
+  timezone:     "America/Denver",
+  serviceUser:  "",
+  servicePass:  "",
+  subnet:       "",
+  gateway:      "",
+  ip:           "",
+  mgmtIface:    "",
+  mirrorIface:  "",
+  mirrorIp:     "",
+  occupiedList: [],
+  internetMode: "client",   // "client" | "wifi"
+  wifiTested:   false,
+  wifiOk:       false,
+};
+
+/* ══════════════════════════════════════════════
+   CARD 0 — SITE IDENTITY
+══════════════════════════════════════════════ */
+async function saveServiceCredentials() {
+  const status = document.getElementById('siteInfoStatus');
+  const user = document.getElementById('fieldServiceUser').value.trim();
+  const pass = document.getElementById('fieldServicePass').value;
+  if (!user) { status.textContent = 'Ingresa el usuario de servicio.'; status.style.color='#f87171'; return; }
+  if (!pass) { status.textContent = 'Ingresa la contraseña del usuario de servicio.'; status.style.color='#f87171'; return; }
+  status.textContent = 'Guardando…'; status.style.color = 'var(--muted)';
+  try {
+    const r = await shomerFetch('/setup/site-info', { method: 'POST', body: JSON.stringify({ service_user: user, service_pass: pass }) });
+    const d = await r.json();
+    if (d.success) { status.textContent = '✓ Usuario de servicio guardado'; status.style.color = 'var(--teal)'; }
+    else           { status.textContent = d.detail || 'Error'; status.style.color = '#f87171'; }
+  } catch(e) { status.textContent = 'Error: ' + e.message; status.style.color = '#f87171'; }
+}
+
+async function saveSiteInfo() {
+  const btn    = document.querySelector('button[onclick="saveSiteInfo()"]');
+  const status = document.getElementById('siteInfoStatus');
+  const payload = {
+    client_name: document.getElementById('fieldClientName').value.trim(),
+    timezone:    document.getElementById('fieldTimezone').value,
+  };
+  if (!payload.client_name) { status.textContent = 'El nombre del sitio es obligatorio.'; status.style.color='#f87171'; return; }
+  btn.disabled = true;
+  status.textContent = 'Guardando…';
+  status.style.color = 'var(--muted)';
+  try {
+    const r = await shomerFetch('/setup/site-info', { method: 'POST', body: JSON.stringify(payload) });
+    const d = await r.json();
+    if (d.success) {
+      status.textContent = '✓ Guardado correctamente';
+      status.style.color = 'var(--teal)';
+      updateSlugPreview(payload.client_name);
+    } else {
+      status.textContent = d.detail || 'Error al guardar';
+      status.style.color = '#f87171';
+    }
+  } catch (e) {
+    status.textContent = 'Error de red: ' + e.message;
+    status.style.color = '#f87171';
+  } finally {
+    btn.disabled = false;
+  }
+}
+function updateSlugPreview(name) {
+  const slug = (name || "").toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+  const el = document.getElementById("slugPreview");
+  if (el) el.textContent = slug || "—";
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const f = document.getElementById("fieldClientName");
+  if (f) f.addEventListener("input", () => { state.clientName = f.value.trim(); updateSlugPreview(f.value.trim()); });
+});
+
+/* ══════════════════════════════════════════════
+   CARD 1 — SCAN
+══════════════════════════════════════════════ */
+async function parseApiDetail(res) {
+  const data = await res.json().catch(() => ({}));
+  const d = data.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) return d.map((x) => (x.msg != null ? x.msg : String(x))).join(" ");
+  if (d != null && typeof d === "object") return JSON.stringify(d);
+  return data.message || res.statusText || "Error desconocido";
+}
+
+function setSetupStep(step) {
+  for (let i = 1; i <= 3; i++) {
+    const el = document.getElementById("setup-step-" + i);
+    if (el) el.classList.toggle("active", i === step);
+  }
+}
+
+async function doScan() {
+  const btn  = document.getElementById("btnScan");
+  const spin = document.getElementById("spinScan");
+  const lbl  = document.getElementById("lblScan");
+  const msg  = document.getElementById("msgScan");
+
+  btn.disabled = true;
+  spin.style.display = "block";
+  lbl.textContent = "Escaneando…";
+  msg.classList.add("visible");
+  document.getElementById("scanResult").style.display = "none";
+
+  try {
+    await loadNicHints();
+    const body = {};
+    const ifc = document.getElementById("fieldMgmtIface").value.trim();
+    const sn = document.getElementById("fieldSubnet").value.trim();
+    const gw = document.getElementById("fieldGateway").value.trim();
+    if (ifc) body.interface = ifc;
+    if (sn) body.subnet = sn;
+    if (gw) body.gateway = gw;
+
+    const res  = await shomerFetch("/setup/scan_ips", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const detail = await parseApiDetail(res);
+      throw new Error(detail);
+    }
+    const data = await res.json();
+
+    if (!data.success) {
+      throw new Error(data.message || "Error en el scan");
+    }
+
+    state.subnet       = data.subnet;
+    state.gateway      = data.gateway;
+    state.occupiedList = data.occupied_list || [];
+
+    document.getElementById("fieldSubnet").value  = data.subnet;
+    document.getElementById("fieldGateway").value = data.gateway;
+    document.getElementById("scanStats").innerHTML =
+      `<span>${data.occupied}</span> ocupadas · <span>${data.free}</span> libres de <span>${data.total_hosts}</span> hosts`;
+
+    buildIpGrid(data.suggestions || []);
+    document.getElementById("scanResult").style.display = "flex";
+    lbl.textContent = "Escanear de nuevo";
+    await loadNicHints();
+
+  } catch (e) {
+    alert("Error al escanear: " + (e && e.message ? e.message : e));
+  } finally {
+    btn.disabled = false;
+    spin.style.display = "none";
+    msg.classList.remove("visible");
+  }
+}
+
+/** Sugiere nombres de NIC (OEM via env en el servidor) y rellena IPs actuales */
+async function loadNicHints() {
+  try {
+    const r = await shomerFetch("/setup/detect_nics");
+    const d = await r.json();
+    if (!d.success) return;
+    const mg = document.getElementById("fieldMgmtIface");
+    const mi = document.getElementById("fieldMirrorIface");
+    const mp = document.getElementById("fieldMirrorIp");
+    if (mg && !mg.value.trim() && d.default_management) mg.value = d.default_management;
+    if (mi && !mi.value.trim() && d.default_mirror) mi.value = d.default_mirror;
+    if (d.interfaces && d.default_mirror && mp && !mp.value.trim()) {
+      const row = d.interfaces.find((x) => x.name === d.default_mirror);
+      if (row) mp.value = row.ip;
+    }
+    validateIp();
+  } catch (e) {}
+}
+
+function buildIpGrid(suggestions) {
+  const grid = document.getElementById("ipGrid");
+  grid.innerHTML = "";
+  suggestions.forEach(ip => {
+    const b = document.createElement("button");
+    b.className = "ip-btn";
+    b.textContent = ip;
+    b.onclick = () => selectIp(ip, b);
+    grid.appendChild(b);
+  });
+}
+
+function selectIp(ip, btn) {
+  document.querySelectorAll(".ip-btn").forEach(b => b.classList.remove("selected"));
+  btn.classList.add("selected");
+  document.getElementById("fieldIp").value = ip;
+  validateIp();
+}
+
+function validateIp() {
+  const val  = document.getElementById("fieldIp").value.trim();
+  const disp = document.getElementById("ipValidation");
+  const next = document.getElementById("btnCard1Next");
+  const mif  = document.getElementById("fieldMgmtIface").value.trim();
+  const mirIf = document.getElementById("fieldMirrorIface").value.trim();
+  const mirIp = document.getElementById("fieldMirrorIp").value.trim();
+  state.mgmtIface = mif;
+  state.mirrorIface = mirIf;
+  state.mirrorIp = mirIp;
+  const mv = document.getElementById("mirrorValidation");
+
+  if (!mif) {
+    disp.textContent = "Indica el nombre de la interfaz de gestión (ej. enp2s0)";
+    disp.className   = "ip-validation err";
+    next.disabled    = true;
+    mv.textContent = "";
+    return;
+  }
+
+  if (!val) {
+    disp.textContent = "";
+    disp.className   = "ip-validation";
+    mv.textContent = "";
+    next.disabled    = true;
+    return;
+  }
+
+  const ipRe = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+  if (!ipRe.test(val)) {
+    disp.textContent = "Formato de IP inválido";
+    disp.className   = "ip-validation err";
+    next.disabled    = true;
+    mv.textContent = "";
+    return;
+  }
+
+  if (state.occupiedList.includes(val)) {
+    disp.textContent = "IP ocupada — elige otra";
+    disp.className   = "ip-validation err";
+    next.disabled    = true;
+    mv.textContent = "";
+    return;
+  }
+
+  if (state.subnet && !ipInSubnet(val, state.subnet)) {
+    disp.textContent = `IP no pertenece a ${state.subnet}`;
+    disp.className   = "ip-validation err";
+    next.disabled    = true;
+    mv.textContent = "";
+    return;
+  }
+
+  disp.textContent = "IP gestión OK ✓";
+  disp.className   = "ip-validation ok";
+  state.ip         = val;
+
+  /* Mirror: vacío = solo gestión; si rellenas uno, rellena ambos (nombre + IP) */
+  if (!mirIf && !mirIp) {
+    mv.textContent = "";
+    mv.className = "ip-validation";
+    next.disabled = false;
+    return;
+  }
+  if (mirIf && !mirIp) {
+    mv.textContent = "Indica la IP del NIC mirror (misma subnet)";
+    mv.className = "ip-validation err";
+    next.disabled = true;
+    return;
+  }
+  if (!mirIf && mirIp) {
+    mv.textContent = "Indica el nombre de la interfaz mirror";
+    mv.className = "ip-validation err";
+    next.disabled = true;
+    return;
+  }
+  if (mirIf === mif) {
+    mv.textContent = "Gestión y mirror deben ser interfaces distintas";
+    mv.className = "ip-validation err";
+    next.disabled = true;
+    return;
+  }
+  if (!ipRe.test(mirIp)) {
+    mv.textContent = "Formato IP mirror inválido";
+    mv.className = "ip-validation err";
+    next.disabled = true;
+    return;
+  }
+  if (mirIp === val) {
+    mv.textContent = "IP mirror no puede coincidir con la IP de gestión";
+    mv.className = "ip-validation err";
+    next.disabled = true;
+    return;
+  }
+  if (state.subnet && !ipInSubnet(mirIp, state.subnet)) {
+    mv.textContent = `IP mirror fuera de ${state.subnet}`;
+    mv.className = "ip-validation err";
+    next.disabled = true;
+    return;
+  }
+  if (state.occupiedList.includes(mirIp)) {
+    mv.textContent = "IP mirror ocupada — elige otra";
+    mv.className = "ip-validation err";
+    next.disabled = true;
+    return;
+  }
+  mv.textContent = "IP mirror OK ✓";
+  mv.className = "ip-validation ok";
+  next.disabled = false;
+}
+
+function ipInSubnet(ip, subnet) {
+  try {
+    const [net, bits] = subnet.split("/");
+    const mask   = ~((1 << (32 - parseInt(bits))) - 1) >>> 0;
+    const ipInt  = ip.split(".").reduce((a, o) => (a << 8) | parseInt(o), 0) >>> 0;
+    const netInt = net.split(".").reduce((a, o) => (a << 8) | parseInt(o), 0) >>> 0;
+    return (ipInt & mask) === (netInt & mask);
+  } catch { return true; }
+}
+
+function showCard2() {
+  state.ip = document.getElementById("fieldIp").value.trim();
+  state.mgmtIface = document.getElementById("fieldMgmtIface").value.trim();
+  state.mirrorIface = document.getElementById("fieldMirrorIface").value.trim();
+  state.mirrorIp = document.getElementById("fieldMirrorIp").value.trim();
+  setSetupStep(2);
+  revealCard("card2");
+  setTimeout(() => document.getElementById("card2").scrollIntoView({ behavior: "smooth" }), 50);
+}
+
+/* ══════════════════════════════════════════════
+   CARD 2 — INTERNET
+══════════════════════════════════════════════ */
+function selectInternet(mode) {
+  state.internetMode = mode;
+  state.wifiTested   = false;
+  state.wifiOk       = false;
+
+  document.getElementById("optA").classList.toggle("active", mode === "client");
+  document.getElementById("optB").classList.toggle("active", mode === "wifi");
+  document.getElementById("optA").querySelector("input").checked = (mode === "client");
+  document.getElementById("optB").querySelector("input").checked = (mode === "wifi");
+
+  const wf = document.getElementById("wifiFields");
+  if (mode === "wifi") {
+    wf.classList.add("visible");
+    document.getElementById("btnCard2Next").disabled = true;
+  } else {
+    wf.classList.remove("visible");
+    document.getElementById("wifiResult").innerHTML = "";
+    document.getElementById("btnCard2Next").disabled = false;
+  }
+}
+
+async function doTestWifi() {
+  const btn  = document.getElementById("btnTestWifi");
+  const spin = document.getElementById("spinWifi");
+  const lbl  = document.getElementById("lblWifi");
+  const res  = document.getElementById("wifiResult");
+
+  btn.disabled = true;
+  spin.style.display = "block";
+  lbl.textContent = "Probando…";
+  res.innerHTML = "";
+
+  try {
+    const r    = await shomerFetch("/setup/test_wifi", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const data = await r.json();
+
+    state.wifiTested = true;
+    state.wifiOk     = data.has_internet;
+
+    const color = data.has_internet ? "green" : "red";
+    const msg   = data.has_internet
+      ? "Internet OK"
+      : "Sin internet — verifica el SSID y password";
+    res.innerHTML = `<div class="dot ${color}"></div><span style="color:var(--${color})">${msg}</span>`;
+
+    document.getElementById("btnCard2Next").disabled = !data.has_internet;
+
+  } catch (e) {
+    res.innerHTML = `<div class="dot red"></div><span style="color:var(--red)">Error al probar: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    spin.style.display = "none";
+    lbl.textContent = "Probar conexión";
+  }
+}
+
+function togglePass() {
+  const f   = document.getElementById("fieldPass");
+  const eye = document.getElementById("btnEye");
+  if (f.type === "password") { f.type = "text";     eye.textContent = "🙈"; }
+  else                        { f.type = "password"; eye.textContent = "👁"; }
+}
+
+function showCard3() {
+  const ssid = document.getElementById("fieldSsid").value.trim();
+  const internetLabel = state.internetMode === "client"
+    ? "via red del cliente"
+    : `via WiFi "${ssid}"`;
+
+  document.getElementById("sumMgmtIface").textContent   = state.mgmtIface || document.getElementById("fieldMgmtIface").value.trim() || "—";
+  document.getElementById("sumIp").textContent          = state.ip;
+  document.getElementById("sumMirrorIface").textContent = state.mirrorIface || "—";
+  document.getElementById("sumMirrorIp").textContent    = state.mirrorIp || "—";
+  document.getElementById("sumSubnet").textContent      = state.subnet;
+  document.getElementById("sumGateway").textContent     = state.gateway;
+  document.getElementById("sumInternet").textContent    = internetLabel;
+
+  setSetupStep(3);
+  revealCard("card3");
+  setTimeout(() => document.getElementById("card3").scrollIntoView({ behavior: "smooth" }), 50);
+}
+
+/* ══════════════════════════════════════════════
+   CARD 3 — APPLY
+══════════════════════════════════════════════ */
+async function doApply() {
+  const btn    = document.getElementById("btnApply");
+  const spin   = document.getElementById("spinApply");
+  const lbl    = document.getElementById("lblApply");
+  const msg    = document.getElementById("msgApply");
+  const result = document.getElementById("applyResult");
+
+  btn.disabled = true;
+  spin.style.display = "block";
+  lbl.textContent = "Aplicando…";
+  msg.classList.add("visible");
+  result.style.display = "none";
+
+  const payload = {
+    client_name:         state.clientName  || document.getElementById("fieldClientName").value.trim(),
+    timezone:            state.timezone    || document.getElementById("fieldTimezone").value,
+    service_user:        state.serviceUser || document.getElementById("fieldServiceUser").value.trim(),
+    service_pass:        state.servicePass || document.getElementById("fieldServicePass").value,
+    ip_static:           state.ip,
+    subnet:              state.subnet,
+    gateway:             state.gateway,
+    interface:           state.mgmtIface || document.getElementById("fieldMgmtIface").value.trim(),
+    mirror_interface:    state.mirrorIface || document.getElementById("fieldMirrorIface").value.trim(),
+    mirror_ip:           state.mirrorIp || document.getElementById("fieldMirrorIp").value.trim(),
+    use_client_internet: state.internetMode === "client",
+  };
+
+  if (state.internetMode === "wifi") {
+    payload.wifi_ssid = document.getElementById("fieldSsid").value.trim();
+    payload.wifi_pass = document.getElementById("fieldPass").value;
+  }
+
+  try {
+    const r    = await shomerFetch("/setup/apply", {
+      method:  "POST",
+      body:    JSON.stringify(payload),
+    });
+    const data = await r.json();
+
+    result.style.display = "block";
+
+    if (r.ok && data.success) {
+      const newUrl = `https://${data.new_ip}:8443`;
+      const isReconfig = !!(window._shomerAlreadyConfigured);
+      result.innerHTML = `
+        <div class="apply-ok">
+          <div class="check">✓</div>
+          <h3>${isReconfig ? 'Red reconfigurada' : 'Shomer configurado'}</h3>
+          <p>${isReconfig
+            ? 'La IP cambió. Reconéctate desde la nueva dirección:'
+            : 'Conecta el cable a la red del cliente y accede desde:'}</p>
+          <a href="${newUrl}" target="_blank">${newUrl}</a>
+        </div>`;
+    } else {
+      const detail = data.detail || data.message || "Error desconocido";
+      result.innerHTML = `<div class="apply-err">Error: ${detail}</div>`;
+      btn.disabled = false;
+      spin.style.display = "none";
+      lbl.textContent = "Reintentar";
+    }
+  } catch (e) {
+    result.style.display = "block";
+    result.innerHTML = `<div class="apply-err">Error de red: ${e.message}</div>`;
+    btn.disabled = false;
+    spin.style.display = "none";
+    lbl.textContent = "Reintentar";
+  } finally {
+    msg.classList.remove("visible");
+  }
+}
+
+/* ══════════════════════════════════════════════
+   UTIL — revelar card con fadeIn
+══════════════════════════════════════════════ */
+function revealCard(id) {
+  const el = document.getElementById(id);
+  el.style.display = "block";
+  void el.offsetHeight;   // force reflow para activar la transición CSS
+  el.classList.add("visible");
+}
+
+async function loadFactoryHint() {
+  try {
+    const r = await fetch("/setup/status", { credentials: "same-origin" });
+    if (!r.ok) return;
+    const d = await r.json();
+
+    // ── Modo reconfiguración: sistema ya tiene IP asignada ─────────────────
+    if (d.configured && d.current) {
+      window._shomerAlreadyConfigured = true;
+      const c = d.current;
+
+      // Actualizar título
+      const titleEl = document.getElementById("setupWizardTitle");
+      if (titleEl) titleEl.textContent = "Reconfigurar red";
+
+      // Banner amarillo: primero muestra lo que hay en DB, luego reemplaza con IPs vivas
+      const rb = document.getElementById("reconfigBanner");
+      if (rb) {
+        rb.innerHTML =
+          '<div class="factory-banner-title" style="color:#f5c518">IPs actuales en el servidor</div>' +
+          '<div id="reconfig-nics" style="margin-top:8px;font-size:12px;color:#94a3b8;">Consultando interfaces…</div>' +
+          '<p style="font-size:12px;color:#6b7a99;margin-top:8px;">Al aplicar, el panel se desconectará brevemente. Reconéctate desde la nueva IP.</p>';
+        rb.style.display = "block";
+
+        // Consultar IPs vivas de las NICs
+        shomerFetch("/api/system-health")
+          .then(r => r.json())
+          .then(h => {
+            const nics = (h.nics || []).filter(n => n.ips && n.ips.some(ip => ip.family === "IPv4"));
+            const nicsEl = document.getElementById("reconfig-nics");
+            if (!nicsEl) return;
+            if (!nics.length) {
+              nicsEl.innerHTML = '<span style="color:#6b7a99">Sin direcciones IPv4 detectadas en las interfaces.</span>';
+              return;
+            }
+            nicsEl.innerHTML = nics.map(n => {
+              const ipv4 = n.ips.filter(ip => ip.family === "IPv4");
+              return ipv4.map(ip =>
+                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+                '<code style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px;color:#94a3b8;">' + n.name + '</code>' +
+                '<span style="color:#e2e8f0;font-weight:600;">' + ip.address + '</span>' +
+                (ip.netmask ? '<span style="color:#475569">/ ' + ip.netmask + '</span>' : '') +
+                '<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:' + (n.is_up ? 'rgba(34,197,94,.12)' : 'rgba(220,38,38,.12)') + ';color:' + (n.is_up ? '#4ade80' : '#f87171') + ';">' + (n.is_up ? 'UP' : 'DOWN') + '</span>' +
+                '</div>'
+              ).join('');
+            }).join('');
+          })
+          .catch(() => {
+            const nicsEl = document.getElementById("reconfig-nics");
+            if (nicsEl) nicsEl.innerHTML = '<span style="color:#6b7a99">No se pudo consultar las interfaces.</span>';
+          });
+      }
+
+      // Pre-rellenar campos con valores actuales
+      const fMgmt   = document.getElementById("fieldMgmtIface");
+      const fMirror = document.getElementById("fieldMirrorIface");
+      const fMirIp  = document.getElementById("fieldMirrorIp");
+      const fSubnet = document.getElementById("fieldSubnet");
+      const fGw     = document.getElementById("fieldGateway");
+      const fCName  = document.getElementById("fieldClientName");
+      const fTz     = document.getElementById("fieldTimezone");
+      if (fMgmt   && !fMgmt.value   && c.interface)        fMgmt.value   = c.interface;
+      if (fMirror && !fMirror.value  && c.mirror_interface) fMirror.value = c.mirror_interface;
+      if (fMirIp  && !fMirIp.value   && c.mirror_ip)        fMirIp.value  = c.mirror_ip;
+      if (fSubnet && !fSubnet.value  && c.subnet)           fSubnet.value = c.subnet;
+      if (fGw     && !fGw.value      && c.gateway)          fGw.value     = c.gateway;
+      const fSvcUser = document.getElementById("fieldServiceUser");
+      if (fCName   && c.client_name)  { fCName.value   = c.client_name;  state.clientName  = c.client_name;  updateSlugPreview(c.client_name); }
+      if (fTz      && c.timezone)     { fTz.value      = c.timezone;     state.timezone     = c.timezone; }
+      if (fSvcUser && c.service_user) { fSvcUser.value  = c.service_user; state.serviceUser  = c.service_user; }
+
+      // Pre-cargar IP actual en el campo de IP
+      if (c.server_ip) {
+        state.ip = c.server_ip;
+        const fIp = document.getElementById("fieldIp");
+        if (fIp && !fIp.value) fIp.value = c.server_ip;
+      }
+    }
+
+    // ── Banner de fábrica (solo si needs_setup) ────────────────────────────
+    if (!d.needs_setup || !d.factory) return;
+    const f = d.factory;
+    const el = document.getElementById("factoryBanner");
+    if (!el) return;
+    const port = f.panel_port_hint || "8000";
+    const path = f.setup_url_path || "/setup";
+    el.innerHTML =
+      '<div class="factory-banner-title">Referencia — reset de fábrica</div>' +
+      "<p>Con el portátil en la red de fábrica, abra el asistente así:</p>" +
+      '<p class="factory-banner-code">http://' + f.ip + ":" + port + path + "</p>" +
+      '<p class="factory-banner-meta">Subred típica <code>' + f.subnet + "</code> · gateway <code>" + f.gateway + "</code>" +
+      (f.management_interface_oem ? ' · NIC gestión (OEM) <code>' + f.management_interface_oem + "</code>" : "") +
+      "</p>";
+    el.style.display = "block";
+  } catch (_e) {}
+}
+
+/* ══════════════════════════════════════════════
+   CARD TELEGRAM
+══════════════════════════════════════════════ */
+let _tgIsAdmin = false;
+
+async function _loadTelegramCard() {
+  // Detectar rol
+  try {
+    const r = await shomerFetch('/auth/me');
+    const d = r.ok ? await r.json() : null;
+    _tgIsAdmin = d && d.role === 'admin';
+  } catch(_) { _tgIsAdmin = false; }
+
+  const tokenInput = document.getElementById('tg-token');
+  const tokenBadge = document.getElementById('tg-token-badge');
+  if (tokenInput) {
+    tokenInput.readOnly = !_tgIsAdmin;
+    if (!_tgIsAdmin) {
+      tokenInput.style.opacity = '0.55';
+      tokenInput.style.cursor  = 'default';
+      tokenInput.title         = 'Solo el administrador puede editar el token';
+    }
+    if (tokenBadge) tokenBadge.style.display = _tgIsAdmin ? 'none' : '';
+  }
+
+  // Cargar valores actuales
+  try {
+    const r2 = await shomerFetch('/config/system');
+    if (!r2.ok) return;
+    const cfg = await r2.json();
+    const g   = cfg.guardian || {};
+    if (tokenInput && g.telegram_token)
+      tokenInput.value = g.telegram_token;
+    const chatInput = document.getElementById('tg-chat-id');
+    if (chatInput && g.telegram_chat_id)
+      chatInput.value = g.telegram_chat_id;
+  } catch(_) {}
+}
+
+async function saveTelegramConfig() {
+  const status  = document.getElementById('tg-status');
+  const chatId  = (document.getElementById('tg-chat-id')?.value || '').trim();
+  const token   = (document.getElementById('tg-token')?.value   || '').trim();
+
+  if (!chatId) {
+    status.textContent = 'El Chat ID es obligatorio.';
+    status.style.color = '#f87171';
+    return;
+  }
+  status.textContent = 'Guardando…';
+  status.style.color = 'var(--muted)';
+
+  const payload = { guardian: { telegram_chat_id: chatId } };
+  if (_tgIsAdmin && token) payload.guardian.telegram_token = token;
+
+  try {
+    const r = await shomerFetch('/config/system', { method: 'POST', body: JSON.stringify(payload) });
+    const d = await r.json();
+    if (d.success) {
+      status.textContent = '✓ Guardado';
+      status.style.color = 'var(--teal)';
+    } else {
+      status.textContent = d.detail || 'Error al guardar';
+      status.style.color = '#f87171';
+    }
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    status.style.color = '#f87171';
+  }
+}
+
+async function testTelegramConfig() {
+  const status = document.getElementById('tg-status');
+  status.textContent = 'Enviando mensaje de prueba…';
+  status.style.color = 'var(--muted)';
+  try {
+    const r = await shomerFetch('/telegram/test', { method: 'POST' });
+    const d = await r.json();
+    if (d.success) {
+      status.textContent = '✅ Telegram OK — mensaje enviado';
+      status.style.color = 'var(--teal)';
+    } else {
+      status.textContent = '❌ ' + (d.detail || 'Error al enviar');
+      status.style.color = '#f87171';
+    }
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    status.style.color = '#f87171';
+  }
+}
+
+// Cargar al iniciar
+document.addEventListener('DOMContentLoaded', () => {
+  setSetupStep(1);
+  loadNicHints();
+  loadFactoryHint();
+  _loadTelegramCard();
+});
+</script>
+{% endblock %}

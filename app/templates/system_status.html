@@ -1,0 +1,602 @@
+{% extends "base.html" %}
+{% block page_title %}Estado del Sistema{% endblock %}
+
+{% block extra_styles %}
+.ss-main { display:flex; flex-direction:column; gap:16px; padding:20px; overflow-y:auto; flex:1; }
+
+/* topbar */
+.ss-topbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.ss-topbar h1 { font-size:14px; font-weight:700; color:var(--text); letter-spacing:.5px; }
+.ss-updated  { font-size:11px; color:var(--muted); }
+
+/* section label */
+.ss-t { font-size:11px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase;
+        color:var(--muted); display:flex; align-items:center; gap:6px; margin-bottom:10px; }
+.ss-t svg { width:14px; height:14px; flex-shrink:0; fill:none; stroke:currentColor; stroke-width:2; }
+
+/* ── 4 tarjetas ejecutivas ── */
+.exec-row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+@media(max-width:900px){ .exec-row { grid-template-columns:repeat(2,1fr); } }
+@media(max-width:520px){ .exec-row { grid-template-columns:1fr; } }
+
+.exec-card { background:var(--card); border:1.5px solid var(--border); border-radius:10px;
+             padding:14px 16px; display:flex; flex-direction:column; gap:6px; }
+.exec-card.ok-border   { border-color:rgba(34,197,94,.4); }
+.exec-card.warn-border { border-color:rgba(245,158,11,.4); }
+.exec-card.fail-border { border-color:rgba(220,38,38,.4); }
+.exec-card.na-border   { border-color:var(--border); }
+
+.exec-head { display:flex; align-items:center; gap:8px; }
+.exec-icon { font-size:18px; line-height:1; }
+.exec-lbl  { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); }
+.exec-val  { font-size:24px; font-weight:800; line-height:1; }
+.exec-val.ok   { color:var(--online); }
+.exec-val.warn { color:var(--warning); }
+.exec-val.fail { color:var(--offline); }
+.exec-val.na   { color:var(--muted); }
+.exec-sub  { font-size:11px; color:var(--muted); }
+
+/* ── servicios ── */
+.grid-svc { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
+
+.svc-pill { background:var(--card); border:1px solid var(--border); border-radius:8px;
+            padding:10px 14px; display:flex; align-items:center; gap:10px; }
+.svc-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; transition:background .3s; }
+.svc-dot.active        { background:var(--online);  box-shadow:0 0 6px var(--online); }
+.svc-dot.inactive      { background:var(--offline); }
+.svc-dot.failed        { background:var(--offline); box-shadow:0 0 5px var(--offline); }
+.svc-dot.activating    { background:var(--warning); animation:pulse 1s infinite; }
+.svc-dot.not_installed { background:var(--muted); opacity:.5; }
+.svc-dot.unknown       { background:var(--muted); }
+
+.svc-info { display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+.svc-name { font-size:13px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.svc-desc { font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.svc-badge { font-size:10px; font-weight:700; text-transform:uppercase; padding:3px 8px;
+             border-radius:4px; flex-shrink:0; letter-spacing:.4px; }
+.svc-badge.active        { background:rgba(34,197,94,.12);  color:var(--online); }
+.svc-badge.inactive      { background:rgba(220,38,38,.12);  color:var(--offline); }
+.svc-badge.failed        { background:rgba(220,38,38,.18);  color:#f87171; }
+.svc-badge.activating    { background:rgba(245,158,11,.12); color:var(--warning); }
+.svc-badge.not_installed { background:rgba(148,163,184,.08);color:var(--muted); }
+.svc-badge.unknown       { background:rgba(148,163,184,.1); color:var(--muted); }
+
+/* ── recursos ── */
+.grid-2eq { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media(max-width:700px){ .grid-2eq { grid-template-columns:1fr; } }
+
+.res-card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; }
+.res-section { margin-bottom:14px; }
+.res-section:last-child { margin-bottom:0; }
+
+.res-header { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:4px; }
+.res-label  { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); }
+.res-num    { font-size:28px; font-weight:800; line-height:1; }
+.res-num.ok    { color:var(--online); }
+.res-num.warn  { color:var(--warning); }
+.res-num.danger{ color:var(--offline); }
+.res-detail { font-size:11px; color:var(--muted); margin-top:2px; margin-bottom:6px; }
+.bar-track  { height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+.bar-fill   { height:100%; border-radius:3px; transition:width .4s; }
+.bar-fill.ok    { background:var(--online); }
+.bar-fill.warn  { background:var(--warning); }
+.bar-fill.danger{ background:var(--offline); }
+
+.res-footer { display:flex; align-items:center; justify-content:space-between;
+              padding-top:12px; border-top:1px solid var(--border); margin-top:14px; }
+.res-footer-label { font-size:11px; color:var(--muted); font-weight:600; }
+.res-footer-val   { font-size:14px; font-weight:700; color:var(--text); }
+
+/* ── discos ── */
+.disk-item { display:flex; align-items:center; gap:12px; padding:10px 0;
+             border-bottom:1px solid var(--border); }
+.disk-item:last-child { border-bottom:none; padding-bottom:0; }
+.disk-item:first-child { padding-top:0; }
+
+.disk-pct  { font-size:22px; font-weight:800; width:56px; flex-shrink:0; text-align:right; }
+.disk-pct.ok    { color:var(--online); }
+.disk-pct.warn  { color:var(--warning); }
+.disk-pct.danger{ color:var(--offline); }
+
+.disk-body { flex:1; min-width:0; }
+.disk-name { font-size:12px; font-weight:700; color:var(--text); }
+.disk-path { font-size:10px; font-family:monospace; color:var(--muted); margin-left:6px; }
+.disk-free { font-size:11px; color:var(--muted); margin-top:2px; margin-bottom:5px; }
+.disk-bar  { height:5px; background:var(--border); border-radius:3px; overflow:hidden; }
+
+/* ── NICs ── */
+.nics-row  { display:flex; flex-wrap:wrap; gap:8px; }
+.nic-chip  { background:var(--card); border:1px solid var(--border); border-radius:8px;
+             padding:10px 14px; display:flex; align-items:center; gap:10px; }
+.nic-dot   { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.nic-dot.up   { background:var(--online); box-shadow:0 0 5px var(--online); }
+.nic-dot.down { background:var(--offline); }
+.nic-info  { display:flex; flex-direction:column; gap:2px; }
+.nic-name  { font-size:13px; font-weight:700; color:var(--text); }
+.nic-ip    { font-size:10px; font-family:monospace; color:var(--cyan);
+             background:rgba(6,182,212,.07); border-radius:3px; padding:2px 6px; display:inline-block; }
+.nic-badge { font-size:10px; font-weight:700; padding:3px 8px; border-radius:4px; text-transform:uppercase; }
+.nic-badge.up   { background:rgba(34,197,94,.12);  color:var(--online); }
+.nic-badge.down { background:rgba(220,38,38,.12);  color:var(--offline); }
+
+/* ── bot card ── */
+.bot-card  { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; }
+.bot-row   { display:flex; align-items:center; justify-content:space-between; padding:6px 0;
+             border-bottom:1px solid var(--border); }
+.bot-row:last-child { border-bottom:none; padding-bottom:0; }
+.bot-row:first-child{ padding-top:0; }
+.bot-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+.bot-val   { font-size:13px; font-weight:700; color:var(--text); }
+.bot-badge { font-size:11px; font-weight:700; padding:4px 10px; border-radius:5px; letter-spacing:.3px; }
+.bot-badge.running { background:rgba(34,197,94,.12);  color:var(--online); }
+.bot-badge.stopped { background:rgba(220,38,38,.12);  color:var(--offline); }
+.bot-badge.unknown { background:rgba(148,163,184,.1); color:var(--muted); }
+.llm-badge { font-size:11px; font-weight:700; padding:4px 10px; border-radius:5px;
+             background:rgba(6,182,212,.1); color:var(--cyan); }
+
+/* ── log console ── */
+.log-wrap { background:var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.log-header { display:flex; align-items:center; gap:8px; padding:12px 16px;
+              cursor:pointer; user-select:none; border-bottom:1px solid transparent; }
+.log-header:hover { background:rgba(30,42,58,.4); }
+.log-header svg { width:14px; height:14px; fill:none; stroke:var(--muted); stroke-width:2; flex-shrink:0; }
+.log-header-title { font-size:13px; font-weight:600; color:var(--text); flex:1; }
+.log-header-hint  { font-size:11px; color:var(--muted); }
+.log-body { display:none; border-top:1px solid var(--border); }
+.log-wrap.open .log-body { display:flex; flex-direction:column; }
+.log-wrap.open .log-header { border-bottom-color:var(--border); }
+.log-toolbar { display:flex; align-items:center; gap:6px; padding:8px 12px;
+               border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.log-svc-tabs { display:flex; gap:4px; flex-wrap:wrap; flex:1; }
+.log-tab { font-size:11px; font-weight:600; padding:4px 10px; border-radius:5px;
+           border:1px solid var(--border); background:transparent; color:var(--muted);
+           cursor:pointer; white-space:nowrap; }
+.log-tab:hover  { border-color:var(--cyan); color:var(--text); }
+.log-tab.active { background:rgba(6,182,212,.12); border-color:var(--cyan); color:var(--cyan); }
+.log-btn { font-size:11px; font-weight:600; padding:4px 10px; border-radius:5px;
+           border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; }
+.log-btn:hover   { border-color:var(--text); color:var(--text); }
+.log-btn.auto-on { border-color:var(--online); color:var(--online); }
+.log-lines { font-family:monospace; font-size:11px; line-height:1.6; color:#7dd3fc;
+             background:#050810; padding:10px 14px; overflow-y:auto; height:200px;
+             white-space:pre-wrap; word-break:break-all; }
+.log-err  { color:#f87171; }
+.log-warn { color:#fbbf24; }
+.log-ok   { color:#4ade80; }
+.log-muted{ color:#475569; }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+{% endblock %}
+
+{% block content %}
+<div class="ss-main">
+
+  <!-- topbar -->
+  <div class="ss-topbar">
+    <h1>ESTADO DEL SISTEMA</h1>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="ss-updated" id="last-update">—</span>
+      <button class="btn btn-outline btn-sm" onclick="loadAll()">Actualizar</button>
+    </div>
+  </div>
+
+  <!-- 4 tarjetas ejecutivas -->
+  <div class="exec-row" id="exec-row">
+    <div class="exec-card na-border">
+      <div class="exec-head"><span class="exec-icon">🌐</span><span class="exec-lbl">Conexión a Internet</span></div>
+      <div class="exec-val na">—</div><div class="exec-sub">cargando…</div>
+    </div>
+    <div class="exec-card na-border">
+      <div class="exec-head"><span class="exec-icon">📶</span><span class="exec-lbl">Equipos monitoreados</span></div>
+      <div class="exec-val na">—</div><div class="exec-sub">cargando…</div>
+    </div>
+    <div class="exec-card na-border">
+      <div class="exec-head"><span class="exec-icon">💾</span><span class="exec-lbl">Último backup</span></div>
+      <div class="exec-val na">—</div><div class="exec-sub">cargando…</div>
+    </div>
+    <div class="exec-card na-border">
+      <div class="exec-head"><span class="exec-icon">🛡️</span><span class="exec-lbl">IPs bloqueadas ahora</span></div>
+      <div class="exec-val na">—</div><div class="exec-sub">cargando…</div>
+    </div>
+  </div>
+
+  <!-- servicios -->
+  <div>
+    <div class="ss-t">
+      <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 12 17 16 21"/></svg>
+      Servicios del sistema
+    </div>
+    <div class="grid-svc" id="services-grid">
+      {% for i in range(8) %}
+      <div class="svc-pill">
+        <span class="svc-dot unknown"></span>
+        <div class="svc-info"><span class="svc-name">—</span><span class="svc-desc">cargando…</span></div>
+        <span class="svc-badge unknown">…</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- recursos + discos -->
+  <div class="grid-2eq">
+
+    <!-- recursos del servidor -->
+    <div>
+      <div class="ss-t">
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Recursos del servidor
+      </div>
+      <div class="res-card" id="res-card">
+
+        <div class="res-section">
+          <div class="res-header">
+            <span class="res-label">Procesador (CPU)</span>
+            <span class="res-num ok" id="cpu-num">—</span>
+          </div>
+          <div class="res-detail" id="cpu-detail">uso actual del procesador</div>
+          <div class="bar-track"><div class="bar-fill ok" id="cpu-bar" style="width:0%"></div></div>
+        </div>
+
+        <div class="res-section">
+          <div class="res-header">
+            <span class="res-label">Memoria RAM</span>
+            <span class="res-num ok" id="ram-num">—</span>
+          </div>
+          <div class="res-detail" id="ram-sub">— de — GB usados</div>
+          <div class="bar-track"><div class="bar-fill ok" id="ram-bar" style="width:0%"></div></div>
+        </div>
+
+        <div class="res-footer">
+          <span class="res-footer-label">Servidor encendido hace</span>
+          <span class="res-footer-val" id="uptime-val">—</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- almacenamiento -->
+    <div>
+      <div class="ss-t">
+        <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        Almacenamiento en disco
+      </div>
+      <div class="res-card" id="disks-card">
+        {% for i in range(3) %}
+        <div class="disk-item">
+          <div class="disk-pct ok">—</div>
+          <div class="disk-body">
+            <div><span class="disk-name">cargando…</span></div>
+            <div class="disk-free">—</div>
+            <div class="disk-bar"><div class="bar-fill ok" style="width:0%"></div></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- NICs + Bot/IA -->
+  <div class="grid-2eq">
+
+    <!-- Interfaces de red -->
+    <div>
+      <div class="ss-t">
+        <svg viewBox="0 0 24 24"><rect x="2" y="8" width="20" height="8" rx="2"/><line x1="6" y1="12" x2="6.01" y2="12"/><line x1="10" y1="12" x2="10.01" y2="12"/><line x1="12" y1="2" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="22"/></svg>
+        Interfaces de red (cables)
+      </div>
+      <div class="nics-row" id="nics-row">
+        <div class="nic-chip"><span class="nic-dot down"></span><div class="nic-info"><span class="nic-name">cargando…</span></div></div>
+      </div>
+    </div>
+
+    <!-- Bot / Agente IA -->
+    <div>
+      <div class="ss-t">
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><line x1="12" y1="7" x2="12" y2="11"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="12" y1="16" x2="12.01" y2="16"/><line x1="16" y1="16" x2="16.01" y2="16"/></svg>
+        Bot / Asistente IA
+      </div>
+      <div class="bot-card" id="bot-card">
+        <div class="bot-row">
+          <span class="bot-label">Estado</span>
+          <span class="bot-badge unknown" id="bot-state">—</span>
+        </div>
+        <div class="bot-row">
+          <span class="bot-label">Proveedor de IA</span>
+          <span class="llm-badge" id="bot-llm">—</span>
+        </div>
+        <div class="bot-row">
+          <span class="bot-label">Modelo activo</span>
+          <span class="bot-val" id="bot-model">—</span>
+        </div>
+        <div class="bot-row">
+          <span class="bot-label">Tiempo activo</span>
+          <span class="bot-val" id="bot-uptime">—</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- consola de logs colapsable -->
+  <div class="log-wrap" id="log-wrap">
+    <div class="log-header" onclick="toggleLogs()">
+      <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      <span class="log-header-title">Consola de registros (logs)</span>
+      <span class="log-header-hint" id="log-hint">clic para expandir</span>
+    </div>
+    <div class="log-body">
+      <div class="log-toolbar">
+        <div class="log-svc-tabs">
+          <button class="log-tab active" data-svc="shomer-guardian" onclick="selectSvc(this)">🛡 Guardian</button>
+          <button class="log-tab" data-svc="shomer-tools"    onclick="selectSvc(this)">🔧 Tracker/Protector</button>
+          <button class="log-tab" data-svc="nginx"           onclick="selectSvc(this)">🌐 Proxy Web</button>
+          <button class="log-tab" data-svc="redis-server"    onclick="selectSvc(this)">⚡ Redis</button>
+          <button class="log-tab" data-svc="suricata"        onclick="selectSvc(this)">🎯 Suricata</button>
+          <button class="log-tab" data-svc="wazuh-manager"   onclick="selectSvc(this)">🔍 Wazuh</button>
+          <button class="log-tab" data-svc="shomer-agent"    onclick="selectSvc(this)">🤖 Bot IA</button>
+        </div>
+        <button class="log-btn" id="btn-auto" onclick="toggleAuto()">Auto OFF</button>
+        <button class="log-btn" onclick="clearLogs()">Limpiar</button>
+      </div>
+      <div class="log-lines" id="log-output">Selecciona un servicio para ver sus registros…</div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+var _logSvc='shomer-guardian', _autoTimer=null, _autoOn=false;
+
+function barCls(p){ return p>=90?'danger':p>=70?'warn':'ok'; }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function tsNow(){ return new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+
+// ── 4 tarjetas ejecutivas ──
+function renderExec(wan, guardian, backup, hunter) {
+  var cards = document.querySelectorAll('#exec-row .exec-card');
+  if (!cards.length) return;
+
+  // WAN
+  var w = wan || {};
+  var wOk = w.ok;
+  cards[0].className = 'exec-card ' + (wOk === true ? 'ok-border' : wOk === false ? 'fail-border' : 'na-border');
+  cards[0].querySelector('.exec-val').className = 'exec-val ' + (wOk === true ? 'ok' : wOk === false ? 'fail' : 'na');
+  cards[0].querySelector('.exec-val').textContent = wOk === true ? 'CONECTADO' : wOk === false ? 'SIN INTERNET' : '—';
+  cards[0].querySelector('.exec-sub').textContent = w.latency_ms != null ? 'Latencia: ' + w.latency_ms + ' ms' : (w.status || '—');
+
+  // Guardian
+  var g = guardian || {};
+  var gOk = g.ok;
+  var gOnline = g.online != null ? g.online : '?';
+  var gTotal  = g.total  != null ? g.total  : '?';
+  cards[1].className = 'exec-card ' + (gOk === true ? 'ok-border' : gOk === false ? 'fail-border' : 'na-border');
+  cards[1].querySelector('.exec-val').className = 'exec-val ' + (gOk === true ? 'ok' : gOk === false ? 'fail' : 'na');
+  cards[1].querySelector('.exec-val').textContent = gOnline + ' / ' + gTotal;
+  cards[1].querySelector('.exec-sub').textContent = gOk === false ? (g.offline + ' sin respuesta') : 'todos en línea';
+
+  // Backup
+  var b = backup || {};
+  var bOk = b.ok;
+  cards[2].className = 'exec-card ' + (bOk === true ? 'ok-border' : bOk === false ? 'warn-border' : 'na-border');
+  cards[2].querySelector('.exec-val').className = 'exec-val ' + (bOk === true ? 'ok' : bOk === false ? 'warn' : 'na');
+  cards[2].querySelector('.exec-val').textContent = bOk === true ? 'OK' : bOk === false ? (b.failed + ' fallaron') : '—';
+  var bSub = b.total ? (b.total + ' equipos configurados') : 'sin configurar';
+  if (b.last_at) { var d=new Date(b.last_at+'Z'); bSub = 'Último: ' + d.toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'}); }
+  cards[2].querySelector('.exec-sub').textContent = bSub;
+
+  // Amenazas
+  var h = hunter || {};
+  var hActive = h.active_blocks || 0;
+  var hOk = hActive === 0;
+  cards[3].className = 'exec-card ' + (hOk ? 'ok-border' : 'warn-border');
+  cards[3].querySelector('.exec-val').className = 'exec-val ' + (hOk ? 'ok' : 'warn');
+  cards[3].querySelector('.exec-val').textContent = hActive === 0 ? 'Ninguna' : hActive;
+  cards[3].querySelector('.exec-sub').textContent = (h.blocks_24h || 0) + ' bloqueos en las últimas 24 horas';
+}
+
+// ── servicios ──
+var SVC_STATUS_LABEL = {
+  'active':        'Activo',
+  'inactive':      'Inactivo',
+  'failed':        'Falló',
+  'activating':    'Iniciando',
+  'not_installed': 'No instalado',
+  'unknown':       'Desconocido',
+};
+function renderServices(svcs) {
+  var g = document.getElementById('services-grid');
+  if (!g) return;
+  g.innerHTML = svcs.map(function(s) {
+    var cls = s.status || 'unknown';
+    var lbl = SVC_STATUS_LABEL[cls] || cls;
+    return '<div class="svc-pill">'
+      + '<span class="svc-dot '+cls+'"></span>'
+      + '<div class="svc-info">'
+      + '<span class="svc-name">'+esc(s.label)+'</span>'
+      + '<span class="svc-desc">'+esc(s.desc||s.name)+'</span></div>'
+      + '<span class="svc-badge '+cls+'">'+lbl+'</span>'
+      + '</div>';
+  }).join('');
+}
+
+// ── recursos ──
+function renderResources(r, uptime) {
+  var cpu = r.cpu_percent || 0, ram = r.ram_percent || 0;
+  var cpuEl  = document.getElementById('cpu-num');
+  var ramEl  = document.getElementById('ram-num');
+  var cpuBar = document.getElementById('cpu-bar');
+  var ramBar = document.getElementById('ram-bar');
+  var ramSub = document.getElementById('ram-sub');
+  var cpuDet = document.getElementById('cpu-detail');
+  var uptEl  = document.getElementById('uptime-val');
+  if (cpuEl)  { cpuEl.textContent = cpu + '%'; cpuEl.className = 'res-num ' + barCls(cpu); }
+  if (cpuBar) { cpuBar.style.width = cpu + '%'; cpuBar.className = 'bar-fill ' + barCls(cpu); }
+  if (cpuDet) {
+    if (cpu < 50) cpuDet.textContent = 'Carga normal';
+    else if (cpu < 80) cpuDet.textContent = 'Carga moderada';
+    else if (cpu < 90) cpuDet.textContent = 'Carga alta — puede haber tráfico intenso';
+    else cpuDet.textContent = '⚠️ Carga crítica — revisar';
+  }
+  if (ramEl)  { ramEl.textContent = ram + '%'; ramEl.className = 'res-num ' + barCls(ram); }
+  if (ramBar) { ramBar.style.width = ram + '%'; ramBar.className = 'bar-fill ' + barCls(ram); }
+  if (ramSub) { ramSub.textContent = (r.ram_used_gb||0) + ' GB usados de ' + (r.ram_total_gb||0) + ' GB totales'; }
+  if (uptEl && uptime) uptEl.textContent = uptime.label;
+}
+
+// ── discos ──
+function renderDisks(disks) {
+  var g = document.getElementById('disks-card');
+  if (!g) return;
+  g.innerHTML = (disks||[]).map(function(d) {
+    if (d.error) return '<div class="disk-item">'
+      + '<div class="disk-pct" style="color:var(--muted)">—</div>'
+      + '<div class="disk-body"><div class="disk-name">'+esc(d.label)+'</div>'
+      + '<div class="disk-free" style="color:var(--offline)">'+esc(d.error)+'</div></div></div>';
+    var pct = d.percent, cls = barCls(pct);
+    var freeMsg = esc(d.free_gb) + ' GB libres de ' + esc(d.total_gb) + ' GB totales';
+    if (pct >= 90) freeMsg += ' ⚠️ Espacio crítico';
+    else if (pct >= 70) freeMsg += ' — revisar pronto';
+    return '<div class="disk-item">'
+      + '<div class="disk-pct '+cls+'">'+pct+'%</div>'
+      + '<div class="disk-body">'
+      + '<div><span class="disk-name">'+esc(d.label)+'</span>'
+      + '<span class="disk-path">'+esc(d.path)+'</span></div>'
+      + '<div class="disk-free">'+freeMsg+'</div>'
+      + '<div class="disk-bar"><div class="bar-fill '+cls+'" style="width:'+pct+'%"></div></div>'
+      + '</div></div>';
+  }).join('');
+}
+
+// ── NICs ──
+function renderNics(nics) {
+  var g = document.getElementById('nics-row');
+  if (!g) return;
+  if (!nics || !nics.length) {
+    g.innerHTML = '<span style="font-size:12px;color:var(--muted)">Sin interfaces detectadas</span>';
+    return;
+  }
+  g.innerHTML = nics.map(function(n) {
+    var upCls = n.is_up ? 'up' : 'down';
+    var ip = n.ipv4 ? '<span class="nic-ip">'+esc(n.ipv4)+'</span>' : '';
+    var estado = n.is_up ? 'Conectado' : '⚠️ Desconectado';
+    return '<div class="nic-chip">'
+      + '<span class="nic-dot '+upCls+'"></span>'
+      + '<div class="nic-info">'
+      + '<span class="nic-name">'+esc(n.name)+'</span>'
+      + (ip ? ip : '<span style="font-size:10px;color:var(--muted)">'+estado+'</span>')
+      + '</div>'
+      + '<span class="nic-badge '+upCls+'">'+(n.is_up?'EN LÍNEA':'CAÍDO')+'</span>'
+      + '</div>';
+  }).join('');
+}
+
+// ── bot / agente IA ──
+function renderAgent(a) {
+  if (!a) return;
+  var stEl  = document.getElementById('bot-state');
+  var llmEl = document.getElementById('bot-llm');
+  var mdlEl = document.getElementById('bot-model');
+  var upEl  = document.getElementById('bot-uptime');
+  if (stEl) {
+    var cls = a.state === 'running' ? 'running' : a.state === 'unknown' ? 'unknown' : 'stopped';
+    var lbl = a.state === 'running' ? '✅ Funcionando' : a.state === 'unknown' ? 'Desconocido' : '❌ Detenido';
+    stEl.className = 'bot-badge ' + cls;
+    stEl.textContent = lbl;
+  }
+  if (llmEl) llmEl.textContent = (a.llm_provider || 'groq').toUpperCase();
+  if (mdlEl) mdlEl.textContent = a.llm_model || (a.llm_provider === 'groq' ? 'llama-3.3-70b' : '—');
+  if (upEl)  upEl.textContent  = a.uptime ? 'Activo hace ' + a.uptime : '—';
+}
+
+// ── log console ──
+function toggleLogs() {
+  var w = document.getElementById('log-wrap');
+  var h = document.getElementById('log-hint');
+  if (!w) return;
+  var opening = !w.classList.contains('open');
+  w.classList.toggle('open');
+  if (h) h.textContent = opening ? 'clic para cerrar' : 'clic para expandir';
+  if (opening) loadLogs(_logSvc);
+}
+
+function colorLine(l) {
+  var s = l.toLowerCase();
+  if (s.includes('error')||s.includes('critical')||s.includes('failed'))
+    return '<span class="log-err">'+esc(l)+'</span>';
+  if (s.includes('warn')) return '<span class="log-warn">'+esc(l)+'</span>';
+  if (s.includes('started')||s.includes(' ok')||s.includes('success'))
+    return '<span class="log-ok">'+esc(l)+'</span>';
+  if (l.startsWith('--')) return '<span class="log-muted">'+esc(l)+'</span>';
+  return esc(l);
+}
+
+function loadLogs(svc) {
+  shomerFetch('/api/system-logs?service='+encodeURIComponent(svc)+'&lines=80')
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      var out = document.getElementById('log-output');
+      if (!out) return;
+      if (d.error) { out.textContent = 'Error: ' + d.error; return; }
+      out.innerHTML = (d.lines||[]).map(colorLine).join('\n');
+      out.scrollTop = out.scrollHeight;
+    }).catch(function(e) {
+      var out = document.getElementById('log-output');
+      if (out) out.textContent = 'Error: ' + e.message;
+    });
+}
+
+function selectSvc(btn) {
+  document.querySelectorAll('.log-tab').forEach(function(t){ t.classList.remove('active'); });
+  btn.classList.add('active');
+  _logSvc = btn.getAttribute('data-svc');
+  loadLogs(_logSvc);
+}
+
+function clearLogs() {
+  var out = document.getElementById('log-output');
+  if (out) out.innerHTML = '<span class="log-muted">— limpiada —</span>';
+}
+
+function toggleAuto() {
+  _autoOn = !_autoOn;
+  var btn = document.getElementById('btn-auto');
+  if (_autoOn) {
+    btn.textContent = 'Auto ON'; btn.classList.add('auto-on');
+    _autoTimer = setInterval(function(){ loadLogs(_logSvc); }, 10000);
+  } else {
+    btn.textContent = 'Auto OFF'; btn.classList.remove('auto-on');
+    clearInterval(_autoTimer); _autoTimer = null;
+  }
+}
+
+// ── carga principal ──
+function loadAll() {
+  var btn = document.querySelector('[onclick="loadAll()"]');
+  if (btn) btn.disabled = true;
+  shomerFetch('/api/system-health')
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      renderExec(d.wan, d.guardian, d.last_backup, d.hunter_stats);
+      renderServices(d.services   || []);
+      renderResources(d.resources || {}, d.uptime);
+      renderDisks(d.disks         || []);
+      renderNics(d.nics           || []);
+      renderAgent(d.agent);
+      var lu = document.getElementById('last-update');
+      if (lu) lu.textContent = 'Actualizado: ' + tsNow() + (d.hostname ? ' — ' + d.hostname : '');
+      if (document.getElementById('log-wrap').classList.contains('open')) loadLogs(_logSvc);
+    })
+    .catch(function(e){ console.error('system-health:', e); })
+    .finally(function(){ if (btn) btn.disabled = false; });
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  loadAll();
+  setInterval(loadAll, 30000);
+});
+</script>
+{% endblock %}

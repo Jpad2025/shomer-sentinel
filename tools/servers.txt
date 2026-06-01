@@ -1,0 +1,5 @@
+# Servidores Shomer registrados
+# Formato: tailscale_ip  nombre  descripcion
+# Líneas con # son comentarios
+
+100.103.148.119  shomerbogota  "Bogotá — cliente piloto"

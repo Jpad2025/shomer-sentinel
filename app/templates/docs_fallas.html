@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% block page_title %}Glosario de Fallas{% endblock %}
+
+{% block extra_styles %}
+  .gf-wrap  { padding: 24px; overflow-y: auto; flex: 1; max-width: 860px; }
+
+  .gf-header { margin-bottom: 28px; }
+  .gf-header h1 {
+    font-family: 'Orbitron', monospace; font-size: 16px; font-weight: 700;
+    color: var(--text); letter-spacing: 2px; margin-bottom: 6px;
+  }
+  .gf-header p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  /* categoría */
+  .gf-cat       { margin-bottom: 30px; }
+  .gf-cat-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.6px;
+    text-transform: uppercase; color: var(--teal);
+    margin-bottom: 10px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* falla */
+  .falla {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 8px; overflow: hidden;
+  }
+  .falla-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; cursor: pointer; user-select: none;
+  }
+  .falla-head:hover { background: rgba(255,255,255,.03); }
+  .falla-title  { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; line-height: 1.4; }
+  .falla-arrow  { font-size: 13px; color: var(--muted); transition: transform .2s; flex-shrink: 0; }
+  .falla.open .falla-arrow { transform: rotate(180deg); }
+  .falla.open { border-color: rgba(13,110,110,.5); }
+
+  .falla-body {
+    display: none; padding: 0 14px 14px;
+    border-top: 1px solid var(--border);
+  }
+  .falla.open .falla-body { display: block; }
+
+  .falla-body p  { font-size: 13px; color: var(--muted); line-height: 1.65; margin: 10px 0 6px; }
+  .falla-body ul { margin: 4px 0 8px 18px; }
+  .falla-body li { font-size: 13px; color: var(--muted); line-height: 1.65; margin-bottom: 3px; }
+  .falla-body strong { color: var(--text); }
+
+  /* pasos */
+  .steps { margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
+  .step  { display: flex; gap: 10px; align-items: flex-start; }
+  .step-n {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(13,110,110,.2); color: var(--teal);
+    font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 2px;
+  }
+  .step-txt { font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+  code {
+    background: rgba(255,255,255,.07); color: #94a3b8;
+    padding: 1px 5px; border-radius: 3px;
+    font-size: 11px; font-family: monospace;
+  }
+  .cmd-block {
+    background: rgba(0,0,0,.4); border-radius: 6px;
+    padding: 10px 12px; margin: 8px 0;
+    font-family: monospace; font-size: 11px;
+    color: #7dd3fc; white-space: pre;
+  }
+{% endblock %}
+
+{% block content %}
+<div class="gf-wrap">
+
+  <div class="gf-header">
+    <h1>GLOSARIO DE FALLAS</h1>
+    <p>Referencia para el técnico instalador — fallas comunes y pasos para resolverlas.<br>
+       Haz clic en cada falla para expandir la solución.</p>
+  </div>
+
+  <!-- TRACKER -->
+  <div class="gf-cat">
+    <div class="gf-cat-title">Tracker — Inventario</div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">Escaneo de activo no trajo información de software instalado</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> el activo no tiene credenciales configuradas o son incorrectas. El escáner necesita usuario/contraseña para leer software en Windows o Linux.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt">Clic en el activo en la tabla → drawer lateral → sección <strong>Credenciales</strong>.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Agrega o corrige usuario y contraseña (Windows: cuenta local o dominio; Linux: usuario SSH).</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Haz clic en <strong>Re-escanear</strong> en el drawer o usa <strong>Escaneo profundo</strong>.</span></div>
+          <div class="step"><span class="step-n">4</span><span class="step-txt">Espera 30-90 s y recarga la tabla. Si sigue vacío, verifica que el firewall del equipo permita WMI (Windows, puertos 135/445) o SSH (Linux, puerto 22).</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">El escaneo no descubre nuevos equipos en la red</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> la subred configurada no coincide con la red del cliente, o el router no tiene credenciales SSH.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt"><strong>Tracker → Configuración</strong>: verifica que la <em>Subred</em> sea correcta (ej. <code>192.168.10.0/24</code>).</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Verifica que el router GL.iNet tenga usuario y contraseña SSH en <strong>Guardian → Dispositivos</strong>.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Lanza un <strong>Escaneo</strong> manual. Revisa logs en <strong>Estado → shomer-tools</strong>.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">Export de Excel o PDF falla o descarga archivo vacío</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> no hay activos en el inventario, o el servicio <code>shomer-tools</code> está caído.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt">Verifica en <strong>Estado del sistema</strong> que <code>shomer-tools</code> esté <em>active</em>.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Si está caído: <code>sudo systemctl restart shomer-tools</code>.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Confirma que la tabla de activos tenga registros (contador &gt; 0) antes de exportar.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROTECTOR -->
+  <div class="gf-cat">
+    <div class="gf-cat-title">Protector — Backups</div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">La ruta de backup de un equipo no encuentra los archivos</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Rutas correctas por sistema operativo:</strong></p>
+        <ul>
+          <li><strong>Windows:</strong> <code>C:/Users/nombre/Documents</code> (barras normales o dobles invertidas)</li>
+          <li><strong>macOS:</strong> <code>/Users/nombre/Documents</code></li>
+          <li><strong>Linux:</strong> <code>/home/nombre/documentos</code></li>
+          <li><strong>NAS Synology/QNAP:</strong> <code>/volume1/shared</code></li>
+        </ul>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt"><strong>Protector → Dispositivos</strong>: abre el equipo y corrige la ruta.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Usa <strong>Probar conexión</strong> para verificar acceso.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Lanza un <strong>Backup ahora</strong> manual para confirmar.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">Sincronización con Backblaze B2 falla — error de credenciales</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> Application Key, Key ID o nombre del bucket incorrectos.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt"><strong>Protector → Configuración B2</strong>: verifica Key ID, Application Key y nombre del bucket.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Usa <strong>Probar conexión B2</strong> — muestra el error exacto de la API de Backblaze.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Si el bucket no existe, créalo en la consola de Backblaze con el mismo nombre configurado.</span></div>
+          <div class="step"><span class="step-n">4</span><span class="step-txt">Verifica que el Application Key tenga permisos de lectura y escritura sobre ese bucket.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">Restic muestra "wrong password" al listar snapshots</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> la contraseña del repositorio Restic cambió o no está configurada.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt">Verifica <code>RESTIC_PASSWORD</code> o <code>RESTIC_PASSWORD_FILE</code> en <code>/etc/shomer/shomer-runtime.env</code>.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Si el repositorio es nuevo, inicialízalo: <code>restic -r [RUTA] init</code>.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Reinicia <code>shomer-tools</code> después de cambiar variables: <code>sudo systemctl restart shomer-tools</code>.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GUARDIAN -->
+  <div class="gf-cat">
+    <div class="gf-cat-title">Guardian — Monitoreo de red</div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">El panel no muestra ningún nodo / todos aparecen offline</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa probable:</strong> Redis no corre, o los nodos GL.iNet no son alcanzables por red.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt"><strong>Estado del sistema</strong>: verifica que <code>redis-server</code> y <code>shomer-monitor</code> estén <em>active</em>.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Si Redis está caído: <code>sudo systemctl restart redis-server</code>, luego reinicia <code>shomer-guardian</code>.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt"><strong>Guardian → Dispositivos</strong>: verifica que los nodos tengan IP alcanzable (prueba con <code>ping [IP]</code>).</span></div>
+          <div class="step"><span class="step-n">4</span><span class="step-txt">Si hay VLANs: confirma que haya enrutamiento L3 entre el Shomer y los AP.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">Las notificaciones de Telegram no llegan</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> token del bot o chat ID incorrectos, o el Shomer no tiene acceso a internet.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt"><strong>Guardian → Configuración</strong>: verifica Token y Chat ID.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Usa el botón <strong>Probar Telegram</strong> — muestra el error exacto si falla.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Verifica conectividad a internet: <code>curl -s https://api.telegram.org</code> debe responder.</span></div>
+          <div class="step"><span class="step-n">4</span><span class="step-txt">Asegúrate de que el bot esté en el grupo/canal con permisos para enviar mensajes.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">El reboot automático del GL.iNet falla — error SSH</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> la llave SSH del Shomer no está autorizada en el GL.iNet.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt"><strong>Guardian → Dispositivos</strong>: verifica que el router tenga usuario SSH (<code>root</code>) configurado.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Copia la llave pública: <code>ssh-copy-id -i ~/.ssh/id_rsa_shomer.pub root@[IP-GL.iNet]</code>.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Prueba conexión manual: <code>ssh -i ~/.ssh/id_rsa_shomer root@[IP-GL.iNet]</code>.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HUNTER -->
+  <div class="gf-cat">
+    <div class="gf-cat-title">Hunter — Ciberseguridad</div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">El pipeline muestra Suricata inactivo</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> Suricata no corre, posiblemente por error de nombre de interfaz mirror.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt"><code>sudo systemctl status suricata</code> — revisa el estado.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt"><code>sudo journalctl -u suricata -n 50</code> — identifica el error exacto.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Si el error es por interfaz: edita <code>/etc/suricata/suricata.yaml</code> y corrige <code>af-packet → interface</code> con el nombre real (ver <strong>Estado → NICs</strong>).</span></div>
+          <div class="step"><span class="step-n">4</span><span class="step-txt"><code>sudo systemctl restart suricata</code>.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">Reglas guardadas en Hunter no generan alertas</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> Suricata no recargó las reglas. Guardar en el panel no recarga automáticamente.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt">Después de guardar reglas, clic en <strong>Recargar Suricata</strong> en el panel Hunter.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Si falla: <code>sudo kill -USR2 $(pidof suricata)</code> o <code>sudo systemctl reload suricata</code>.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SISTEMA -->
+  <div class="gf-cat">
+    <div class="gf-cat-title">Sistema general</div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">El panel muestra "502 Bad Gateway"</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> nginx corre pero <code>shomer-guardian</code> (puerto 8000) está caído.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt"><code>sudo systemctl status shomer-guardian</code></span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Reinicio seguro (evita huérfanos en puerto):</span></div>
+        </div>
+        <div class="cmd-block">sudo systemctl stop shomer-guardian
+sudo lsof -ti:8000 | xargs sudo kill -9 2>/dev/null
+sleep 2 && sudo systemctl start shomer-guardian</div>
+        <p>Si falla repetidamente: <code>journalctl -u shomer-guardian -n 50</code>.</p>
+      </div>
+    </div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">El panel muestra "401 Unauthorized" en todas las peticiones</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa:</strong> sesión expirada o <code>JWT_SECRET</code> cambió.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt">Cierra sesión y vuelve a entrar desde <code>/login</code>.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt">Si afecta a todos los usuarios: verifica que <code>JWT_SECRET</code> no haya cambiado en <code>/etc/shomer/shomer-runtime.env</code>.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Reinicia ambos servicios después de cualquier cambio en ese archivo.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="falla" onclick="toggleFalla(this)">
+      <div class="falla-head">
+        <span class="falla-title">CPU o RAM muy altos — panel responde lento</span>
+        <span class="falla-arrow">▾</span>
+      </div>
+      <div class="falla-body">
+        <p><strong>Causa probable:</strong> escaneo profundo o backup en segundo plano.</p>
+        <div class="steps">
+          <div class="step"><span class="step-n">1</span><span class="step-txt">Revisa <strong>Estado del sistema</strong> → métricas CPU/RAM en tiempo real.</span></div>
+          <div class="step"><span class="step-n">2</span><span class="step-txt"><code>htop</code> en terminal para identificar el proceso.</span></div>
+          <div class="step"><span class="step-n">3</span><span class="step-txt">Si es nmap bloqueado: <code>sudo pkill nmap</code>. Si es Restic: es normal durante backup, espera.</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function toggleFalla(el) { el.classList.toggle('open'); }
+</script>
+{% endblock %}

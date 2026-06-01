@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block page_title %}Administración{% endblock %}
+{% block extra_styles %}
+<style>
+  .admin-page-inner { width: 100%; max-width: 720px; margin: 0 auto; padding: 20px 16px 40px; }
+  .admin-header { margin-bottom: 28px; }
+  .admin-header h1 {
+    font-family: 'Orbitron', sans-serif; font-size: 20px; font-weight: 700; color: var(--gold);
+    letter-spacing: 1px; margin-bottom: 8px;
+  }
+  .admin-header p { font-size: 13px; color: var(--muted); line-height: 1.55; max-width: 560px; }
+  .admin-wrap { display: flex; flex-direction: column; gap: 20px; }
+  .card {
+    background: #0f1628; border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 24px;
+  }
+  .card-title {
+    font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 700; color: #0f8080;
+    letter-spacing: 1.5px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  .field-input {
+    background: #141c30; border: 1px solid rgba(255,255,255,0.08); border-radius: 7px;
+    padding: 10px 13px; color: #e2e8f0; font-size: 14px; width: 100%; outline: none;
+  }
+  /* .btn-teal removido — usar .btn .btn-blue del sistema unificado en base.html */
+  .admin-footer-links { margin-top: 28px; text-align: center; display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; }
+  .admin-footer-links a { color: #0d6e6e; font-size: 13px; font-weight: 600; text-decoration: none; }
+  .admin-footer-links a:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-inner">
+  <div class="admin-header">
+    <h1>Administración</h1>
+    <p>Licencia de módulos y usuarios del panel. La <strong style="color:#e2e8f0;">instalación de red</strong> está en <a href="/setup" style="color:#0d6e6e;">Instalación</a>.</p>
+  </div>
+
+  <div class="admin-wrap">
+
+    <div class="card">
+      <div class="card-title">MÓDULOS HABILITADOS — LICENCIA</div>
+      <p style="font-size:13px;color:#64748b;margin:0 0 16px;">
+        Activa solo los módulos que el cliente contrató. Guardian siempre está activo.
+      </p>
+      <div id="modules-list" style="display:flex;flex-direction:column;gap:8px;">
+        <p style="color:#64748b;font-size:13px;">Cargando...</p>
+      </div>
+      <div style="margin-top:16px;display:flex;align-items:center;gap:12px;">
+        <button class="btn btn-blue" id="btnSaveModules" onclick="saveModules()">Guardar licencia</button>
+        <span id="modulesMsg" style="font-size:13px;"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">USUARIOS Y ACCESO</div>
+      <div id="users-table-wrap" style="margin-bottom:20px;">
+        <p style="color:#64748b;font-size:13px;">Cargando usuarios...</p>
+      </div>
+      <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:18px;">
+        <p style="font-size:12px;font-weight:600;color:#94a3b8;letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;">Nuevo usuario</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr 140px;gap:10px;align-items:end;">
+          <div>
+            <label style="font-size:11px;color:#64748b;display:block;margin-bottom:4px;">USUARIO</label>
+            <input id="new-user-username" class="field-input" placeholder="nombre_usuario" style="margin:0;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#64748b;display:block;margin-bottom:4px;">CONTRASEÑA</label>
+            <input id="new-user-pass" type="password" class="field-input" placeholder="mínimo 4 caracteres" style="margin:0;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#64748b;display:block;margin-bottom:4px;">ROL</label>
+            <select id="new-user-role" class="field-input" style="margin:0;">
+              <option value="operator">operator</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;align-items:center;gap:12px;">
+          <button class="btn btn-blue" style="max-width:180px;" onclick="createUser()">+ Crear usuario</button>
+          <span id="users-msg" style="font-size:13px;"></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="admin-footer-links">
+    <a href="/">← Guardian</a>
+    <a href="/setup">Instalación de red</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const _MODULES_INFO = {
+  guardian:     { label: 'Guardian',     desc: 'Monitoreo 24/7 de routers y APs. Reboot automático y failsafe WAN.',                                       required: false },
+  hunter:       { label: 'Hunter',       desc: 'Detección de intrusos (Suricata/Wazuh) + bloqueo automático de IPs en firewall.',                         required: false },
+  tracker:      { label: 'Tracker',      desc: 'Inventario de activos de red. Escaneo automático, reportes Excel y etiquetas por equipo.',                 required: false },
+  protector:    { label: 'Protector',    desc: 'Backups cifrados de equipos del cliente vía SSH/SMB (Restic + Backblaze B2).',                             required: false },
+  inframonitor: { label: 'Inframonitor', desc: 'Monitoreo ICMP + TCP de switches, servidores, cámaras y cualquier equipo de red. Alertas Telegram.',       required: false },
+  noc:          { label: 'NOC Display',  desc: 'Pantalla de TV en tiempo real para sala de operaciones. Sin login, token en URL.',                         required: false },
+  incidents:    { label: 'Incidentes',   desc: 'Registro de incidentes de seguridad con ack/cierre, MTTA/MTTR y exportación CSV.',                         required: false },
+  audit:        { label: 'Auditoría',    desc: 'Log de auditoría de todas las acciones administrativas. Export CSV, PDF y ZIP. Solo admin.',               required: false },
+};
+
+function loadModules() {
+  _authFetch('/config/modules')
+    .then(r => r.json())
+    .then(d => {
+      const enabled = d.enabled || [];
+      const container = document.getElementById('modules-list');
+      container.innerHTML = Object.entries(_MODULES_INFO).map(([key, info]) => {
+        const isEnabled = enabled.includes(key);
+        const disabledAttr = info.required ? 'disabled' : '';
+        const checkedAttr  = isEnabled ? 'checked' : '';
+        return `<div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:#0a0e1a;border-radius:8px;border:1px solid ${isEnabled ? 'rgba(13,110,110,0.4)' : 'rgba(255,255,255,0.06)'}">
+          <input type="checkbox" id="mod-${key}" value="${key}" ${checkedAttr} ${disabledAttr}
+            style="width:18px;height:18px;margin-top:2px;accent-color:#0d6e6e;cursor:${info.required?'not-allowed':'pointer'}">
+          <div>
+            <label for="mod-${key}" style="font-weight:600;color:${isEnabled?'#0d6e6e':'#94a3b8'};cursor:${info.required?'default':'pointer'}">
+              ${info.label} ${info.required ? '<span style="font-size:10px;color:#64748b;">(requerido)</span>' : ''}
+            </label>
+            <p style="font-size:12px;color:#64748b;margin:2px 0 0;">${info.desc}</p>
+          </div>
+        </div>`;
+      }).join('');
+    })
+    .catch(() => {
+      document.getElementById('modules-list').innerHTML = '<p style="color:#ef4444">Error cargando módulos</p>';
+    });
+}
+
+function saveModules() {
+  const enabled = Array.from(document.querySelectorAll('#modules-list input[type=checkbox]'))
+    .filter(cb => cb.checked)
+    .map(cb => cb.value);
+  const btn  = document.getElementById('btnSaveModules');
+  const msg  = document.getElementById('modulesMsg');
+  btn.disabled = true;
+  msg.textContent = '';
+  _authFetch('/config/modules', {
+    method: 'POST',
+    body: JSON.stringify({ enabled })
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        msg.style.color = '#4ade80';
+        msg.textContent = `✓ Guardado — activos: ${d.enabled.join(', ')}`;
+        loadModules();
+      } else {
+        msg.style.color = '#ef4444';
+        msg.textContent = 'Error al guardar';
+      }
+    })
+    .catch(() => { msg.style.color = '#ef4444'; msg.textContent = 'Error de red'; })
+    .finally(() => { btn.disabled = false; });
+}
+
+let _myUsername = '';
+_authFetch('/auth/me')
+  .then(r => r.ok ? r.json() : null)
+  .then(d => {
+    if (d && d.username) {
+      _myUsername = d.username;
+      loadUsers();
+    }
+  })
+  .catch(() => {});
+
+function loadUsers() {
+  _authFetch('/auth/users')
+    .then(r => r.json().then(body => ({ ok: r.ok, status: r.status, body })))
+    .then(({ ok, status, body: d }) => {
+      const wrap = document.getElementById('users-table-wrap');
+      if (!ok) {
+        const err = typeof d.detail === 'string' ? d.detail : (status === 401 ? 'Sesión expirada o no válida — vuelve a iniciar sesión' : 'Error ' + status);
+        wrap.innerHTML = '<p style="color:#ef4444;font-size:13px;">' + err + '</p>';
+        if (typeof showToast === 'function') showToast(err, 'error');
+        return;
+      }
+      if (!d.users || d.users.length === 0) {
+        wrap.innerHTML = '<p style="color:#64748b;font-size:13px;">No hay usuarios.</p>';
+        return;
+      }
+      const rows = d.users.map(u => {
+        const isMe      = u.username === _myUsername;
+        const isProtected = u.username === 'admin';
+        const roleColor = u.role === 'admin' ? '#f5c518' : '#94a3b8';
+        const roleNext  = u.role === 'admin' ? 'operator' : 'admin';
+        const roleLabel = u.role === 'admin' ? 'admin' : 'operator';
+        const uEsc = encodeURIComponent(u.username);
+        const dash = '<span style="color:#374151;font-size:12px;">—</span>';
+        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:10px 8px;font-size:14px;font-weight:600;">${u.username}</td>
+          <td style="padding:10px 8px;"><span style="font-size:12px;font-weight:700;color:${roleColor};background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:4px;">${roleLabel}</span></td>
+          <td style="padding:10px 8px;">
+            ${isProtected ? dash : `<input type="password" id="pass-${u.id}" class="admin-pass-input" autocomplete="new-password" placeholder="escribir aquí" title="Nueva contraseña para ${u.username}" aria-label="Nueva contraseña para ${u.username}" style="background:#0f1628;border:1px solid rgba(255,255,255,0.08);border-radius:5px;padding:5px 8px;color:#e2e8f0;font-size:12px;width:140px;outline:none;">
+            <button type="button" class="btn btn-outline btn-sm admin-pass-btn" data-uid="${u.id}" data-user="${uEsc}" style="margin-left:6px;">Cambiar</button>`}
+          </td>
+          <td style="padding:10px 8px;">
+            ${(isMe || isProtected) ? dash : `<button type="button" class="btn btn-outline btn-sm admin-role-btn" data-uid="${u.id}" data-next="${roleNext}">→ ${roleNext}</button>`}
+          </td>
+          <td style="padding:10px 8px;">
+            ${(isMe || isProtected) ? dash : `<button type="button" class="btn btn-red btn-sm admin-del-btn" data-uid="${u.id}" data-user="${uEsc}">Eliminar</button>`}
+          </td>
+        </tr>`;
+      }).join('');
+      wrap.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#64748b;">
+            <th style="text-align:left;padding:0 8px 8px;">Usuario</th>
+            <th style="text-align:left;padding:0 8px 8px;">Rol</th>
+            <th style="text-align:left;padding:0 8px 8px;">Nueva contraseña</th>
+            <th style="text-align:left;padding:0 8px 8px;">Cambiar rol</th>
+            <th style="text-align:left;padding:0 8px 8px;">Acción</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    })
+    .catch(() => {
+      document.getElementById('users-table-wrap').innerHTML = '<p style="color:#ef4444;font-size:13px;">Error cargando usuarios</p>';
+    });
+}
+
+function _usersMsg(text, ok) {
+  const el = document.getElementById('users-msg');
+  el.textContent = text;
+  el.style.color = ok ? '#4ade80' : '#ef4444';
+  setTimeout(() => { el.textContent = ''; }, 4000);
+}
+
+function createUser() {
+  const username = document.getElementById('new-user-username').value.trim();
+  const password = document.getElementById('new-user-pass').value;
+  const role     = document.getElementById('new-user-role').value;
+  if (!username || !password) { _usersMsg('Completa usuario y contraseña', false); return; }
+  _authFetch('/auth/users', {
+    method: 'POST',
+    body: JSON.stringify({ username, password, role })
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        _usersMsg('✓ ' + d.message, true);
+        document.getElementById('new-user-username').value = '';
+        document.getElementById('new-user-pass').value = '';
+        loadUsers();
+      } else { _usersMsg(d.detail || 'Error', false); }
+    })
+    .catch(() => _usersMsg('Error de red', false));
+}
+
+function _detailMessage(d) {
+  if (!d) return 'Error desconocido';
+  if (typeof d.detail === 'string') return d.detail;
+  if (Array.isArray(d.detail) && d.detail[0] && d.detail[0].msg) return d.detail.map(x => x.msg).join('; ');
+  return JSON.stringify(d.detail || d);
+}
+
+function changePass(userId, username) {
+  const el = document.getElementById('pass-' + userId);
+  if (!el) {
+    if (typeof showToast === 'function') showToast('Campo de contraseña no encontrado. Recarga la página.', 'error');
+    else _usersMsg('Recarga la página e inténtalo de nuevo.', false);
+    return;
+  }
+  const pass = el.value;
+  if (!pass) {
+    _usersMsg('Escribe la nueva contraseña para ' + (username || 'el usuario'), false);
+    if (typeof showToast === 'function') showToast('Escribe la nueva contraseña en la fila de ese usuario.', 'warning');
+    return;
+  }
+  _authFetch('/auth/users/' + userId + '/password', {
+    method: 'POST',
+    body: JSON.stringify({ password: pass })
+  })
+    .then(async r => {
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.success) {
+        _usersMsg('✓ Contraseña actualizada para «' + (username || 'usuario') + '»', true);
+        if (typeof showToast === 'function') showToast('Contraseña actualizada para «' + (username || 'usuario') + '»', 'success');
+        el.value = '';
+        return;
+      }
+      const msg = _detailMessage(d) || ('HTTP ' + r.status);
+      _usersMsg(msg, false);
+      if (typeof showToast === 'function') showToast(msg, 'error');
+    })
+    .catch(() => {
+      _usersMsg('Error de red', false);
+      if (typeof showToast === 'function') showToast('Error de red al cambiar contraseña', 'error');
+    });
+}
+
+function changeRole(userId, newRole) {
+  if (!confirm('¿Cambiar rol a "' + newRole + '"?')) return;
+  _authFetch('/auth/users/' + userId + '/role', {
+    method: 'PUT',
+    body: JSON.stringify({ role: newRole })
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) { _usersMsg('✓ Rol actualizado', true); loadUsers(); }
+      else _usersMsg(d.detail || 'Error', false);
+    })
+    .catch(() => _usersMsg('Error de red', false));
+}
+
+function deleteUser(userId, username) {
+  if (!confirm('¿Eliminar al usuario "' + username + '"? Esta acción no se puede deshacer.')) return;
+  _authFetch('/auth/users/' + userId, { method: 'DELETE' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) { _usersMsg('✓ ' + d.message, true); loadUsers(); }
+      else _usersMsg(d.detail || 'Error', false);
+    })
+    .catch(() => _usersMsg('Error de red', false));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadModules();
+  loadUsers();
+
+  const usersWrap = document.getElementById('users-table-wrap');
+  if (usersWrap) {
+    usersWrap.addEventListener('click', (ev) => {
+      const passBtn = ev.target.closest('.admin-pass-btn');
+      if (passBtn) {
+        ev.preventDefault();
+        const uid = parseInt(passBtn.getAttribute('data-uid'), 10);
+        const uname = decodeURIComponent(passBtn.getAttribute('data-user') || '');
+        if (uid) changePass(uid, uname);
+        return;
+      }
+      const roleBtn = ev.target.closest('.admin-role-btn');
+      if (roleBtn) {
+        ev.preventDefault();
+        const uid = parseInt(roleBtn.getAttribute('data-uid'), 10);
+        const next = roleBtn.getAttribute('data-next') || '';
+        if (uid && next) changeRole(uid, next);
+        return;
+      }
+      const delBtn = ev.target.closest('.admin-del-btn');
+      if (delBtn) {
+        ev.preventDefault();
+        const uid = parseInt(delBtn.getAttribute('data-uid'), 10);
+        const uname = decodeURIComponent(delBtn.getAttribute('data-user') || '');
+        if (uid) deleteUser(uid, uname);
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

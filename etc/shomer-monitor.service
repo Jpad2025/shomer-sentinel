@@ -1,0 +1,21 @@
+[Unit]
+Description=SHOMER Monitor Pro v2.0 - Monitoreo infraestructura 205-226, Redis, Failsafe 120s
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=usb_admin
+Group=usb_admin
+WorkingDirectory=/opt/network_monitor
+ExecStart=/usr/bin/python3 /opt/network_monitor/app/scripts/monitor.py
+Environment=PYTHONPATH=/opt/network_monitor
+Environment=SHOMER_LOG_DEBUG=1
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=shomer-monitor
+
+[Install]
+WantedBy=multi-user.target
