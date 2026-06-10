@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 1 jun 2026 (Sesión 44 — Hunter Bogotá completo: USB NIC mirror, Suricata+Wazuh instalados, stack verificado §AD) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
+**Última unificación:** 10 jun 2026 (Sesión 51 — Tracker Ópera + **matriz políticas agente autónomo** `POLITICAS_AGENTE.md` en shomer-agent ✅ §AK.8) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
 
 ---
 
@@ -249,7 +249,7 @@ O desde el panel si se agrega el campo al formulario Hunter.
 | Ping `.206` | ✅ 0 % pérdidas, ~1 ms |
 | SO `.206` | ✅ OpenWrt Linux 5.15.167 (MIPS) |
 | iptables `.206` | ✅ v1.8.8 (nf_tables) |
-| asyncssh credenciales BD (`root / Shomer2026!`) | ✅ conecta y ejecuta |
+| asyncssh credenciales BD (ver `hunter.firewall_user` / `hunter.firewall_pass` en BD) | ✅ conecta y ejecuta |
 | `iptables -I FORWARD -s 198.51.100.1 -j DROP` | ✅ regla aplicada, verificada con `iptables -L` |
 | Desbloqueo `iptables -D …` | ✅ regla eliminada correctamente |
 | Cadena Wazuh script → API → `.206` → Telegram | ✅ `telegram_sent: true` en respuesta |
@@ -300,6 +300,54 @@ echo '{“data”:{“src_ip”:”5.5.5.5”,”alert”:{“signature”:”ET
 | P9 | **Retry automático al reabrir CB** — ✅ **CERRADO como diseño intencional**: sync manual disponible (`POST /remedies/firewall/sync`, botón en panel). Para hoteles de hasta ~100 hab. el flujo de dos pasos (Reset CB → Sincronizar) es suficiente; muchos clientes Colombia ni firewall tienen. Hacer el reset automático complicaría UX (botón lento) sin beneficio real en ese segmento. | ✅ Cerrado — decisión Juan Pablo |
 | P10 | ~~Vista de bloqueos históricos~~ — ✅ `GET /remedies/history`, sección colapsable con tabla + CSV en panel Hunter | ✅ Sesión 24 |
 | P11 | **Clave Wazuh con HMAC** — ~~prioridad media~~ → **DESCARTADO**: Wazuh y Shomer corren en el mismo servidor; la llamada va a `http://127.0.0.1:8000` (loopback, nunca sale al exterior). El riesgo real es exposición del puerto 8000 en UFW — ya está cubierto (solo localhost). No aplicar HMAC si no hay justificación arquitectural. | ✅ No aplica (mismo servidor) |
+| P12 | **Flashear 2 MikroTik hEX S (RB760iGS) a OpenWrt** — para conectarlos como firewalls Hunter igual que el `.206`. Ver procedimiento completo abajo §E.5. | 🔴 **PRÓXIMA SESIÓN** |
+
+## E.5 Pendiente — Flashear 2 MikroTik RB760iGS a OpenWrt (próxima sesión)
+
+El `.206` ya corre OpenWrt 23.05.5 y está integrado con Hunter. Hay 2 unidades iguales (RB760iGS) con RouterOS que deben flashearse.
+
+### Archivos a descargar (antes de empezar)
+
+| Archivo | Versión | Uso |
+|---|---|---|
+| `openwrt-23.05.0-rc3-ramips-mt7621-mikrotik_routerboard-760igs-initramfs-kernel.bin` | **rc3 obligatorio** | Boot en RAM vía TFTP — las versiones finales no netbootean en este modelo |
+| `openwrt-23.05.5-ramips-mt7621-mikrotik_routerboard-760igs-squashfs-sysupgrade.bin` | 23.05.5 estable | Flash permanente tras el boot en RAM |
+
+### Procedimiento
+
+**Paso 1 — Verificar RouterOS v6** (Winbox → `/system routerboard print`). Si tiene v7 bajar a 6.49.x primero.
+
+**Paso 2 — Configurar netboot en el hEX** (web `192.168.88.1` o Winbox):
+- System → Routerboard → Settings → Boot device: `try ethernet once then NAND`
+- Boot protocol: `DHCP` · Force Backup Booter: ✅ · Shutdown (no reboot)
+
+**Paso 3 — Servidor TFTP en .205** (cable directo .205 → Ether1 del hEX):
+```bash
+sudo apt-get install -y dnsmasq
+# Archivo initramfs en directorio actual
+sudo dnsmasq --no-daemon \
+  --listen-address=192.168.1.10 --bind-interfaces -p0 \
+  --dhcp-authoritative --dhcp-range=192.168.1.100,192.168.1.200 \
+  --bootp-dynamic \
+  --dhcp-boot=openwrt-23.05.0-rc3-ramips-mt7621-mikrotik_routerboard-760igs-initramfs-kernel.bin \
+  --log-dhcp --enable-tftp --tftp-root=$(pwd)
+# En otra terminal:
+sudo ip addr replace 192.168.1.10/24 dev enp2s0
+```
+
+**Paso 4 — Forzar netboot:** desenchufa hEX → mantén Reset → enchúfalo → suelta al ver DHCP en consola (~15s).
+
+**Paso 5 — Flash permanente** (cuando `ping 192.168.1.1` responda):
+```bash
+scp openwrt-23.05.5-*-sysupgrade.bin root@192.168.1.1:/tmp/
+ssh root@192.168.1.1 "sysupgrade -n /tmp/openwrt-23.05.5-*-sysupgrade.bin"
+```
+
+**Paso 6 — Post-flash:** configurar IP fija del cliente, SSH key, contraseña, y registrar en Hunter (`hunter.firewall_ip/user/pass`).
+
+### Referencia
+- `.206` como modelo de config final (OpenWrt 23.05.5, MT7621, IP LAN fija, iptables, WireGuard opcional)
+- Credenciales `.206` en BD Hunter: `hunter.firewall_*`
 
 ---
 
@@ -374,6 +422,22 @@ Exports API (puerto Tools o proxy HTTPS): Excel global por IP, etiquetas PDF, et
 Cliente Windows: usar cuentas de servicio WMI con permisos mínimos y acuerdos de privacidad con el cliente; el detalle de credenciales y checklist largo siguen las plantillas corporativas de instalación fuera de este párrafo.
 
 **macOS (Darwin) — rama SSH del scanner:** cuando `uname -a` contiene Darwin, el extractor usa `system_profiler SPHardwareDataType` (modelo, CPU, RAM, serial), `sw_vers` (OS), `df -h /` (disco), `ls /Applications` (software). Mismos campos BD que Windows. Prerequisito: SSH activo en el Mac y credenciales en Tracker → Credenciales. Re-escanear: `cd /opt/network_monitor && ./venv/bin/python3 -m app.scripts.scanner` con el Mac en el rango de discovery. Verificar: `sqlite3 /storage/db/inventory.db "SELECT ip,hostname,cpu,ram,os_family FROM assets WHERE ip='IP_MAC';"`.
+
+**Campos ficha Tracker (Sesión 51 — validación física + escaneo):**
+
+| Campo BD | Origen | Descripción |
+|----------|--------|-------------|
+| `monitor_count` | Manual | Monitores **externos** adicionales (0–3) |
+| `monitors_json` | Manual | `[{model, serial}, …]` monitores externos |
+| `integrated_monitor` | Manual | `1` = portátil / All-in-One con pantalla integrada |
+| `integrated_monitor_model` / `_serial` | Manual | Modelo y serial del panel integrado |
+| `monitors_detected_json` | Escaneo WMI/SSH | Monitores detectados automáticamente |
+| `peripherals_detected_json` | Escaneo WMI | USB / docks detectados |
+| `peripherals_manual` | Manual | Docks, hubs, adaptadores |
+| `local_printers_json` | Escaneo WMI | Impresoras locales del PC |
+| `logged_user` / `logged_user_at` | Escaneo WMI | Usuario de sesión al escanear |
+
+**Timeout WMI (Sesión 51):** `TIMEOUT_CRITICAL_SEC=90` en `scanner.py`; `EXTRACTOR_SSH_WMI_TIMEOUT=90` en `extractor.py`. Antes el extractor capaba en 30 s aunque el scanner pedía 45 s → falsos `ERROR: timeout (30s)` con datos parciales. Redes grandes (500+ PCs): deep scan por segmento/VLAN de noche; quick scan diario — ver §AK.6.
 
 ---
 
@@ -1208,7 +1272,7 @@ Disco raíz quedó al **30 %** (`/dev/nvme0n1p3 25 G, 6.9 G usados`).
 | `/resumen` agregado | Resumen on-demand del sistema vía IA (Groq explain o OpenAI según `.env`) |
 | `/monitores` agregado | Muestra estado de los 20 monitores (✅/🔴/⚪ + última ejecución + última alerta) con labels legibles por módulo |
 | `/usuario` agregado | Botones inline 🐧 Linux / 🍎 macOS / 🪟 Windows con comandos exactos para crear usuario de servicio `shomer` |
-| Credenciales fábrica | Pasos de instalación usan `root/shomer2026` (no `admin/12345`) |
+| Credenciales fábrica | Pasos de instalación usan `root/shomer2026` |
 
 ## R.2 monitor.py — sistema de tracking de monitores
 
@@ -1296,7 +1360,7 @@ Primer appliance de campo instalado de forma completamente remota desde Utah ví
 
 | Dato | Valor |
 |------|-------|
-| Hostname | `shomerbogota` |
+| Hostname | `shomerbogota` (renombrado a `shomer-hotelopera` el 7 jun 2026 — Sesión 50, ver nota abajo) |
 | Tailscale IP | `100.103.148.119` |
 | LAN IP | `192.168.10.206/24` |
 | Gateway | `192.168.10.1` |
@@ -1320,6 +1384,8 @@ Primer appliance de campo instalado de forma completamente remota desde Utah ví
 | sda10 | 25 GB | ext4 | /storage |
 
 **Teclado en español:** `sudo localectl set-keymap es`
+
+> **Nota — convención de nombres por cliente (Sesión 50, 7 jun 2026):** el hostname `shomerbogota` se renombró a **`shomer-hotelopera`** (`hostnamectl set-hostname` + fix `/etc/hosts`). Razón: nombrar por **ciudad** deja de servir en cuanto haya más de un cliente en la misma ciudad — no se podría diferenciar entre ellos al gestionar varios equipos a la vez. La convención correcta es nombrar por **cliente/sitio** (`shomer-<nombre-cliente>`), igual que ya hace `SITE.md` (§AH.1). Actualizado en `tools/servers.txt` y referencias activas de este documento; las menciones a `shomerbogota` en bitácoras de sesiones anteriores se conservan tal cual como registro histórico (era el nombre real en ese momento).
 
 ## S.2 Bugs corregidos — instalaciones nuevas
 
@@ -1364,7 +1430,7 @@ Lo que queda pendiente por cliente (no automatizable):
 
 ### Credenciales de fábrica corregidas en resumen
 
-El script mostraba `admin / 12345` (incorrecto). Corregido a `root / shomer2026`.
+El script mostraba credenciales incorrectas. Corregido a `root / shomer2026`.
 
 ## S.4 Docs técnico — protección admin-only
 
@@ -1388,7 +1454,7 @@ El script mostraba `admin / 12345` (incorrecto). Corregido a `root / shomer2026`
 | Tracker scan | ✅ 12 equipos encontrados en 192.168.10.0/24 |
 | shomer-agent Docker | ⏳ pendiente — falta Chat ID Telegram + GROQ_API_KEY |
 | Telegram Guardian | ⏳ pendiente — configurar en /setup |
-| Usuario admin/12345 | ✅ creado en BD |
+| Usuario admin | ✅ creado en BD |
 | base.subnet | ✅ `192.168.10.0/24` |
 
 **Equipos encontrados en red Bogotá:**
@@ -2640,11 +2706,299 @@ Para la segunda opción se necesita conocer la marca/modelo del firewall del cli
 
 ## AD.4 Próximos pasos producto (post Sesión 44)
 
-| # | Ítem |
-|---|------|
-| 1 | **Git + deploy.sh centralizado** — script que actualice todos los servidores cliente con un comando desde .205 |
-| 2 | **Instalación 2 máquinas nuevas** en Utah — clonar .205 (20 min) o fresh install con `install_shomer.sh` (1 hora). Prerequisito: decidir git/deploy primero |
-| 3 | B2 y Tailscale se configuran post-install desde wizard del panel y 2 comandos respectivamente — no van en el script |
+| # | Ítem | Estado |
+|---|------|--------|
+| 1 | **Git local + deploy.sh centralizado** — `tools/deploy.sh` + `tools/servers.txt`. Bogotá ya registrada (`100.103.148.119`). Un comando actualiza todos los servidores. | ✅ Sesión 45 |
+| 2 | **Instalación 2 mini PCs Utah** — instalando Ubuntu 22.04 LTS (2 jun 2026). Siguiente paso: correr `install_shomer.sh` y agregar IPs a `servers.txt`. | 🔄 En progreso |
+| 3 | B2 y Tailscale se configuran post-install desde wizard del panel y 2 comandos respectivamente — no van en el script | Pendiente post-OS |
+
+## AE — Sesión 45 (2 jun 2026) — Git + deploy.sh + mini PCs
+
+### AE.1 Git local + deploy.sh
+
+Repositorio git local inicializado en `/opt/network_monitor`. Scripts de despliegue centralizados:
+
+| Archivo | Ubicación | Función |
+|---------|-----------|---------|
+| `deploy.sh` | `tools/deploy.sh` | rsync `app/` + agente → todos los servers; reinicia servicios |
+| `servers.txt` | `tools/servers.txt` | Registro de servidores: `tailscale_ip  nombre  descripcion` |
+
+**Uso:**
+```bash
+# Actualizar todos los servidores registrados
+cd /opt/network_monitor && bash tools/deploy.sh
+
+# Actualizar solo uno
+bash tools/deploy.sh 100.103.148.119
+```
+
+**Servidores registrados (2 jun 2026):**
+- `100.103.148.119  shomer-hotelopera  "Hotel Ópera — Bogotá (cliente piloto)"` (renombrado de `shomerbogota` el 7 jun 2026 — nombre de cliente, no de ciudad, para diferenciar entre varios sitios en la misma ciudad)
+- `100.75.182.116   shomer245     "Lab Utah — N100 (mini PC 1, LAN 192.168.1.245)"`
+- `100.108.17.50    shomer243     "Lab Utah — N95  (mini PC 2, LAN 192.168.1.243)"`
+
+**Al instalar un mini PC nuevo:** agregar su IP Tailscale a `servers.txt` después de la instalación.
+
+### AE.2 Mini PCs nuevos Utah
+
+2 mini PCs físicos en lab Utah. ✅ Instalados y en producción (2 jun 2026).
+
+**Flujo una vez tengan Ubuntu:**
+1. Generar paquete desde .205: `bash tools/make_package.sh`
+2. SCP del paquete + `sudo bash tools/install_shomer.sh` con `MGMT_IFACE=enp4s0 MIRROR_IFACE=enp2s0`
+3. `sudo tailscale up` → autenticar link en browser
+4. Agregar IP Tailscale a `tools/servers.txt`
+5. Configurar wizard panel + `.env` del agente
+
+**Fixes aplicados al install_shomer.sh (2 jun 2026):**
+- Agregado check internet con fallback `curl` (ping puede fallar si gateway LAN no tiene internet)
+- Agregado `rsync` y `sqlite3` a la lista apt (no venían en Ubuntu minimal)
+- Agregado `chown usb_admin` sobre `/storage/db/` después de crear las BDs (evita BD read-only)
+
+### AE.3 Acceso remoto panel vía Tailscale
+
+Panel nginx ya escucha en todas las interfaces. El bloqueo era UFW (ya tenía reglas 100.64.0.0/10) y `SHOMER_TRUSTED_HOSTS` en runtime.env que no incluía la IP Tailscale.
+
+**Fix aplicado:** `deploy.sh` ahora detecta automáticamente la IP Tailscale de cada servidor y actualiza `SHOMER_TRUSTED_HOSTS` y `SHOMER_CORS_ORIGINS` en `/etc/shomer/shomer-runtime.env`.
+
+**URLs de acceso (requiere Tailscale en el cliente):**
+
+| Servidor | IP LAN | IP Tailscale | URL panel |
+|---|---|---|---|
+| .205 Utah lab | 192.168.1.205 | 100.100.188.87 | `https://100.100.188.87:8443` |
+| shomer-hotelopera (ex-shomerbogota) | 192.168.10.206 | 100.103.148.119 | `https://100.103.148.119:8443` |
+| shomer245 Utah | 192.168.1.245 | 100.75.182.116 | `https://100.75.182.116:8443` |
+| shomer243 Utah | 192.168.1.243 | 100.108.17.50 | `https://100.108.17.50:8443` |
+
+**Credenciales panel:** usuario `root` con contraseña fábrica `shomer2026` → redirige a `/setup`. Usuario `admin` es de uso interno USB Ingeniería (no documentar contraseña).
+
+### AE.4 Tracker — indicador de ficha revisada
+
+Campo `reviewed INTEGER DEFAULT 0` agregado a tabla `assets` en `inventory.db`.
+
+- Al guardar la ficha de cualquier equipo → `reviewed = 1` automáticamente
+- Fila en tabla: fondo verde suave + ícono ✓ verde (antes era lupa gris)
+- Sin columna extra — mismo espacio en la tabla
+
+**Archivos modificados:**
+- `app/api/inventory_db_schema.py` — `reviewed` en `ASSETS_NEW_COLUMNS` (migración auto)
+- `app/api/inventory_asset_edit.py` — `reviewed` en `ASSET_EDITABLE_FIELDS`
+- `app/templates/inventory.html` — CSS `.row-reviewed`, renderTable, saveAsset
+
+### AE.5 Tracker — header título arriba de botones
+
+`inventory.html` — `.page-header` cambió de `flex-direction: row` a `flex-direction: column` con `gap: 12px`. Título “Tracker — Inventario IT” queda encima de los botones de acción (igual que Guardian y Hunter). Botones con `flex-wrap: wrap`.
+
+---
+
+# Parte AF — Sesión 46 (4 jun 2026) — Hunter RouterOS + Impresoras SNMP + Bot POS
+
+## AF.1 Hunter — soporte MikroTik RouterOS nativo
+
+Hunter ya no requiere enviar un router OpenWrt al cliente. Si el cliente tiene un MikroTik RouterOS, el bloqueo se hace directamente con comandos nativos `/ip firewall address-list`.
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/api/casador_support_firewall.py` | Nuevas funciones `_routeros_block`, `_routeros_unblock`, `_routeros_sync_block` via asyncssh |
+| `app/api/casador_support_state.py` | Campo `type` en `_get_firewall_creds()` — lee `hunter.firewall_type` de BD |
+| `app/api/casador_support.py` | Re-exports de las 3 funciones RouterOS |
+| `app/api/casador_blocking.py` | Helpers `_fw_type()`, `_fw_block()`, `_fw_unblock()`, `_fw_sync_block()` — enrutan a RouterOS o OpenWrt según `hunter.firewall_type` |
+| `app/templates/hunter.html` | Selector tipo firewall + hint de regla RouterOS + banners advertencia subredes |
+
+### Lógica de bloqueo RouterOS
+
+```python
+_ROS_LIST = “shomer-blocked”
+
+# Bloquear: agrega a address-list
+'/ip firewall address-list add address={ip} list=shomer-blocked comment=”Shomer-Hunter”'
+
+# Desbloquear: busca y elimina
+'/ip firewall address-list remove [find where address=”{ip}” and list=shomer-blocked]'
+
+# Sync (verifica antes de agregar):
+'/ip firewall address-list print count-only where address=”{ip}” list=shomer-blocked'
+```
+
+**Configuración única en el MikroTik (una vez):**
+```
+/ip firewall filter add chain=forward src-address-list=shomer-blocked action=drop place-before=0
+```
+
+**BD:** `hunter.firewall_type` = `”openwrt”` (default) o `”routeros”`. Configurable desde panel Hunter → Firewall.
+
+### Advertencias subredes en Hunter
+
+UI agrega dos banners sobre el campo “Subredes internas”:
+- **Teal info:** explica que las subredes aquí listadas **nunca serán bloqueadas** — agregar todas las VLANs del cliente incluida la de huéspedes
+- **Rojo warning:** las subredes de huéspedes **no deben** ponerse en el espejo SPAN (Ley 1581 Colombia — privacidad de datos personales)
+
+**Concepto clave — dos funciones distintas:**
+| Campo | Función | Ejemplo Hotel Ópera |
+|-------|---------|---------------------|
+| Subredes internas | Lista de exclusión — IPs de aquí nunca se bloquean | 192.168.0.0/24, 192.168.1.0/24, 192.168.2.0/24, 192.168.3.0/24 |
+| NIC espejo (SPAN) | Interface de captura de tráfico | Solo red admin + servidores — nunca VLAN huéspedes |
+
+## AF.2 Inframonitor — impresoras tóner y papel via SNMP
+
+### Bug corregido: OID formato HP JetDirect
+
+**Causa raíz:** `snmpget` en equipos HP JetDirect retorna OIDs con prefijo `iso.` en lugar de `.1.`:
+```
+iso.3.6.1.2.1.1.1.0 = STRING: “HP ETHERNET MULTI-ENVIRONMENT”
+```
+El parser buscaba `”sysdescr” in lhs_l` o `lhs.endswith(“.1.3.6.1.2.1.1.1.0”)` — ambas condiciones falsas con prefijo `iso`.
+
+**Fix:** usar `.endswith(“.2.1.1.1.0”)` que coincide con ambos formatos:
+```python
+elif lhs.endswith(“.2.1.1.1.0”):    # sysDescr — HP usa “iso.” prefix
+    result[“sys_descr”] = rhs.strip('”')
+elif lhs.endswith(“.2.1.1.3.0”):    # sysUpTime
+    ...
+elif lhs.endswith(“.2.1.1.5.0”):    # sysName
+    ...
+```
+
+### OIDs impresora (Printer MIB — RFC 3805)
+
+Cuando `device_type in (“printer”, “pos”)`, `_snmp_poll()` consulta además:
+
+| OID | Dato | Valores |
+|-----|------|---------|
+| `1.3.6.1.2.1.25.3.5.1.1.1` | `hrPrinterStatus` | 3=idle, 4=printing, 5=warmup |
+| `1.3.6.1.2.1.43.11.1.1.9.1.1` | `prtMarkerSuppliesLevel` | % tóner (0-100) |
+| `1.3.6.1.2.1.43.8.2.1.10.1.1` | `prtInputCurrentLevel` | hojas actuales |
+| `1.3.6.1.2.1.43.8.2.1.9.1.1` | `prtInputMaxCapacity` | hojas máximo |
+
+**Campo `result[“printer”]`** en `snmp_data` JSON:
+```python
+{
+    “status”:       “lista”,   # “lista”/”imprimiendo”/”calentando”/”desconocido”
+    “toner_pct”:    97,        # 0-100 o None
+    “paper_current”: 450,      # hojas o None
+    “paper_max”:    500,
+}
+```
+
+**UI modal:** barra visual tóner + indicador papel + estado.
+
+### Firma de función corregida
+
+```python
+def _snmp_poll(ip, community, prev_snmp, device_type=”generic”):
+```
+Llamada en el poller:
+```python
+asyncio.to_thread(_snmp_poll, row[“ip”], community, prev_snmp, row[“device_type”] or “generic”)
+```
+
+## AF.3 Bot — tools POS y credenciales dinámicas
+
+### `get_pc_credentials(ip)` en `shomer_api.py`
+
+Jerarquía de credenciales para acceso SSH a PCs:
+1. `assets.override_user/override_pass` en `inventory.db` (credencial específica del equipo)
+2. Fallback → `base.service_user/password` en `system_state` (credencial global del sitio)
+
+### Tool 22 — `get_print_queue_status`
+
+```python
+# PowerShell via SSH al PC
+Get-PrintJob -ComputerName localhost | Select-Object JobStatus,Document,Size |
+  ConvertTo-Json -Compress 2>$null
+```
+Retorna: `{total_jobs, stuck_jobs, jobs[]}`. Si `stuck_jobs > 0` → el bot sugiere `/hunter_borrar_cola`.
+
+### Tool `clear_print_queue` — actualizada
+
+Ahora usa `get_pc_credentials(pc_ip)` en lugar de credenciales globales hardcodeadas. El técnico puede limpiar la cola de cualquier impresora cuyos credenciales estén en Tracker.
+
+## AF.4 deploy.sh — llaves SSH duales
+
+**Antes:** una sola llave `id_rsa_shomer` para todos los servidores.
+**Problema:** mini PCs usan `id_ed25519_shomer`.
+
+**Fix:** `deploy.sh` detecta el servidor y elige la llave:
+```bash
+if [[ “$ip” == “100.103.148.119” ]]; then
+    SSH_KEY=”$HOME/.ssh/id_rsa_shomer”      # Bogotá
+else
+    SSH_KEY=”$HOME/.ssh/id_ed25519_shomer”  # Mini PCs Utah
+fi
+```
+
+## AF.5 Estado servidores al cierre Sesión 46
+
+| Servidor | Hunter RouterOS | Impresoras SNMP | Bot tools | Sincronizado |
+|---------|----------------|----------------|-----------|-------------|
+| .205 (Utah lab) | ✅ código | ✅ código | ✅ 22 tools | — |
+| Bogotá `.119` | ✅ sync | ✅ sync | ✅ sync | ✅ |
+| shomer245 `.116` | ✅ sync | ✅ sync | ⏳ sin .env bot | ✅ |
+| shomer243 `.050` | ✅ sync | ✅ sync | ⏳ sin .env bot | ✅ |
+
+**Pendiente único próxima sesión:** flashear 2 MikroTik RB760iGS a OpenWrt — procedimiento en §E.5.
+
+---
+
+# Parte AG — Sesión 47 (4 jun 2026) — Gestión de Técnicos operativo
+
+## AG.1 Qué se hizo
+
+Módulo de métricas de rendimiento por técnico operativo end-to-end en `.205`.
+
+### Bug corregido — auth `shomer_technician.py`
+
+`_require_admin()` usaba `request.state.user` (nunca seteado en este sistema). Reemplazado por `Depends(require_admin)` igual que `shomer_reports.py` y el resto del código.
+
+### `knowledge.db` inicializado
+
+Creado en `/storage/shomer-agent/data/knowledge.db` via `docker exec`. Tablas: `technician_actions`, `incident_knowledge`, `technician_names`. Accesible desde el panel en modo read-only (mismo filesystem, volumen Docker montado).
+
+### Prueba end-to-end
+
+1. Técnico reinició AP `.210` desde bot Telegram
+2. `knowledge.db` registró: `telegram_id=6513540405, action_type=reboot, device_ip=192.168.1.210`
+3. `GET /api/technician/stats` devolvió métricas calculadas correctamente
+
+## AG.2 Arquitectura
+
+```
+Bot Telegram                         Panel web (:8000)
+core/bot.py                          app/api/shomer_technician.py
+  reboot  → log_technician_action()  GET /api/technician/stats
+  block   → log_technician_action()  GET /api/technician/names
+  unblock → log_technician_action()  POST /api/technician/names
+  guardar → save_knowledge()         GET /api/technician/export
+        │                            GET /gestion  (HTML, solo admin)
+        ▼
+  /storage/shomer-agent/data/knowledge.db
+  (volumen Docker — mismo filesystem que panel)
+```
+
+## AG.3 Métricas calculadas
+
+| Métrica | Cálculo |
+|---------|---------|
+| Tasa documentación | `soluciones_guardadas / reboots * 100` |
+| Reboots repetidos | mismo equipo >2 veces en el mes |
+| Score | `doc_rate - min(reboots_repetidos * 10, 30)` (0–100) |
+
+## AG.4 Pendiente menor
+
+- Registrar nombre real del técnico en `/gestion` → “Técnicos registrados” → Telegram ID `6513540405`
+- Sincronizar a Bogotá y mini PCs (cuando tengan bot activo con `.env`)
+- El `doc_rate` sube automáticamente cuando el técnico usa “guardar solución” en el bot
+
+## AG.5 Estado servidores al cierre
+
+| Servidor | Panel | Bot | Gestión técnicos |
+|---------|-------|-----|-----------------|
+| .205 Utah | ✅ | ✅ | ✅ operativo |
+| Bogotá `.119` | ✅ | ✅ | ⏳ pendiente sync |
+| shomer245 `.116` | ✅ | ⏳ sin .env | ⏳ pendiente |
+| shomer243 `.050` | ✅ | ⏳ sin .env | ⏳ pendiente |
 
 ---
 
@@ -2658,3 +3012,332 @@ Este manifiesto es la lectura inicial: **estado (Parte A) + normas**. Al cerrar 
 
 ---
 
+
+---
+
+# Parte AH — Documentación por sitio cliente (Sesión 47 — 5 jun 2026)
+
+## AH.1 Norma: cada Shomer tiene su propio SITE.md
+
+**CLAUDE.md en .205** = manual de desarrollo (arquitectura, código, normas). No cambia entre clientes.
+
+**`/opt/network_monitor/SITE.md` en cada Shomer** = configuración específica de ese cliente:
+- Red y subnets del sitio
+- Equipos de red (router, switches, VLANs)
+- Configuración SPAN/mirror para Hunter
+- Subnets internas del cliente (lista exclusión Hunter)
+- Contacto técnico del cliente
+- Cualquier particularidad del despliegue
+
+**Por qué:** cada hotel/empresa tiene red distinta, MikroTik distinto, VLANs distintas. Mezclar configs de clientes en CLAUDE.md crea caos. El técnico en sitio lee SITE.md, el desarrollador lee CLAUDE.md.
+
+## AH.2 Plantilla SITE.md mínima
+
+```markdown
+# Shomer Sentinel — Sitio: [NOMBRE CLIENTE]
+
+## Identificación
+- Nombre: 
+- Dirección:
+- Contacto técnico (nombre, teléfono):
+- Fecha instalación:
+
+## Red
+- Subnet admin: 
+- Subnet huéspedes (NO bloquear):
+- Otras subnets:
+- Gateway:
+
+## Router/Firewall
+- Modelo:
+- IP gestión:
+- Usuario SSH/Winbox:
+- WAN principal (interfaz):
+- WAN respaldo (interfaz):
+
+## SPAN / Mirror Hunter
+- Puerto origen (mirror-source):
+- Puerto destino (mirror-target):
+- Comando aplicado:
+- NIC espejo Shomer:
+
+## Hunter — subnets internas
+(Copiar aquí todas las subnets — estas IPs nunca se bloquean)
+
+## Shomer
+- IP LAN:
+- IP Tailscale:
+- NIC gestión:
+- NIC espejo:
+
+## AH.3 Matriz de equipos y Suricata lab (Sesión 52 — 10 jun 2026)
+
+**Registro maestro:** `docs/EQUIPOS.md` — tabla de los 4 appliances (`.205`, Ópera, `.245`, `.243`), qué sincronizar con `deploy.sh` y qué **nunca** copiar entre sitios.
+
+| Equipo | Suricata NIC | `SHOMER_LAB_NO_SPAN` | Notas |
+|--------|--------------|----------------------|--------|
+| `.205` lab | `enp4s0` | ✅ sí | Sin SPAN habitual; bot en desarrollo aquí |
+| Ópera | `enx9c69d33bc55f` | ❌ **no** | Producción; SPAN real; `auto_block=false` |
+| `.245` / `.243` | `enp2s0` | ✅ sí | Mini PCs Utah; gestión `enp4s0` |
+
+**Post-instalación Suricata (lab):** `sudo MIRROR_IFACE=<nic> bash /opt/network_monitor/tools/suricata_lab_setup.sh` — ruleset ET, symlink `shomer-local.rules`, flag lab opcional.
+
+**Ópera:** no ejecutar ese script sin ventana; ya tiene Suricata operativo con tráfico real.
+
+---
+
+# Parte AI — Sesión 49 (6 jun 2026) — Fix Tracker WMI Windows: software + dominio AD
+
+## AI.1 Problema raíz — wmiexec se colgaba indefinidamente
+
+El escáner Tracker usaba `wmiexec.py` (impacket) para extraer datos de PCs Windows. Esta herramienta funciona así:
+
+```
+Shomer → abre sesión WMI en el PC
+       → pide a Windows que ejecute cmd.exe
+       → cmd.exe intenta escribir resultado en \\127.0.0.1\ADMIN$\__output
+       → ese proceso no tiene credenciales de red → cuelga para siempre
+```
+
+Resultado: timeout en 100% de PCs Windows. Hardware vacío, software vacío `[]`.
+
+## AI.2 Solución — DCOM directo + PowerShell EncodedCommand + SMB
+
+**Archivo modificado:** `app/scripts/tracker/extractor.py` — función `phase3_wmi`
+
+### Flujo nuevo (3 pasos en paralelo)
+
+```
+PASO 1: Conectar a WMI via DCOM (impacket DCOMConnection)
+        → NTLMLogin a //./root/cimv2
+        → Lanzar PowerShell PRIMERO via Win32_Process.Create
+          (corre en background mientras hacemos hardware)
+
+PASO 2: Consultas hardware simultáneas (mientras PS corre)
+        → Win32_ComputerSystem   → hostname, modelo, RAM, fabricante
+        → Win32_OperatingSystem  → OS, versión, arquitectura
+        → Win32_BIOS             → serial number
+        → Win32_DiskDrive        → modelo disco, capacidad total
+
+PASO 3: Esperar mínimo 12s desde lanzamiento PS, luego leer via SMB
+        → SMBConnection.getFile("C$", "sho_sw.json", ...)
+        → Parsear JSON → _filter_software()
+        → Borrar archivo del PC remoto
+```
+
+**Tiempo total por PC:** ~13 segundos (vs colgarse indefinidamente antes)
+
+### Por qué PowerShell necesita Base64 (EncodedCommand)
+
+PowerShell lanzado via `Win32_Process.Create` recibe el comando como string de Windows. Las comillas anidadas dentro del comando confunden el parser — PowerShell arrancaba (ReturnValue=0, PID asignado) pero nunca escribía el archivo.
+
+**Solución:**
+```python
+ps_script = "$p='HKLM:\\Software\\...\\Uninstall\\*';$sw=Get-ItemProperty $p..."
+encoded = base64.b64encode(ps_script.encode("utf-16le")).decode("ascii")
+ps_cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + encoded
+```
+
+Base64 en UTF-16LE es el encoding que espera PowerShell para `-EncodedCommand`. Elimina todos los problemas de comillas.
+
+### Por qué Remote Registry (rrp) no funcionó
+
+Primer intento fue leer el registro via SMB pipe `\winreg`. El pipe retorna `STATUS_OBJECT_NAME_NOT_FOUND` porque el servicio **Remote Registry está desactivado por defecto** en Windows 10/11. Intentamos iniciarlo via WMI `ExecMethod('Win32_Service.Name="RemoteRegistry"', 'StartService')` pero requiere permisos adicionales que el usuario de dominio no tiene. **Abandonado — usar PowerShell es más limpio.**
+
+## AI.3 Credenciales dominio AD — convención
+
+Para redes con Active Directory (como Hotel Ópera — dominio `HOTELOPERA`, AD en `192.168.0.4`):
+
+| Campo Tracker | Valor |
+|---|---|
+| Usuario | `administrador` (sin dominio) |
+| Contraseña | contraseña del usuario de dominio |
+| Dominio | `HOTELOPERA` |
+
+El código pasa estos 3 campos a `DCOMConnection(ip, username=user, password=password, domain=dom)`. Si el dominio está vacío usa `"."` (cuenta local).
+
+**Equipos fuera del dominio** (PCs con cuenta local `.\sistemas`):
+- Usuario: `sistemas`
+- Dominio: dejar vacío o `.` — el código hace fallback automático
+
+## AI.4 Bugs corregidos durante la sesión
+
+| Bug | Causa | Fix |
+|---|---|---|
+| `TypeError: checkNullString` en ExecQuery | Se pasaba `wql.encode('utf-8')` — impacket espera `str` no `bytes` | `ExecQuery(wql)` sin `.encode()` |
+| `_filter_software` no encontrado | Al reemplazar `phase3_wmi` se borraron `_SW_INCLUDE_KEYWORDS` y `_SW_EXCLUDE_KEYWORDS` (constantes debajo de la función) | Corregir `end_idx=641` (inicio de las constantes) |
+| Timeout 30s insuficiente | Hardware (~12s) + sleep(12) + SMB = ~27s, al límite | Hardcode `t = 55` y PS en paralelo → tiempo real ~13s |
+| Software vacío aunque PS arrancara | Comillas anidadas en cmd confundían el parser Windows | `-EncodedCommand` Base64 |
+
+## AI.5 Rendimiento por escenario
+
+| Escenario | Tiempo estimado |
+|---|---|
+| 100 PCs encendidas (20 paralelas) | ~2 minutos |
+| 100 PCs con 20% apagadas | ~4-6 minutos |
+| 200 PCs encendidas | ~4 minutos |
+
+El cuello de botella son las PCs apagadas: cada una consume 55s de timeout en su lote.
+
+**Optimización posible:** bajar timeout a 30s en horario de oficina cuando las PCs deben estar encendidas.
+
+## AI.6 Servidores actualizados
+
+`extractor.py` sincronizado a los 4 servidores el 6 jun 2026:
+- `.205` Utah lab (local)
+- `shomer-hotelopera` (ex-`shomerbogota`) `100.103.148.119` ✅
+- `shomer245` `100.75.182.116` ✅
+- `shomer243` `100.108.17.50` ✅
+
+## AI.7 Resultado Hotel Ópera
+
+| | |
+|---|---|
+| Total activos detectados | 76 |
+| Windows con WMI OK + software | 13/13 ✅ |
+| Impresoras Epson de red | 3 (`.57`, `.58`, `.240`) |
+| Con error credenciales (`.\sistemas`) | 3 (`.41`, `.142`, `.170`) |
+| Apagados durante escaneo | 2 (HDO-ALMACEN `.110`, `.41`) |
+| Servidor restringido (SRVZEUSOP PMS Zeus) | 1 (`.5`) |
+
+**Pendiente:** credenciales `.\sistemas` para los 3 equipos con logon failure.
+
+---
+
+# Parte AJ — Sesión 50 (7 jun 2026) — Bug crítico Suricata: ruleset ET no cargaba (hallazgo general, aplica a cualquier instalación)
+
+## AJ.1 Síntoma
+
+Suricata corría "activo" mostrando solo **1 firma cargada** — la regla de prueba de laboratorio `SHOMER TEST ICMP` (sid 9009001) — generando ~5,344 alertas/día de ruido por pings internos normales de Guardian/Inframonitor. El ruleset ET real de 66,132 reglas (descargado correctamente por `suricata-update`) **nunca se aplicaba** — el pipeline de detección estaba prácticamente ciego en producción.
+
+## AJ.2 Causa raíz — descubre/aplica en cualquier sitio que use `suricata-update`
+
+`suricata-update` descarga el ruleset a `/var/lib/suricata/rules/suricata.rules` (42MB, ~66k reglas), pero **no lo enlaza automáticamente** con el `default-rule-path` configurado en `suricata.yaml` (típicamente `/etc/suricata/rules`). Sin ese enlace, Suricata arranca con: `[ERRCODE: SC_ERR_NO_RULES(42)] - No rule files match the pattern /etc/suricata/rules/suricata.rules`.
+
+**Diagnóstico:** `journalctl -u suricata` muestra ese error claro — revisar siempre tras instalar/actualizar el ruleset.
+
+## AJ.3 Fix aplicado (replicable en cualquier Shomer)
+
+```bash
+# 1. Symlink del ruleset descargado al path que Suricata realmente lee
+sudo ln -sf /var/lib/suricata/rules/suricata.rules /etc/suricata/rules/suricata.rules
+
+# 2. Validar antes de reiniciar
+sudo suricata -T -c /etc/suricata/suricata.yaml -v
+# → debe reportar "NN rules successfully loaded, 0 rules failed"
+
+# 3. Reiniciar
+sudo systemctl restart suricata
+```
+
+Resultado verificado: **50,210 reglas cargadas** (de 50,215 procesadas — el resto son metadatos/clases). Confirmado con alertas reales post-reinicio: detección de SNMP probing externo, escaneo IKEv2 con criptografía débil, anomalías de stream — el pipeline pasó de ciego a funcional.
+
+## AJ.4 Regla de prueba ruidosa — desactivada (general, no solo Ópera)
+
+`shomer-local.rules` traía:
+```
+alert icmp any any -> $HOME_NET any (msg:"SHOMER TEST ICMP"; itype:8; sid:9009001; rev:1;)
+```
+Esta firma — pensada para validar el pipeline con un ping de prueba — coincide con **cualquier** ICMP echo request interno, generando alertas constantes por el tráfico normal de monitoreo (Guardian, Inframonitor). **Recomendación general:** comentar/desactivar esta regla tras la validación inicial del pipeline en cualquier sitio nuevo, o acotarla a una IP de prueba específica en vez de `any any`.
+
+```
+# DESACTIVADA - generaba ruido con ping interno normal
+#alert icmp any any -> $HOME_NET any (msg:"SHOMER TEST ICMP"; itype:8; sid:9009001; rev:1;)
+```
+
+## AJ.5 Checklist — agregar a "Práctica habitual campo (Hunter en sitio nuevo)" (ver §A.3)
+
+Tras instalar/activar Suricata en un sitio nuevo, **siempre verificar**:
+1. `journalctl -u suricata | grep -i "rules successfully loaded"` — confirmar que el número de reglas cargadas coincide con lo esperado del ruleset (no solo 1)
+2. Si el conteo es bajo → revisar symlink `default-rule-path` ↔ destino real de `suricata-update`
+3. Desactivar o acotar la regla de prueba ICMP del lab antes de dejar el sitio en operación
+
+## AJ.6 Nota — separación config general vs. config de cliente
+
+Esta sección documenta un **bug de arquitectura/instalación que puede repetirse en cualquier Shomer** (de ahí su lugar en CLAUDE.md). Los valores específicos de Hotel Ópera —p. ej. `hunter.subnets` con las VLANs del hotel (Huéspedes `10.1.48.0/22`, Eventos `30.30.0.0/22`, Admin WiFi `192.168.40.0/24`, Teléfonos `192.168.3.0/24`)— **NO van aquí**: viven en `/opt/network_monitor/SITE.md` dentro de `shomer-hotelopera` (ex-`shomerbogota`, renombrado Sesión 50 — ver nota de convención abajo), conforme a la norma §AH.1. CLAUDE.md es manual de desarrollo (aplica a todos los sitios); SITE.md es config de cliente (aplica solo a ese sitio).
+
+---
+
+# Parte AK — Sesión 51 (9–10 jun 2026) — Tracker Hotel Ópera + monitor integrado + timeout WMI
+
+## AK.1 Hotel Ópera — puesta en marcha Tracker/Hunter
+
+| Corrección | Valor / resultado |
+|------------|-------------------|
+| `tracker.subnets` | `["192.168.0.0/24"]` (antes incorrecto `192.168.10.0/24`) |
+| `base.service_user` | `administrador` + dominio AD `hotelopera` en credenciales Tracker |
+| Auditoría de riesgos (scan_id=5) | **76 hosts**, **153 hallazgos** (puertos, web, compartidos, **4 parches** Windows) |
+| Rescan Windows (12 PCs clasificados) | **12/12 WMI OK** tras fix timeout — software, usuario logueado, monitores detectados |
+| Inventario total | 76 activos (APs UniFi, impresoras, cámaras, PCs) |
+
+**Pendiente Ópera:** deep scan nocturno de toda la subred para clasificar PCs restantes; credenciales locales `.\sistemas` en `.142`, `.170`, `.41`; SPAN en switch para tráfico Hunter completo.
+
+## AK.2 Bug crítico — timeout WMI capado en 30 s
+
+**Síntoma:** PCs Windows con `ERROR: timeout (30s)` en `wmi_status` aunque software o usuario sí se guardaban en escaneos anteriores.
+
+**Causa:** en `extractor.py` → `phase3_wmi()` la primera línea limitaba `t = min(timeout_sec, EXTRACTOR_SSH_WMI_TIMEOUT)` con `EXTRACTOR_SSH_WMI_TIMEOUT=30`, anulando `TIMEOUT_CRITICAL_SEC=45` de `scanner.py`.
+
+**Fix (replicable en cualquier sitio):**
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/scripts/tracker/extractor.py` | `EXTRACTOR_SSH_WMI_TIMEOUT = 90`; cálculo `t = max(45, min(timeout_sec, 90))` |
+| `app/scripts/scanner.py` | `TIMEOUT_CRITICAL_SEC = 90` |
+
+**Verificación:** rescan 12 PCs Ópera → `with_protocol_ok=12`, ~67 s total.
+
+## AK.3 Ficha Tracker — monitor integrado (portátil / All-in-One)
+
+**Archivos:** `app/templates/inventory.html`, `inventory_db_schema.py`, `inventory_asset_edit.py`, `persistence.py`.
+
+**UI:** checkbox *Monitor integrado (portátil / All-in-One)* + campos modelo/serial del panel; selector aparte *Monitores externos adicionales* (0–3). Al marcar integrado, pre-rellena desde `monitors_detected_json` si el escaneo detectó All-in-One o panel interno.
+
+**BD:** `integrated_monitor`, `integrated_monitor_model`, `integrated_monitor_serial` (migración auto `ALTER TABLE`).
+
+## AK.4 Auditoría de parches Windows (Hunter → Riesgos de Red)
+
+**Archivo:** `app/api/shomer_audit_network.py` — parches vía Windows Update COM (PowerShell remoto + lectura SMB `sho_patch.json`), reutilizando helpers de `extractor.py`. Antes: `_patch_check_wmi` con QuickFixEngineering roto → **0 hallazgos parches** en Ópera.
+
+**nmap:** timeout dinámico `min(900, max(300, len(ips)*10))`, `--host-timeout 45s`.
+
+## AK.5 Deploy centralizado — 4 servidores
+
+`bash tools/deploy.sh` (sin argumento) actualiza todos en `tools/servers.txt`:
+
+| Servidor | Tailscale |
+|----------|-----------|
+| shomer-hotelopera | 100.103.148.119 |
+| shomer245 (lab N100) | 100.75.182.116 |
+| shomer243 (lab N95) | 100.108.17.50 |
+
+**Origen:** `.205` Utah lab — no está en la lista (es desde donde se empuja). Tras deploy: migrar `inventory.db` con `ensure_assets_table()` en remotos si hay columnas nuevas.
+
+## AK.6 Redes grandes (~750 equipos) — estrategia operativa
+
+No escanear 750 de golpe en horario laboral.
+
+| Fase | Acción |
+|------|--------|
+| Inicial | Quick scan todas las subredes → lista viva IP/MAC/vendor |
+| Deep scan | Por VLAN/subred de noche: `INVENTORY_SCAN_TARGETS="192.168.X.0/24"` |
+| Continuo | Quick diario + deep semanal rotando segmentos |
+| Manual | Monitor integrado y docks en fichas de PCs críticos (~50–100) |
+
+**Límites código actuales:** OS detection agresiva solo primeros **200 IPs** del discovery; auditoría nmap tope **15 min** global — en redes muy grandes usar escaneos por lote.
+
+## AK.7 Estado servidores al cierre Sesión 51
+
+| Servidor | Tracker WMI fix | Monitor integrado UI | Auditoría parches |
+|----------|-----------------|----------------------|-------------------|
+| .205 lab | ✅ | ✅ | ✅ |
+| shomer-hotelopera | ✅ 12 PCs OK | ✅ | ✅ 153 hallazgos |
+| shomer245 / shomer243 | ✅ sync | ✅ | ✅ sync código |
+
+## AK.8 Matriz de políticas agente autónomo (10 jun 2026, v1.1)
+
+Documento operativo: `/storage/shomer-agent/docs/POLITICAS_AGENTE.md`
+
+**v1.1:** Autonomía por **catálogo TASK-001…010** (tareas explícitas), modos **`off` / `learning` / `approved`** por sitio — no IA eligiendo libre. **Capa A** (Guardian reboot, Hunter auto-block Suricata→Wazuh→API→iptables) **no pasa por el bot**. Catálogo ejemplos: limpieza logs ≥85 % (TASK-001), restart servicios Shomer (TASK-002–004), auditoría muestral Protector solo lectura (TASK-006).
+
+Promoción `learning`→`approved`: decisión **USB** tras N éxitos Green State + stats; correlaciona `incident_knowledge` / guardar solución.

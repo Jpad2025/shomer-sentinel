@@ -1,0 +1,37 @@
+# Shomer Sentinel — Reglas locales para hotel / hospitality
+# Rango SID reservado: 9009001–9009999
+# Rev: 2026-05-09
+# NOTA: Estas reglas generan ALERTAS (no bloqueo directo).
+#       El autobloqueo se aplica según política hunter.auto_block_* en la BD.
+#       Severidad: 1=Critical, 2=High, 3=Medium, 4=Low
+
+# ── Lab / diagnóstico ──────────────────────────────────────────────────────────
+# Lab sin SPAN: desactivada — sin tráfico en espejo
+#alert icmp any any -> any any (msg:"SHOMER Lab ICMP visible"; sid:9009001; rev:1; classtype:misc-activity; priority:4;)
+
+# ── Escaneo de puertos (detección básica) ─────────────────────────────────────
+# TCP SYN a muchos puertos distintos = nmap o similar
+alert tcp any any -> $HOME_NET any (msg:"SHOMER Port Scan SYN rapido"; flags:S; threshold:type both,track by_src,count 20,seconds 10; sid:9009010; rev:1; classtype:attempted-recon; priority:2;)
+
+# ── SSH brute force entrante ───────────────────────────────────────────────────
+alert tcp any any -> $HOME_NET 22 (msg:"SHOMER SSH Brute Force entrante"; flags:S; threshold:type both,track by_src,count 8,seconds 60; sid:9009020; rev:1; classtype:attempted-admin; priority:2;)
+
+# ── RDP brute force entrante ──────────────────────────────────────────────────
+alert tcp any any -> $HOME_NET 3389 (msg:"SHOMER RDP Brute Force entrante"; flags:S; threshold:type both,track by_src,count 5,seconds 30; sid:9009021; rev:1; classtype:attempted-admin; priority:2;)
+
+# ── Telnet (protocolo inseguro en red hotel) ──────────────────────────────────
+alert tcp any any -> $HOME_NET 23 (msg:"SHOMER Telnet detectado (protocolo inseguro)"; flags:S; sid:9009030; rev:1; classtype:policy-violation; priority:3;)
+
+# ── Tráfico hacia red admin desde red huéspedes (movimiento lateral) ──────────
+# Configurar $ADMIN_NET en suricata.yaml con la subnet de administración (ej: 10.0.1.0/24)
+# alert ip $GUEST_NET any -> $ADMIN_NET any (msg:"SHOMER Huesped accede a red admin"; sid:9009040; rev:1; classtype:policy-violation; priority:1;)
+
+# ── Comunicación con puertos C2 comunes (malware) ────────────────────────────
+alert tcp $HOME_NET any -> any 4444 (msg:"SHOMER Posible C2 puerto 4444 (Metasploit)"; sid:9009050; rev:1; classtype:trojan-activity; priority:1;)
+alert tcp $HOME_NET any -> any 1080 (msg:"SHOMER SOCKS proxy saliente sospechoso"; sid:9009051; rev:1; classtype:policy-violation; priority:2;)
+
+# ── DNS sobre puertos no estándar (tunneling) ─────────────────────────────────
+alert udp $HOME_NET any -> any !53 (msg:"SHOMER DNS en puerto no estandar (posible tunnel)"; content:"|00 00 01 00|"; offset:2; depth:4; sid:9009060; rev:1; classtype:policy-violation; priority:2;)
+
+# ── FTP sin cifrar saliente (exfiltración de datos simple) ───────────────────
+alert tcp $HOME_NET any -> !$HOME_NET 21 (msg:"SHOMER FTP saliente sin cifrar detectado"; flags:S; sid:9009070; rev:1; classtype:policy-violation; priority:3;)

@@ -1,8 +1,10 @@
 # Instalación Remota Shomer Sentinel 2.0 — Acceso vía Tailscale
 
-**Última actualización:** 16 mayo 2026  
+**Última actualización:** 10 junio 2026  
 **Aplica a:** Instalaciones en campo donde el técnico no está físicamente presente  
 **Probado en:** Core i3 / 16 GB RAM / dual NIC / Ubuntu 22.04
+
+**Registro de equipos:** ver `docs/EQUIPOS.md` y `SITE.md` en cada servidor (config del cliente, no copiar entre hoteles).
 
 ---
 
@@ -463,3 +465,21 @@ sudo tailscale down
 # Estado detallado:
 tailscale status --json
 ```
+
+---
+
+## Post-instalación — Suricata en laboratorio (mini PCs Utah)
+
+Tras `install_shomer.sh`, en lab **sin cable SPAN** en la NIC espejo:
+
+```bash
+cd /opt/network_monitor
+# Mini PCs: gestión enp4s0, espejo enp2s0
+sudo MIRROR_IFACE=enp2s0 bash tools/suricata_lab_setup.sh
+# Lab .205: espejo enp4s0
+sudo MIRROR_IFACE=enp4s0 bash tools/suricata_lab_setup.sh
+```
+
+Eso activa ruleset ET, reglas `shomer-local.rules` y `SHOMER_LAB_NO_SPAN=1` (pipeline OK sin tráfico espejo).
+
+**Producción (hotel con SPAN):** no usar `SHOMER_LAB_NO_SPAN`. Ver checklist Hunter en `CLAUDE.md` §AJ.

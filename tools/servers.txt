@@ -1,5 +1,9 @@
 # Servidores Shomer registrados
 # Formato: tailscale_ip  nombre  descripcion
+# Detalle por equipo: docs/EQUIPOS.md y SITE.md en cada servidor
 # Líneas con # son comentarios
 
-100.103.148.119  shomerbogota  "Bogotá — cliente piloto"
+100.103.148.119  shomer-hotelopera   "PRODUCCIÓN — Hotel Ópera Bogotá — NO deploy sin ventana"
+100.100.188.87   usb-shomer-205      "Lab Utah principal — desarrollo + bot"
+100.75.182.116   shomer245           "Lab Utah N100 — gestión enp4s0, espejo enp2s0"
+100.108.17.50    shomer243           "Lab Utah N95 — gestión enp4s0, espejo enp2s0"

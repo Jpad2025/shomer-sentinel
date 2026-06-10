@@ -1,7 +1,7 @@
 # Shomer Sentinel 2.0 — Guía maestra del sistema
 
 **Producto:** appliance de visibilidad, inventario, resiliencia (Guardian) e IDS (Hunter) en la LAN del cliente.  
-**Vigencia del documento:** 2026-04-24 (reemplaza al uso operativo de diarios de sesión; el manifiesto de desarrollo sigue en `CLAUDE.md`).  
+**Vigencia del documento:** 2026-06-10 (Sesión 51 — monitor integrado en ficha, timeout WMI 90 s, parches Hunter; manifiesto detallado en `CLAUDE.md` §AK).  
 **Audiencia:** ingeniería, soporte L2/L3, recuperación ante pérdida del equipo o del sitio.
 
 ---
@@ -91,13 +91,17 @@ Ruta base: `app/`.
 
 ### 6.2 Tracker
 
-- *Quick scan* / *deep scan* vía `scanner.py`; fingerprint WMI, SSH (incl. macOS), SNMP, banner web, LLDP pasivo.
+- *Quick scan* / *deep scan* vía `scanner.py`; fingerprint WMI (DCOM + PowerShell/SMB para software), SSH (incl. macOS), SNMP, banner web, LLDP pasivo.
+- **Timeout WMI:** 90 s por PC Windows (`TIMEOUT_CRITICAL_SEC` + `EXTRACTOR_SSH_WMI_TIMEOUT`) — necesario para software + monitores + USB en un solo paso.
+- **Ficha del equipo (panel):** monitor integrado (portátil/All-in-One), monitores externos (0–3), docks/USB detectados, impresoras locales, usuario logueado al escanear. Campos en `inventory.db` — ver `CLAUDE.md` §G y §AK.3.
+- **Redes grandes:** deep scan por VLAN de noche; no un solo escaneo de 500+ equipos en horario pico (`CLAUDE.md` §AK.6).
 - Excel/PDF/etiquetas y **snapshots** con protocolo de backup/restore en `CLAUDE.md` §13.8.1.
 - **Verdad** del inventario: tabla en `inventory.db` — exportar Excel como evidencia, no sustituto de procedimiento de snapshot.
 
 ### 6.3 Hunter
 
-- Suricata sobre `enp4s0`; reglas en ficheros bajo `/etc/suricata/` (laboratorio: p. ej. SID `9009001` para ICMP de prueba).
+- Suricata sobre `enp4s0`; reglas en ficheros bajo `/etc/suricata/` (laboratorio: p. ej. SID `9009001` para ICMP de prueba — desactivar en producción, ver `CLAUDE.md` §AJ.4).
+- **Riesgos de Red:** nmap `-sV` + auditoría de parches Windows (Windows Update vía WMI, Sesión 51) sobre activos del Tracker.
 - Alertas hacia Wazuh / panel; bloqueo vía SSH al firewall usando **iptables** (OpenWrt Linux). Integración Wazuh: script `tools/cazador/wazuh_shomer_block.py` → `POST /remedies/block` + `X-Shomer-Integration-Key`.
 - Multi-subred: routing L3 y políticas en el cliente; Guardian no exige tercera NIC *por diseño* (ver `CLAUDE.md` §C).
 - **Verificado en lab (10/05/2026):** cadena Wazuh→API→OpenWrt `.206`→Telegram funciona end-to-end. Bugs críticos corregidos (ver `CLAUDE.md` §E.1).
@@ -153,6 +157,9 @@ Reinicio limpio 8000/8001 (evitar *restart* ciego con huérfanos en puerto): par
 
 | Documento | Uso |
 |-----------|-----|
+| `docs/EQUIPOS.md` | **Registro por appliance:** NICs, Suricata, lab vs producción, qué sincronizar con `deploy.sh`. |
+| `SITE.md` (en cada servidor) | Config **solo de ese cliente/sitio** — subnets, SPAN, firewall. No copiar entre hoteles. |
+| `tools/suricata_lab_setup.sh` | Post-instalación Suricata en lab (ruleset ET, `SHOMER_LAB_NO_SPAN`, NIC espejo). |
 | `CLAUDE.md` | Manifiesto de desarrollo: detalle de bugs cerrados, §13.8, sesiones, listas largas. |
 | `app/static/docs/Instalacion_Shomer_Produccion_Tecnico.md` | **Instalación en campo** desde cero (técnico). |
 | `app/static/docs/Instalacion_Remota_Tailscale.md` | **Instalación remota vía Tailscale** — acceso SSH desde Utah, flujo completo Bogotá y futuros clientes. |
