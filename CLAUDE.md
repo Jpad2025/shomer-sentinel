@@ -83,6 +83,18 @@ Red distinta cada hotel/empresa. **Prohibido** fijar en código IPs, subnets, no
 | Probar comando o vista real **con hardware donde aplique**; **no fingir estado** ni inflar Redis con contadores falsos |
 | Si no se puede ejecutar una prueba auténtica, **dejarlo explícito en documento QA** como pendiente |
 
+## B.3 Deploy y producción — REGLA CRÍTICA (permanente, jun 2026)
+
+**Autorización:** `deploy.sh`, rsync remoto o reinicio de servicios en equipos de **cliente / producción** (p. ej. Hotel Ópera) **solo con autorización explícita de Juan Pablo** y ventana de mantenimiento acordada.
+
+**Deploy = solo código de la aplicación** (`app/`, código agente sin `.env`/`data/`). **Nunca** en el mismo flujo:
+- Bases de datos del cliente (`network_monitor.db`, `inventory.db`)
+- `SITE.md`, subnets, VLANs, credenciales, `hunter.firewall_*`, Telegram del sitio
+- `/etc/shomer/shomer-runtime.env` remoto, `suricata.yaml`, netplan, UFW del hotel
+- Flags de lab (`SHOMER_LAB_NO_SPAN`) en producción
+
+Mezclar config de un sitio con otro **puede ser fatal**. Detalle: `docs/REGLAS_DEPLOY.md`.
+
 ---
 
 # Parte C — Arquitectura de red esperada
@@ -3071,6 +3083,8 @@ Este manifiesto es la lectura inicial: **estado (Parte A) + normas**. Al cerrar 
 - NIC espejo:
 
 ## AH.3 Matriz de equipos y Suricata lab (Sesión 52 — 10 jun 2026)
+
+**Regla deploy producción:** `docs/REGLAS_DEPLOY.md` — autorización Juan Pablo; solo código, nunca config de sitio. `deploy.sh` bloquea Ópera sin `SHOMER_DEPLOY_AUTHORIZED=1`.
 
 **Registro maestro:** `docs/EQUIPOS.md` — tabla de los 4 appliances (`.205`, Ópera, `.245`, `.243`), qué sincronizar con `deploy.sh` y qué **nunca** copiar entre sitios.
 

@@ -6,6 +6,8 @@
 
 **Registro de equipos:** ver `docs/EQUIPOS.md` y `SITE.md` en cada servidor (config del cliente, no copiar entre hoteles).
 
+**Deploy a producción:** solo con **autorización de Juan Pablo**; solo **código** de la app — ver `docs/REGLAS_DEPLOY.md`.
+
 ---
 
 ## Resumen del flujo

@@ -120,6 +120,7 @@ Ruta base: `app/`.
 
 ## 7. Red y endurecimiento
 
+- **Deploy a producción:** solo con **autorización explícita de Juan Pablo**; solo **código** (`app/`), nunca BD ni config de sitio. Regla completa: `docs/REGLAS_DEPLOY.md` · `CLAUDE.md` §B.3.
 - **8000/8001** no expuestos a Internet; acceso operador vía **8443** o LAN. UFW: ajustar subred del cliente (no dejar reglas de lab fijas). Ver `CLAUDE.md` §7.
 - **bnonce** compartido entre 8000 y 8001: derivado de `JWT_SECRET` en `auth_api.py` (tokens válidos en ambos procesos).
 - *Rate limits* y CORS: `cors_util.py` + `SHOMER_CORS_ORIGINS`.

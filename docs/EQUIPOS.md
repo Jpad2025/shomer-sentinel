@@ -4,6 +4,8 @@ Documento maestro: qué tiene cada appliance y qué configuración es **específ
 
 **Última actualización:** 10 jun 2026
 
+> **REGLA CRÍTICA:** Deploy o cambios remotos en **producción** (Ópera) **solo con autorización de Juan Pablo**. Deploy = **solo código** de la aplicación; **nunca** BD, `SITE.md`, credenciales ni config del sitio. Ver **`docs/REGLAS_DEPLOY.md`**.
+
 ---
 
 ## Resumen rápido
