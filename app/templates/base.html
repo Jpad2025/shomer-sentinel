@@ -373,6 +373,15 @@
         <span>Auditoría</span>
         <span class="nav-dot"></span>
       </a>
+      <a href="/gestion" id="nav-gestion" class="nav-item admin {% if active_module == 'gestion' %}active{% endif %}" style="display:none;" title="Métricas de rendimiento por técnico">
+        <svg viewBox="0 0 24 24">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <rect x="15" y="11" width="6" height="9" rx="1"/>
+          <path d="M18 11V8"/>
+        </svg>
+        <span>Gestión Técnicos</span>
+      </a>
       <a href="/admin" id="nav-admin" class="nav-item admin {% if active_module == 'admin' %}active{% endif %}" style="display:none;" title="Licencia, usuarios y contraseña">
         <svg viewBox="0 0 24 24">
           <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -496,10 +505,12 @@
           const a = document.getElementById('nav-admin');
           const l = document.getElementById('nav-soporte-label');
           const au = document.getElementById('nav-audit');
+          const ge = document.getElementById('nav-gestion');
           if (s)  s.style.display  = '';
           if (a)  a.style.display  = '';
           if (l)  l.style.display  = '';
           if (au) au.style.display = '';
+          if (ge) ge.style.display = '';
         }
       })
       .catch(() => {});

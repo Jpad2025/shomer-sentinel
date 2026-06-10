@@ -94,15 +94,19 @@ async def _poller_tick() -> None:
 
     devices = await asyncio.to_thread(_get_devices_for_poll)
 
-    # Incluir IPs de Redis que no estén en la tabla
+    # Limpiar claves Redis huérfanas (de dispositivos ya eliminados de `devices`)
+    # en lugar de re-incluirlas en el sondeo: re-incluirlas regenera la propia
+    # clave en cada ciclo y perpetúa el "fantasma" indefinidamente (bug Sesión 49).
     known_ips = {d["ip_address"] for d in devices}
     try:
+        with get_db() as conn:
+            all_ips = {row[0] for row in conn.execute("SELECT ip_address FROM devices").fetchall()}
         for key in r.keys("status:*"):
             ip = key.replace("status:", "")
-            if ip not in known_ips:
-                devices.append({"ip_address": ip, "device_type": None,
-                                 "reboot_method": None, "ssh_user": None,
-                                 "ssh_password": None, "ssh_port": 22})
+            if ip not in all_ips:
+                for prefix in ("status:", "failures:", "last_reboot:", "node_maintenance:",
+                               "degraded_notified:", "degraded_streak:"):
+                    r.delete(f"{prefix}{ip}")
     except Exception:
         pass
 

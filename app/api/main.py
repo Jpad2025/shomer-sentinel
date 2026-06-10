@@ -35,6 +35,7 @@ from app.api.shomer_audit import router as audit_router, install_audit_middlewar
 from app.api.shomer_audit_export import router as audit_export_router
 from app.api.shomer_audit_network import router as audit_network_router
 from app.api.shomer_reports import router as reports_router
+from app.api.shomer_technician import router as technician_router
 
 _APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _STATIC_DIR = os.path.join(_APP_DIR, "static")
@@ -111,6 +112,8 @@ app.include_router(audit_export_router)
 # Auditoría de Red — escaneo nmap, hallazgos por severidad/estado, badges Inframonitor
 app.include_router(audit_network_router)
 app.include_router(reports_router)
+# Gestión de técnicos — métricas rendimiento y bono (solo admin)
+app.include_router(technician_router)
 # Web UI — templates Jinja2 (todas las vistas del panel)
 app.include_router(web_router)
 

@@ -79,6 +79,38 @@ async def tracker_scan(request: Request, user=Depends(get_current_user)):
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.get("/tracker/scan/status")
+async def tracker_scan_status(request: Request, user=Depends(get_current_user)):
+    """Proxy: estado del scan activo en 8001."""
+    token = request.headers.get("Authorization", "")
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                _tools_url("/inventory/scan/status"),
+                headers={"Authorization": token},
+                timeout=5,
+            )
+        return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as e:
+        return JSONResponse(content={"running": False, "error": str(e)})
+
+
+@router.post("/tracker/scan/cancel")
+async def tracker_scan_cancel(request: Request, user=Depends(get_current_user)):
+    """Proxy: cancela el scan activo en 8001."""
+    token = request.headers.get("Authorization", "")
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                _tools_url("/inventory/scan/cancel"),
+                headers={"Authorization": token},
+                timeout=5,
+            )
+        return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @router.patch("/tracker/asset/{mac}")
 async def tracker_update_asset(mac: str, request: Request):
     """Proxy: actualiza un activo en 8001."""

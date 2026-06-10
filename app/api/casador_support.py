@@ -13,7 +13,10 @@ from app.api.casador_support_constants import (
     SURICATA_TAIL_MAX_BYTES,
     SURICATA_YAML_PATH,
 )
-from app.api.casador_support_firewall import _mikrotik_block, _mikrotik_sync_block, _mikrotik_unblock
+from app.api.casador_support_firewall import (
+    _mikrotik_block, _mikrotik_sync_block, _mikrotik_unblock,
+    _routeros_block, _routeros_sync_block, _routeros_unblock,
+)
 from app.api.casador_support_health import _collect_pipeline_health, _systemctl_is_active
 from app.api.casador_support_redis_cb import (
     _CB_FAIL_KEY,
@@ -75,6 +78,9 @@ __all__ = [
     "_mikrotik_block",
     "_mikrotik_sync_block",
     "_mikrotik_unblock",
+    "_routeros_block",
+    "_routeros_sync_block",
+    "_routeros_unblock",
     "_next_local_sid",
     "_parse_local_rules",
     "_parse_suricata_timestamp",

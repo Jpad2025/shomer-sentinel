@@ -12,6 +12,9 @@ import ssl
 import subprocess
 import sys
 import time
+import base64
+from datetime import datetime
+from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple
 
 import http.client
@@ -28,7 +31,7 @@ REMEDIES_JSON_PATH = _get_remedies_path()
 
 PYTHON_VENV = "/opt/network_monitor/venv/bin/python3"
 WMI_EXEC_PATH = os.environ.get("WMIEXEC_PATH", "/opt/network_monitor/venv/bin/wmiexec.py")
-EXTRACTOR_SSH_WMI_TIMEOUT = 30
+EXTRACTOR_SSH_WMI_TIMEOUT = 90
 EXTRACTOR_WEB_TIMEOUT = 3
 
 try:
@@ -408,7 +411,13 @@ def _parse_wmi_powershell_strict(raw: str) -> Optional[Dict[str, str]]:
 
     manufacturer = (hw.get("Manufacturer") or hw.get("manufacturer") or "").strip()
     model_hw = (hw.get("Model") or hw.get("model") or "").strip()
-    if manufacturer or model_hw:
+    cpu_obj = data.get("CPU") or data.get("cpu") or {}
+    cpu_name = ""
+    if isinstance(cpu_obj, dict):
+        cpu_name = (cpu_obj.get("Name") or cpu_obj.get("name") or "").strip()
+    if cpu_name:
+        result["cpu"] = cpu_name[:200]
+    elif manufacturer or model_hw:
         result["cpu"] = ("%s %s" % (manufacturer, model_hw)).strip()[:200]
 
     parts = []
@@ -454,7 +463,191 @@ def _parse_wmi_powershell_strict(raw: str) -> Optional[Dict[str, str]]:
     if not result.get("asset_model") and (caption or version):
         result["asset_model"] = ("%s %s" % (caption, version)).strip()[:200]
 
+    logged = (data.get("LoggedUser") or data.get("logged_user") or hw.get("UserName") or "").strip()
+    if logged:
+        result["logged_user"] = logged[:120]
+        result["logged_user_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+    monitors = data.get("Monitors") or data.get("monitors") or []
+    if isinstance(monitors, list) and monitors:
+        result["monitors_detected_json"] = json.dumps(monitors[:6], ensure_ascii=False)
+
+    printers = data.get("Printers") or data.get("printers") or []
+    if isinstance(printers, list) and printers:
+        result["local_printers_json"] = json.dumps(printers[:20], ensure_ascii=False)
+
+    usb = data.get("UsbDevices") or data.get("usb_devices") or []
+    if isinstance(usb, list) and usb:
+        result["peripherals_detected_json"] = json.dumps(usb[:40], ensure_ascii=False)
+
     return result
+
+
+_DOCK_USB_KEYWORDS = (
+    "dock", "docking", "hub", "displaylink", "thunderbolt", "usb-c",
+    "lenovo", "dell wd", "hp usb", "kensington", "plugable", "caldigit",
+    "thinkpad", "elitebook", "usb hub", "composite device",
+)
+
+
+def _decode_wmi_char_array(val: Any) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, str):
+        return val.strip().strip("\x00")
+    if isinstance(val, (bytes, bytearray)):
+        try:
+            return val.decode("utf-16-le", errors="ignore").strip("\x00").strip()
+        except Exception:
+            return ""
+    if isinstance(val, list):
+        chars: List[str] = []
+        for item in val:
+            try:
+                n = int(item)
+                if n == 0:
+                    break
+                if 32 <= n < 127:
+                    chars.append(chr(n))
+            except (TypeError, ValueError):
+                continue
+        return "".join(chars).strip()
+    return str(val).strip()
+
+
+def _is_interesting_usb(name: str, pnp_class: str, device_id: str) -> bool:
+    blob = " ".join((name, pnp_class, device_id)).lower()
+    if "usb" not in blob and "hub" not in blob and "dock" not in blob:
+        return False
+    return any(k in blob for k in _DOCK_USB_KEYWORDS) or "hub" in blob or "dock" in blob
+
+
+_REMOTE_SW_FILE = r"C:\Windows\Temp\sho_sw.json"
+_REMOTE_SW_SMB = "Windows\\Temp\\sho_sw.json"
+_REMOTE_PATCH_FILE = r"C:\Windows\Temp\sho_patch.json"
+_REMOTE_PATCH_SMB = "Windows\\Temp\\sho_patch.json"
+
+_PS_SOFTWARE = (
+    "$paths=@('HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',"
+    "'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*');"
+    "$sw=@();foreach($p in $paths){Get-ItemProperty $p -EA SilentlyContinue|?{$_.DisplayName}|"
+    "ForEach-Object{$sw+=@{DisplayName=[string]$_.DisplayName;"
+    "DisplayVersion=[string]$_.DisplayVersion}}};"
+    f"$sw|ConvertTo-Json -Compress|Out-File -FilePath '{_REMOTE_SW_FILE}' -Encoding utf8"
+)
+
+_PS_PENDING_PATCHES = (
+    "$ErrorActionPreference='SilentlyContinue';$n=0;$t=@();"
+    "try{$s=New-Object -ComObject Microsoft.Update.Session;"
+    "$r=$s.CreateUpdateSearcher().Search(\"IsInstalled=0 and Type='Software'\");"
+    "$n=$r.Updates.Count;"
+    "for($i=0;$i -lt [Math]::Min(12,$n);$i++){$t+=[string]$r.Updates.Item($i).Title}}catch{};"
+    f"@{{count=$n;titles=$t}}|ConvertTo-Json -Compress|Out-File -FilePath '{_REMOTE_PATCH_FILE}' -Encoding utf8"
+)
+
+
+def _wmi_start_powershell(iWbemServices, ps_script: str) -> bool:
+    """Lanza PowerShell remoto via Win32_Process.Create (EncodedCommand)."""
+    try:
+        encoded = base64.b64encode(ps_script.encode("utf-16le")).decode("ascii")
+        cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + encoded
+        win32_process, _ = iWbemServices.GetObject("Win32_Process")
+        win32_process.Create(cmd, "C:\\Windows\\Temp", None)
+        return True
+    except Exception as e:
+        _log().debug("WMI Win32_Process.Create failed: %s", e)
+        return False
+
+
+def _smb_read_remote_file(
+    ip: str, user: str, password: str, domain: str, rel_path: str
+) -> Optional[str]:
+    """Lee un archivo del admin share C$ vía SMB."""
+    try:
+        from impacket.smbconnection import SMBConnection
+
+        smb = SMBConnection(ip, ip, sess_port=445)
+        smb.login(user, password, domain or "")
+        buf = BytesIO()
+        smb.getFile("C$", rel_path.replace("/", "\\"), buf.write)
+        try:
+            smb.deleteFile("C$", rel_path.replace("/", "\\"))
+        except Exception:
+            pass
+        smb.close()
+        raw = buf.getvalue()
+        if raw.startswith(b"\xff\xfe"):
+            return raw.decode("utf-16-le", errors="replace").strip()
+        return raw.decode("utf-8-sig", errors="replace").strip()
+    except Exception as e:
+        _log().debug("SMB read %s@%s failed: %s", rel_path, ip, e)
+        return None
+
+
+def wmi_powershell_json(
+    ip: str,
+    user: str,
+    password: str,
+    domain: str,
+    ps_script: str,
+    remote_smb_path: str,
+    wait_sec: float = 15.0,
+) -> Optional[Any]:
+    """
+    Ejecuta PowerShell remoto, lee JSON desde C$ y lo parsea.
+    Usado por Tracker (software) y Auditoría de red (parches pendientes).
+    """
+    try:
+        from impacket.dcerpc.v5.dcom.wmi import (
+            CLSID_WbemLevel1Login,
+            IID_IWbemLevel1Login,
+            IWbemLevel1Login,
+        )
+        from impacket.dcerpc.v5.dtypes import NULL
+        from impacket.dcerpc.v5.dcomrt import DCOMConnection
+        import logging as _logging
+
+        _logging.getLogger("impacket").setLevel(_logging.CRITICAL)
+        dcom = DCOMConnection(
+            ip, username=user, password=password, domain=domain or ".",
+            lmhash="", nthash="", aesKey=None, oxidResolver=True, doKerberos=False,
+        )
+        try:
+            iface = dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
+            login = IWbemLevel1Login(iface)
+            svc = login.NTLMLogin("//./root/cimv2", NULL, NULL)
+            if not _wmi_start_powershell(svc, ps_script):
+                return None
+            time.sleep(max(8.0, wait_sec))
+            raw = _smb_read_remote_file(ip, user, password, domain, remote_smb_path)
+            if not raw:
+                return None
+            return json.loads(raw)
+        finally:
+            try:
+                dcom.disconnect()
+            except Exception:
+                pass
+    except Exception as e:
+        _log().debug("wmi_powershell_json %s: %s", ip, e)
+        return None
+
+
+def _parse_software_json_payload(data: Any) -> List[Dict[str, str]]:
+    software: List[Dict[str, str]] = []
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        return software
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        dn = str(item.get("DisplayName") or item.get("displayName") or "").strip()
+        if not dn:
+            continue
+        dv = str(item.get("DisplayVersion") or item.get("displayVersion") or "").strip()
+        software.append({"DisplayName": dn, "DisplayVersion": dv})
+    return software
 
 
 _PS_CONSOLIDATED_SCRIPT = (
@@ -524,119 +717,251 @@ def _apply_consolidated_validations(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def phase3_wmi(ip: str, user: str, password: str, domain: str, timeout_sec: Optional[float] = None) -> Dict[str, str]:
     """
-    WMI vía wmiexec.py. Timeout global 12s. Si el host no responde, se loguea [WARNING] y se retorna out.
+    WMI directo via DCOM (impacket). No usa wmiexec.py ni archivo temporal ADMIN$.
+    El proceso WMI-spawned no tiene credenciales de red para escribir en \\127.0.0.1\ADMIN$
+    (mecanismo de wmiexec), por eso usamos consultas DCOM directas que retornan datos via RPC.
     """
     out: Dict[str, str] = {}
     user = (user or "").strip()
     password = (password or "").strip()
     domain = (domain or "").strip()
-    if domain:
-        auth = "%s\\%s:%s@%s" % (domain, user, password, ip)
-    else:
-        auth = "%s:%s@%s" % (user, password, ip)
 
     if not _port_open(ip, 135) and not _port_open(ip, 445):
         return out
     if not (user or "").replace(".\\", "").strip() or not password:
         return out
-    if not os.path.isfile(WMI_EXEC_PATH):
-        return out
 
-    t = min(float(timeout_sec), EXTRACTOR_SSH_WMI_TIMEOUT) if timeout_sec is not None else EXTRACTOR_SSH_WMI_TIMEOUT
-    t = max(1, min(int(t), EXTRACTOR_SSH_WMI_TIMEOUT))
+    if timeout_sec is not None:
+        t = max(45, min(int(float(timeout_sec)), EXTRACTOR_SSH_WMI_TIMEOUT))
+    else:
+        t = EXTRACTOR_SSH_WMI_TIMEOUT
 
-    last_error: str = ""
-    full_wmi_output_on_failure: str = ""
-    auth_ref: List[str] = [auth]
+    try:
+        import concurrent.futures as _cf
+        def _do_wmi_dcom():
+            from impacket.dcerpc.v5.dcom.wmi import (
+                CLSID_WbemLevel1Login, IID_IWbemLevel1Login,
+                IWbemLevel1Login, IEnumWbemClassObject,
+            )
+            from impacket.dcerpc.v5.dtypes import NULL
+            from impacket.dcerpc.v5.dcomrt import DCOMConnection
+            import logging as _logging
+            _logging.getLogger("impacket").setLevel(_logging.CRITICAL)
 
-    def run_wmic(cmd: str) -> str:
-        nonlocal last_error, full_wmi_output_on_failure
-        argv = [PYTHON_VENV, WMI_EXEC_PATH, auth_ref[0], cmd]
-        for attempt in range(2):
+            dcom = DCOMConnection(
+                ip, username=user, password=password, domain=domain,
+                lmhash="", nthash="", aesKey=None,
+                oxidResolver=True, doKerberos=False,
+            )
             try:
-                proc = subprocess.run(
-                    argv,
-                    capture_output=True,
-                    text=True,
-                    timeout=t,
-                )
-                stdout = (proc.stdout or "").strip()
-                stderr = (proc.stderr or "").strip()
-                raw_full = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
-                if "ModuleNotFoundError" in raw_full:
-                    last_error = raw_full
-                    if not full_wmi_output_on_failure:
-                        full_wmi_output_on_failure = (
-                            "[stdout]\n%s\n[stderr]\n%s\n[returncode=%s]"
-                            % (proc.stdout or "", proc.stderr or "", proc.returncode)
-                        ).strip()
-                    return ""
-                if proc.returncode == 0 and stdout:
-                    return stdout
-                # impacket emite sus diagnósticos (STATUS_*, SMB SessionError, etc.)
-                # por stdout, no por stderr. Extraer del stream que tenga algo.
-                diag = ""
-                for line in (stdout.splitlines() + stderr.splitlines()):
-                    line_s = line.strip()
-                    if not line_s:
-                        continue
-                    if line_s.startswith("Impacket v"):
-                        continue
-                    if line_s.startswith("[-]") or line_s.startswith("[!]"):
-                        diag = line_s.lstrip("[-!] ").strip()
-                        break
-                    if "STATUS_" in line_s or "SessionError" in line_s:
-                        diag = line_s
-                        break
-                    if not diag:
-                        diag = line_s
-                if diag:
-                    last_error = diag
-                elif stderr:
-                    last_error = stderr.strip()
-                else:
-                    last_error = "wmiexec exit %s sin salida útil" % proc.returncode
-                if not full_wmi_output_on_failure:
-                    full_wmi_output_on_failure = (
-                        "[stdout]\n%s\n[stderr]\n%s\n[returncode=%s]"
-                        % (proc.stdout or "", proc.stderr or "", proc.returncode)
-                    ).strip()
-            except subprocess.TimeoutExpired:
-                last_error = "timeout (%ds)" % t
-                _log().warning("[WARNING] Host %s timeout in Extractor (WMI)", ip)
-                return ""
-            except Exception as e:
-                last_error = str(e)
-                if not full_wmi_output_on_failure:
-                    full_wmi_output_on_failure = "[excepción] %s" % e
-            if attempt < 1:
-                time.sleep(1)
-        return ""
+                iInterface = dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
+                iWbemLevel1Login = IWbemLevel1Login(iInterface)
+                iWbemServices = iWbemLevel1Login.NTLMLogin("//./root/cimv2", NULL, NULL)
 
-    consolidated_raw = run_wmic(_PS_CONSOLIDATED_SCRIPT)
-    # Reintento con cuenta local Windows (.\user) si no hay dominio y falló
-    if not consolidated_raw and not (domain or "").strip() and (user or "").strip() and ".\\\\" not in (user or ""):
-        auth_ref[0] = ".\\\\%s:%s@%s" % (user, password, ip)
-        consolidated_raw = run_wmic(_PS_CONSOLIDATED_SCRIPT)
-    if consolidated_raw and "is not recognized" not in consolidated_raw.lower():
-        parsed = _parse_wmi_powershell_strict(consolidated_raw)
+                def _query_svc(svc, wql):
+                    iface = svc.ExecQuery(wql)
+                    enum = IEnumWbemClassObject(iface)
+                    rows = []
+                    while True:
+                        try:
+                            objs = enum.Next(0xFFFF, 1)
+                            if not objs:
+                                break
+                            rows.append(objs[0])
+                        except Exception:
+                            break
+                    return rows
+
+                def _query(wql):
+                    return _query_svc(iWbemServices, wql)
+
+                def _val_raw(obj, name):
+                    try:
+                        p = obj.getProperties().get(name)
+                        if p is None:
+                            return None
+                        return p.get("value") if isinstance(p, dict) else getattr(p, "value", None)
+                    except Exception:
+                        return None
+
+                def _val(obj, name):
+                    v = _val_raw(obj, name)
+                    return None if v is None else str(v).strip()
+
+                hw = {}
+                logged_user = ""
+                cs = _query(
+                    "SELECT Name, Model, Manufacturer, TotalPhysicalMemory, UserName "
+                    "FROM Win32_ComputerSystem"
+                )
+                if cs:
+                    o = cs[0]
+                    hw["Name"] = _val(o, "Name")
+                    hw["Model"] = _val(o, "Model")
+                    hw["Manufacturer"] = _val(o, "Manufacturer")
+                    hw["TotalPhysicalMemory"] = _val(o, "TotalPhysicalMemory")
+                    logged_user = (_val(o, "UserName") or "").strip()
+
+                os_d = {}
+                oss = _query("SELECT Caption, Version, OSArchitecture FROM Win32_OperatingSystem")
+                if oss:
+                    o = oss[0]
+                    os_d["Caption"] = _val(o, "Caption")
+                    os_d["Version"] = _val(o, "Version")
+                    os_d["OSArchitecture"] = _val(o, "OSArchitecture")
+
+                bios_d = {}
+                bioss = _query("SELECT SerialNumber FROM Win32_BIOS")
+                if bioss:
+                    bios_d["SerialNumber"] = _val(bioss[0], "SerialNumber")
+
+                discos = []
+                for d in _query("SELECT Model, Size FROM Win32_DiskDrive")[:8]:
+                    discos.append({"Model": _val(d, "Model"), "Size": _val(d, "Size")})
+
+                cpus = _query("SELECT Name FROM Win32_Processor")
+                cpu_d = {"Name": _val(cpus[0], "Name")} if cpus else {}
+
+                software: List[Dict[str, str]] = []
+                ps_sw_started = _wmi_start_powershell(iWbemServices, _PS_SOFTWARE)
+
+                monitors: List[Dict[str, str]] = []
+                try:
+                    iWbemWmi = iWbemLevel1Login.NTLMLogin("//./root/wmi", NULL, NULL)
+                    for mobj in _query_svc(iWbemWmi, "SELECT * FROM WmiMonitorID")[:6]:
+                        mfg = _decode_wmi_char_array(_val_raw(mobj, "ManufacturerName"))
+                        prod = _decode_wmi_char_array(_val_raw(mobj, "UserFriendlyName")) or _decode_wmi_char_array(
+                            _val_raw(mobj, "ProductCodeID")
+                        )
+                        serial = _decode_wmi_char_array(_val_raw(mobj, "SerialNumberID"))
+                        if mfg or prod or serial:
+                            monitors.append({
+                                "manufacturer": mfg[:80],
+                                "model": prod[:120],
+                                "serial": serial[:80],
+                            })
+                except Exception:
+                    pass
+                if not monitors:
+                    for dm in _query("SELECT Name, MonitorManufacturer, MonitorType FROM Win32_DesktopMonitor")[:6]:
+                        name = _val(dm, "Name") or ""
+                        mfg = _val(dm, "MonitorManufacturer") or ""
+                        if name or mfg:
+                            monitors.append({
+                                "manufacturer": (mfg or "")[:80],
+                                "model": (name or "")[:120],
+                                "serial": "",
+                            })
+
+                _virtual_printer_names = (
+                    "microsoft print to pdf", "xps document", "onenote", "fax",
+                    "send to", "redirected", "pdf", "snagit",
+                )
+                printers: List[Dict[str, str]] = []
+                for pr in _query(
+                    "SELECT Name, PortName, Local, Default, DriverName FROM Win32_Printer"
+                )[:40]:
+                    name = _val(pr, "Name") or ""
+                    port = (_val(pr, "PortName") or "").strip()
+                    port_u = port.upper()
+                    name_l = name.lower()
+                    local_raw = (_val(pr, "Local") or "").strip().lower()
+                    if not name:
+                        continue
+                    if any(v in name_l for v in _virtual_printer_names):
+                        continue
+                    if port_u in ("NUL:", "PORTPROMPT:", "PORTPROMPT") or port_u.startswith("PORTPROMPT"):
+                        continue
+                    if port_u.startswith(("IP_", "WSD", "HTTP", "TCP", "LPR", "IPP")) or "." in port:
+                        continue
+                    is_usb = port_u.startswith("USB") or "USB" in port_u
+                    is_local = local_raw in ("true", "1") or port_u.startswith(
+                        ("USB", "LPT", "COM", "FILE", "DOT4")
+                    )
+                    if not is_usb and not is_local:
+                        continue
+                    printers.append({
+                        "name": name[:120],
+                        "port": port[:60],
+                        "driver": (_val(pr, "DriverName") or "")[:80],
+                        "default": (_val(pr, "Default") or "").strip().lower() in ("true", "1"),
+                    })
+
+                usb_devices: List[Dict[str, str]] = []
+                for dev in _query(
+                    "SELECT Name, DeviceID, Manufacturer, PNPClass FROM Win32_PnPEntity"
+                )[:200]:
+                    name = _val(dev, "Name") or ""
+                    device_id = _val(dev, "DeviceID") or ""
+                    pnp_class = _val(dev, "PNPClass") or ""
+                    if not _is_interesting_usb(name, pnp_class, device_id):
+                        continue
+                    usb_devices.append({
+                        "name": name[:140],
+                        "manufacturer": (_val(dev, "Manufacturer") or "")[:80],
+                        "class": pnp_class[:40],
+                        "device_id": device_id[:120],
+                    })
+                    if len(usb_devices) >= 25:
+                        break
+
+                if ps_sw_started:
+                    time.sleep(10)
+                    sw_raw = _smb_read_remote_file(ip, user, password, domain, _REMOTE_SW_SMB)
+                    if sw_raw:
+                        try:
+                            software = _parse_software_json_payload(json.loads(sw_raw))
+                        except json.JSONDecodeError:
+                            pass
+
+                try:
+                    iWbemLevel1Login.RemRelease()
+                except Exception:
+                    pass
+
+                return {
+                    "Hardware": hw,
+                    "CPU": cpu_d,
+                    "OS": os_d,
+                    "BIOS": bios_d,
+                    "Discos": discos,
+                    "Software": software,
+                    "LoggedUser": logged_user,
+                    "Monitors": monitors,
+                    "Printers": printers,
+                    "UsbDevices": usb_devices,
+                }
+            finally:
+                try:
+                    dcom.disconnect()
+                except Exception:
+                    pass
+
+        with _cf.ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_do_wmi_dcom)
+            try:
+                data = fut.result(timeout=t)
+            except _cf.TimeoutError:
+                _log().warning("[WARNING] Host %s timeout in Extractor (WMI DCOM)", ip)
+                out["wmi_status"] = "ERROR: timeout (%ds)" % t
+                return out
+
+        parsed = _parse_wmi_powershell_strict(json.dumps(data))
         if parsed:
             for k, v in parsed.items():
                 if v is not None and v != "":
                     out[k] = v
             out["wmi_status"] = "OK"
+        else:
+            out["wmi_status"] = "SIN RESPUESTA"
 
-    if out and not out.get("wmi_status"):
-        out["wmi_status"] = "OK"
-    elif last_error and out.get("wmi_status") != "OK":
-        out["wmi_status"] = ("ERROR: " + last_error)[:200]
-    elif not out.get("wmi_status"):
-        out["wmi_status"] = "SIN RESPUESTA"
-
-    if full_wmi_output_on_failure:
-        out["it_remedy"] = ("[WMI salida completa - depuración]\n" + full_wmi_output_on_failure)[:8000]
+    except Exception as e:
+        err = str(e)
+        _log().warning("[WARNING] Host %s WMI DCOM error: %s", ip, err)
+        out["wmi_status"] = ("ERROR: " + err)[:200]
 
     return out
+
 
 
 _SW_EXCLUDE_KEYWORDS = (
@@ -795,6 +1120,87 @@ def _get_software_list_ssh(run_ssh_cmd, uname: str) -> List[Dict[str, str]]:
     return _filter_software(sw_list)
 
 
+def _collect_ssh_session_extras(
+    out: Dict[str, str],
+    run_ssh,
+    uname: str,
+    is_darwin: bool,
+) -> None:
+    """Usuario logueado, monitores, USB/docks e impresoras locales vía SSH (si el SO lo permite)."""
+    uname_l = (uname or "").lower()
+    if any(x in uname_l for x in ("openwrt", "lede", "mips", "armv6l", "armv7l", "ubnt")):
+        return
+
+    who_out = run_ssh("who 2>/dev/null | head -5") or run_ssh("w -h 2>/dev/null | head -5")
+    for line in (who_out or "").splitlines():
+        parts = line.split()
+        if parts and parts[0] not in ("(", "reboot"):
+            user = parts[0].strip()
+            if user and user != "system":
+                out["logged_user"] = user[:120]
+                out["logged_user_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                break
+
+    monitors: List[Dict[str, str]] = []
+    usb_devices: List[Dict[str, str]] = []
+    printers: List[Dict[str, str]] = []
+
+    if is_darwin:
+        disp = run_ssh("system_profiler SPDisplaysDataType 2>/dev/null", cmd_timeout=20) or ""
+        cur_name = ""
+        for line in disp.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.endswith(":") and "display" in line.lower():
+                cur_name = line.rstrip(":").strip()
+            elif "resolution" in line.lower() and ":" in line:
+                res = line.split(":", 1)[1].strip()
+                if cur_name or res:
+                    monitors.append({"manufacturer": "", "model": (cur_name or "Display")[:120], "serial": res[:80]})
+        usb_raw = run_ssh("system_profiler SPUSBDataType 2>/dev/null", cmd_timeout=20) or ""
+        for line in usb_raw.splitlines():
+            s = line.strip()
+            if not s.endswith(":") or s.count(":") != 1:
+                continue
+            name = s.rstrip(":").strip()
+            if _is_interesting_usb(name, "USB", name):
+                usb_devices.append({"name": name[:140], "manufacturer": "", "class": "USB", "device_id": ""})
+        lp = run_ssh("lpstat -p 2>/dev/null") or ""
+        for line in lp.splitlines():
+            if line.startswith("printer "):
+                pname = line.split()[1] if len(line.split()) > 1 else ""
+                if pname:
+                    printers.append({"name": pname[:120], "port": "local", "driver": "", "default": False})
+    else:
+        for line in (run_ssh("xrandr --query 2>/dev/null | grep ' connected'") or "").splitlines():
+            name = line.split()[0] if line.split() else ""
+            if name:
+                monitors.append({"manufacturer": "", "model": name[:120], "serial": ""})
+        for line in (run_ssh("lsusb 2>/dev/null") or "").splitlines():
+            if not line.strip():
+                continue
+            if _is_interesting_usb(line, "USB", line):
+                usb_devices.append({
+                    "name": line.strip()[:140],
+                    "manufacturer": "",
+                    "class": "USB",
+                    "device_id": line.strip()[:120],
+                })
+        for line in (run_ssh("lpstat -p 2>/dev/null") or "").splitlines():
+            if line.startswith("printer "):
+                pname = line.split()[1] if len(line.split()) > 1 else ""
+                if pname:
+                    printers.append({"name": pname[:120], "port": "local", "driver": "", "default": False})
+
+    if monitors:
+        out["monitors_detected_json"] = json.dumps(monitors[:6], ensure_ascii=False)
+    if usb_devices:
+        out["peripherals_detected_json"] = json.dumps(usb_devices[:25], ensure_ascii=False)
+    if printers:
+        out["local_printers_json"] = json.dumps(printers[:20], ensure_ascii=False)
+
+
 def phase4_ssh(ip: str, user: str, password: str, timeout_sec: Optional[float] = None) -> Dict[str, str]:
     """
     SSH (paramiko). Timeout global 12s. Si el host no responde, se loguea [WARNING] y se retorna out.
@@ -904,6 +1310,15 @@ def phase4_ssh(ip: str, user: str, password: str, timeout_sec: Optional[float] =
                     out["software_list"] = json.dumps(sw_list, ensure_ascii=False)
             except Exception:
                 pass
+            try:
+                _collect_ssh_session_extras(
+                    out,
+                    lambda cmd, cmd_timeout=None: run_ssh(client, cmd, cmd_timeout=cmd_timeout),
+                    uname or "",
+                    True,
+                )
+            except Exception:
+                pass
         else:
             cpu_line = run_ssh(
                 client,
@@ -957,6 +1372,15 @@ def phase4_ssh(ip: str, user: str, password: str, timeout_sec: Optional[float] =
                     out["software_list"] = json.dumps(sw_list, ensure_ascii=False)
             except Exception:
                 pass
+            try:
+                _collect_ssh_session_extras(
+                    out,
+                    lambda cmd, cmd_timeout=None: run_ssh(client, cmd, cmd_timeout=cmd_timeout),
+                    uname or "",
+                    False,
+                )
+            except Exception:
+                pass
     except Exception as e:
         if "timeout" in str(e).lower() or "timed out" in str(e).lower():
             _log().warning("[WARNING] Host %s timeout in Extractor (SSH exec)", ip)
@@ -1002,8 +1426,15 @@ def consolidate_identity(data_dict: Dict[str, Any], nmap_os: Optional[str] = Non
 
 def merge_asset(base: Dict[str, Any], *updates: Dict[str, str]) -> Dict[str, Any]:
     """Fusiona dicts: solo claves con valor no vacío sobrescriben base."""
+    _skip_empty_json = frozenset({
+        "software_list", "local_printers_json",
+        "monitors_detected_json", "peripherals_detected_json",
+    })
     for u in updates:
         for k, v in u.items():
-            if v:
-                base[k] = v
+            if v is None or v == "":
+                continue
+            if k in _skip_empty_json and str(v).strip() in ("[]", "{}"):
+                continue
+            base[k] = v
     return base

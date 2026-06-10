@@ -54,6 +54,8 @@
     color: var(--cyan);
   }
   .header-logo span { color: var(--text); }
+  .header-site-name { font-size: 1.6rem; font-weight: 800; letter-spacing: 0.5px; color: var(--text); line-height: 1.15; }
+  .header-brand-logo { height: 46px; width: auto; opacity: 0.92; border-radius: 6px; }
   .header-center { text-align: center; }
   .header-title { font-size: 1.1rem; color: var(--muted); }
   .header-clock { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -162,10 +164,16 @@
   /* ── GRID PRINCIPAL ── */
   .main-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1.7fr 1fr;
     gap: 14px;
     margin-bottom: 14px;
   }
+  /* Tarjeta compacta servidor (Recursos + Agente IA fusionados — secundaria frente al equipo del cliente) */
+  .server-compact-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: center; }
+  .server-compact-grid .gauge-svg { width: 72px; height: 44px; }
+  .server-compact-grid .gauge-value { font-size: 1.05rem; }
+  .server-compact-grid .gauge-label { font-size: 0.65rem; margin-top: 2px; }
+  .server-mini-label { font-size: 0.62rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
 
   /* ── CARDS ── */
   .card {
@@ -347,11 +355,7 @@
   .last-alert-sig   { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .last-alert-meta  { color: var(--muted); font-size: 0.72rem; margin-top: 3px; }
 
-  /* ── AGENTE IA ── */
-  .agent-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
-  .agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
-  .agent-item { background: var(--bg3); border-radius: 8px; padding: 10px 12px; }
-  .agent-item-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  /* ── AGENTE IA (compacto, fusionado en tarjeta Servidor) ── */
   .agent-item-val   { font-size: 1.1rem; font-weight: 700; }
   .agent-item-sub   { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
   .agent-running { color: var(--green); }
@@ -417,17 +421,24 @@
 <!-- HEADER -->
 <div class="header">
   <div class="header-logo">
-    🛡️ <span>{{ site_name }}</span>
+    🛡️
+    <div>
+      {% if site_name %}<div class="header-site-name">{{ site_name }}</div>{% endif %}
+      <div style="font-size:0.8rem; letter-spacing:1px; color:var(--muted); font-weight:500;">Shomer Sentinel — Centro de Operaciones</div>
+    </div>
   </div>
   <div class="header-center">
     <div class="header-clock" id="clock">--:--:--</div>
     <div class="header-date" id="date-str"></div>
-    <div class="header-title">Centro de Operaciones de Red</div>
   </div>
-  <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
-    <div class="live-badge"><div class="live-dot"></div> EN VIVO</div>
-    <div id="summary-bar" class="summary-bar"></div>
-    <div class="last-update" id="last-update"></div>
+  <div style="display:flex; align-items:center; gap:18px;">
+    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+      <div class="live-badge"><div class="live-dot"></div> EN VIVO</div>
+      <div id="summary-bar" class="summary-bar"></div>
+      <div class="last-update" id="last-update"></div>
+    </div>
+    <img class="header-brand-logo" src="/static/img/logo-usb.png" alt="USB Ingeniería"
+         onerror="this.style.display='none'">
   </div>
 </div>
 
@@ -503,55 +514,40 @@
       </div>
     </div>
 
-    <!-- Resources -->
+    <!-- Servidor Shomer (compacto — info de soporte, secundaria frente al equipo del cliente) -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title">🖥️ Recursos del Servidor</span>
+        <span class="card-title">🖥️ Servidor Shomer</span>
         <span class="card-badge badge-blue" id="res-uptime"></span>
       </div>
-      <div class="resources-grid">
+      <div class="server-compact-grid">
+        <div class="gauge-wrap">
+          <svg class="gauge-svg" width="100" height="60" viewBox="0 0 100 60">
+            <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#1a2235" stroke-width="10" stroke-linecap="round"/>
+            <path id="cpu-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#3b82f6" stroke-width="10" stroke-linecap="round"
+                  stroke-dasharray="0 125.6" style="transition:stroke-dasharray 0.8s ease;"/>
+          </svg>
+          <div class="gauge-value" id="cpu-val" style="color:var(--blue);">—%</div>
+          <div class="gauge-label">CPU</div>
+        </div>
+        <div class="gauge-wrap">
+          <svg class="gauge-svg" width="100" height="60" viewBox="0 0 100 60">
+            <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#1a2235" stroke-width="10" stroke-linecap="round"/>
+            <path id="ram-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#a855f7" stroke-width="10" stroke-linecap="round"
+                  stroke-dasharray="0 125.6" style="transition:stroke-dasharray 0.8s ease;"/>
+          </svg>
+          <div class="gauge-value" id="ram-val" style="color:var(--purple);">—%</div>
+          <div class="gauge-label">RAM</div>
+        </div>
         <div>
-          <div class="gauge-wrap">
-            <svg class="gauge-svg" width="100" height="60" viewBox="0 0 100 60">
-              <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#1a2235" stroke-width="10" stroke-linecap="round"/>
-              <path id="cpu-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#3b82f6" stroke-width="10" stroke-linecap="round"
-                    stroke-dasharray="0 125.6" style="transition:stroke-dasharray 0.8s ease;"/>
-            </svg>
-            <div class="gauge-value" id="cpu-val" style="color:var(--blue);">—%</div>
-            <div class="gauge-label">CPU</div>
-          </div>
-          <div class="gauge-wrap" style="margin-top:10px;">
-            <svg class="gauge-svg" width="100" height="60" viewBox="0 0 100 60">
-              <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#1a2235" stroke-width="10" stroke-linecap="round"/>
-              <path id="ram-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#a855f7" stroke-width="10" stroke-linecap="round"
-                    stroke-dasharray="0 125.6" style="transition:stroke-dasharray 0.8s ease;"/>
-            </svg>
-            <div class="gauge-value" id="ram-val" style="color:var(--purple);">—%</div>
-            <div class="gauge-label">RAM</div>
-          </div>
-        </div>
-        <div class="disk-list" id="disk-list"></div>
-      </div>
-    </div>
-
-    <!-- Agent IA -->
-    <div class="agent-card">
-      <div class="card-header" style="margin-bottom:0;padding-bottom:8px;">
-        <span class="card-title">🤖 Agente IA</span>
-        <span class="card-badge" id="agent-badge" style="background:rgba(148,163,184,.1);color:var(--muted);">—</span>
-      </div>
-      <div class="agent-grid">
-        <div class="agent-item">
-          <div class="agent-item-label">Contenedor</div>
-          <div class="agent-item-val agent-unknown" id="agent-state">—</div>
-          <div class="agent-item-sub" id="agent-uptime">—</div>
-        </div>
-        <div class="agent-item">
-          <div class="agent-item-label">Proveedor LLM</div>
-          <div class="agent-item-val" id="agent-llm" style="color:var(--cyan);">—</div>
-          <div class="agent-item-sub" id="agent-model">—</div>
+          <div class="server-mini-label">🤖 Agente IA <span class="card-badge" id="agent-badge" style="background:rgba(148,163,184,.1);color:var(--muted);font-size:0.62rem;padding:1px 6px;">—</span></div>
+          <div class="agent-item-val agent-unknown" id="agent-state" style="font-size:0.92rem;">—</div>
+          <div class="agent-item-sub" id="agent-uptime" style="font-size:0.65rem;">—</div>
+          <div class="agent-item-val" id="agent-llm" style="color:var(--cyan);font-size:0.8rem;margin-top:5px;">—</div>
+          <div class="agent-item-sub" id="agent-model" style="font-size:0.62rem;">—</div>
         </div>
       </div>
+      <div class="disk-list" id="disk-list" style="margin-top:14px;"></div>
     </div>
 
   </div><!-- /right col -->
@@ -765,18 +761,49 @@ function renderInfraSections(devices) {
       const icon     = ICONS[dev.device_type] || '📡';
       const snmpBadge = dev.snmp_ok === 1 ? '<span class="snmp-badge snmp-ok">SNMP ✓</span>'
                       : dev.snmp_ok === 0 ? '<span class="snmp-badge snmp-fail">SNMP ✗</span>' : '';
+      const isPrinter = dev.device_type === 'printer' || dev.device_type === 'pos';
+      const pr = (isPrinter && dev.snmp && dev.snmp.printer) ? dev.snmp.printer : null;
+
+      let printerHtml = '';
+      if (pr) {
+        const tonerPct = pr.toner_pct != null ? pr.toner_pct : null;
+        const tonerColor = tonerPct == null ? 'var(--muted)' : tonerPct > 30 ? 'var(--green)' : tonerPct > 10 ? 'var(--yellow)' : 'var(--red)';
+        const tonerBar = tonerPct != null
+          ? `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+               <span style="font-size:0.65rem;color:var(--muted);width:36px;">Tóner</span>
+               <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;">
+                 <div style="width:${tonerPct}%;height:100%;background:${tonerColor};border-radius:3px;"></div>
+               </div>
+               <span style="font-size:0.65rem;color:${tonerColor};width:28px;text-align:right;">${tonerPct}%</span>
+             </div>` : '';
+
+        const paperTxt = (pr.paper_current != null && pr.paper_max != null && pr.paper_max > 0)
+          ? `Papel: ${pr.paper_current}/${pr.paper_max} hj`
+          : pr.paper_current != null ? `Papel: ${pr.paper_current} hj` : '';
+
+        const stMap = {lista:'✅ Lista', imprimiendo:'🖨️ Imprimiendo', calentando:'🔄 Calentando', error:'❌ Error'};
+        const stTxt = pr.status ? (stMap[pr.status] || pr.status) : '';
+
+        printerHtml = `<div style="width:100%;margin-top:2px;">
+          ${tonerBar}
+          ${paperTxt || stTxt ? `<div style="font-size:0.65rem;color:var(--muted);margin-top:3px;">${[stTxt, paperTxt].filter(Boolean).join(' · ')}</div>` : ''}
+        </div>`;
+      }
+
       const snmpMeta = dev.snmp && dev.snmp.model ? dev.snmp.model : '';
-      const portMeta = dev.snmp && dev.snmp.ports_total > 0
+      const portMeta = (!isPrinter && dev.snmp && dev.snmp.ports_total > 0)
         ? `${dev.snmp.ports_up}/${dev.snmp.ports_total} ptos` : '';
       const meta = [snmpMeta || dev.location, portMeta, lat].filter(Boolean).join(' · ');
-      return `<div class="device-row">
+
+      return `<div class="device-row" style="${isPrinter && pr ? 'flex-wrap:wrap;' : ''}">
         ${dot(dev.status)}
         <span class="device-icon">${icon}</span>
-        <div class="device-info">
+        <div class="device-info" style="flex:1;">
           <div class="device-name">${dev.name}</div>
           <div class="device-meta">${meta}</div>
         </div>
         ${snmpBadge}
+        ${printerHtml}
       </div>`;
     }).join('');
     html += '</div>';

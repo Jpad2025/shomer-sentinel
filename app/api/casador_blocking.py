@@ -19,6 +19,9 @@ from app.api.casador_support import (
     _mikrotik_block,
     _mikrotik_sync_block,
     _mikrotik_unblock,
+    _routeros_block,
+    _routeros_sync_block,
+    _routeros_unblock,
     _require_hunter,
     _CB_FAIL_KEY,
     _CB_STATUS_KEY,
@@ -31,6 +34,24 @@ from app.api.casador_support_hunter_recurrence import (
 from app.backend.db import get_connection
 
 router = APIRouter()
+
+
+def _fw_type() -> str:
+    """Lee hunter.firewall_type desde system_state. Default: openwrt."""
+    t = _get_config("hunter.firewall_type", "openwrt") or "openwrt"
+    return t if t in ("openwrt", "routeros") else "openwrt"
+
+
+async def _fw_block(ip: str) -> tuple[bool, str]:
+    return await (_routeros_block(ip) if _fw_type() == "routeros" else _mikrotik_block(ip))
+
+
+async def _fw_unblock(ip: str) -> tuple[bool, str]:
+    return await (_routeros_unblock(ip) if _fw_type() == "routeros" else _mikrotik_unblock(ip))
+
+
+async def _fw_sync_block(ip: str) -> tuple[bool, str]:
+    return await (_routeros_sync_block(ip) if _fw_type() == "routeros" else _mikrotik_sync_block(ip))
 
 
 def _to_int(v: Any, default: int) -> int:
@@ -215,7 +236,7 @@ async def block_ip(
             )
         return {"success": True, "message": f"{ip} ya estaba bloqueada", "already_blocked": True}
 
-    ok, msg = await _mikrotik_block(ip)
+    ok, msg = await _fw_block(ip)
     if not ok:
         firewall_not_configured = "no configurada" in msg or "no configurado" in msg
         if not firewall_not_configured:
@@ -299,7 +320,7 @@ async def unblock_ip(body: Dict[str, Any] = Body(...)):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Formato de IP inválido: {ip}")
 
-    ok, msg = await _mikrotik_unblock(ip)
+    ok, msg = await _fw_unblock(ip)
 
     try:
         with get_connection(timeout=10) as conn:
@@ -438,7 +459,7 @@ async def firewall_sync(user=Depends(get_current_user)):
 
     for row in rows:
         ip = row["ip"]
-        ok, msg = await _mikrotik_sync_block(ip)
+        ok, msg = await _fw_sync_block(ip)
         if ok:
             synced += 1
         elif "circuito abierto" in msg.lower() or "unreachable" in msg.lower():

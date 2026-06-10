@@ -112,6 +112,7 @@ def _infra_devices() -> tuple:
                         "hostname": sd.get("hostname") or "",
                         "ports_up": sum(1 for i in ifaces if i.get("oper_status") == "UP"),
                         "ports_total": len(ifaces),
+                        "printer": sd.get("printer"),  # {status, toner_pct, paper_current, paper_max}
                     }
                 except Exception:
                     pass
@@ -283,7 +284,12 @@ def _recent_events(limit: int = 5) -> list:
 
 
 def _site_name() -> str:
-    return get_config("base.site_name") or get_config("base.hostname") or "Shomer Sentinel"
+    return (
+        get_config("base.client_name")
+        or get_config("base.site_name")
+        or get_config("base.hostname")
+        or ""
+    )
 
 
 def _agent_status() -> dict:

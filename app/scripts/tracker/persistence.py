@@ -88,6 +88,18 @@ ASSETS_MASTER_COLUMNS = [
     "ownership_type",    # cliente | leasing | prestamo | propio
     "owner_name",        # nombre del dueño o empresa
     "last_maintenance",  # fecha último mantenimiento (YYYY-MM-DD)
+    "reviewed",
+    "monitor_count",           # 1-3 monitores (validación física)
+    "monitors_json",           # manual: [{model, serial}, ...]
+    "monitors_detected_json",  # auto escaneo
+    "peripherals_detected_json",
+    "peripherals_manual",
+    "local_printers_json",
+    "logged_user",
+    "logged_user_at",
+    "integrated_monitor",
+    "integrated_monitor_model",
+    "integrated_monitor_serial",
 ]
 
 _SYSTEMINFO_REQUIRED_COLUMNS = [

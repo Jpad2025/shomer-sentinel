@@ -9,6 +9,18 @@ from typing import Set
 
 # Columnas para migrar BDs antiguas (ALTER ADD COLUMN)
 ASSETS_NEW_COLUMNS = [
+    "reviewed",
+    "monitor_count",
+    "monitors_json",
+    "monitors_detected_json",
+    "peripherals_detected_json",
+    "peripherals_manual",
+    "local_printers_json",
+    "logged_user",
+    "logged_user_at",
+    "integrated_monitor",
+    "integrated_monitor_model",
+    "integrated_monitor_serial",
     "asset_type",
     "os_family",
     "os_version",

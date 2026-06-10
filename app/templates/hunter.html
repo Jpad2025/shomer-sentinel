@@ -431,7 +431,17 @@ tbody tr:last-child { border-bottom:none; }
 
       <!-- Subredes Hunter -->
       <div class="cfg-section">
-        <div class="cfg-section-title">Hunter — Subredes a vigilar</div>
+        <div class="cfg-section-title">Hunter — Subredes internas (protegidas)</div>
+        <div style="background:rgba(13,110,110,0.10);border:1px solid rgba(13,110,110,0.3);border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:12px;line-height:1.6;color:var(--text);">
+          <strong style="color:var(--teal);">ℹ️ ¿Qué va aquí?</strong> Las redes internas del sitio — aquellas que Hunter nunca debe bloquear automáticamente.<br>
+          Incluir <strong>todas</strong> las subredes LAN: administración, teléfonos, WiFi admin, y también la red de huéspedes.<br>
+          <span style="color:var(--muted);">Hunter analiza el tráfico del espejo de red (SPAN), no el contenido de internet de los huéspedes.</span>
+        </div>
+        <div style="background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.25);border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:12px;line-height:1.6;color:var(--text);">
+          <strong style="color:#f87171;">⚠️ Red de huéspedes — no configurar espejo SPAN en esa VLAN</strong><br>
+          Monitorear todo el tráfico de internet de los huéspedes genera miles de alertas falsas y puede implicar riesgos legales de privacidad (Ley 1581 en Colombia).<br>
+          <strong>Lo que sí detecta Hunter:</strong> intentos de un huésped de acceder a la red administrativa o al servidor. El SPAN debe apuntar al tráfico del bridge LAN admin y la WAN, no a la VLAN de huéspedes completa.
+        </div>
         <div class="cfg-tag-list" id="cfg-hunter-subnets"></div>
         <div class="cfg-row">
           <input type="text" id="cfg-hunter-input" placeholder="ej: 192.168.1.0/24">
@@ -442,7 +452,20 @@ tbody tr:last-child { border-bottom:none; }
 
       <!-- IP Firewall -->
       <div class="cfg-section">
-        <div class="cfg-section-title">Firewall — MikroTik</div>
+        <div class="cfg-section-title">Firewall — Bloqueo automático</div>
+        <div class="cfg-row">
+          <label>Tipo de Firewall</label>
+          <select id="cfg-firewall-type" style="width:200px;background:var(--card);color:var(--text);border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;font-size:13px;">
+            <option value="openwrt">OpenWrt / Linux (iptables)</option>
+            <option value="routeros">MikroTik RouterOS</option>
+          </select>
+        </div>
+        <div class="cfg-row" id="row-fw-routeros-hint" style="display:none;">
+          <span style="font-size:11px;color:var(--muted);line-height:1.5;max-width:480px;">
+            Requiere una regla previa en el MikroTik:<br>
+            <code style="font-size:10px;">/ip firewall filter add chain=forward src-address-list=shomer-blocked action=drop place-before=0 comment="Shomer-Hunter"</code>
+          </span>
+        </div>
         <div class="cfg-row">
           <label>IP del Firewall</label>
           <input type="text" id="cfg-firewall-ip" placeholder="ej: 192.168.1.1" style="width:160px;">
@@ -1025,10 +1048,17 @@ tbody tr:last-child { border-bottom:none; }
     .catch(() => showToast('Error al guardar Hunter', 'error'));
   }
 
+  function onFirewallTypeChange() {
+    const t = document.getElementById('cfg-firewall-type')?.value;
+    const hint = document.getElementById('row-fw-routeros-hint');
+    if (hint) hint.style.display = (t === 'routeros') ? '' : 'none';
+  }
+
   function saveFirewallConfig() {
     const ip      = (document.getElementById('cfg-firewall-ip')?.value      || '').trim();
     const user    = (document.getElementById('cfg-firewall-user')?.value    || '').trim();
     const pass    = (document.getElementById('cfg-firewall-pass')?.value    || '').trim();
+    const fwType  = document.getElementById('cfg-firewall-type')?.value || 'openwrt';
     const portRaw = parseInt(document.getElementById('cfg-firewall-port')?.value || '22', 10);
     const toRaw   = parseInt(document.getElementById('cfg-firewall-timeout')?.value || '10', 10);
     const port    = (portRaw >= 1 && portRaw <= 65535) ? portRaw : 22;
@@ -1036,7 +1066,7 @@ tbody tr:last-child { border-bottom:none; }
     if (!ip) { showToast('Ingresa la IP del firewall', 'error'); return; }
     shomerFetch('/config/system', {
       method: 'POST',
-      body: JSON.stringify({ hunter: { firewall_ip: ip, firewall_user: user, firewall_pass: pass, firewall_port: port, firewall_timeout: timeout } })
+      body: JSON.stringify({ hunter: { firewall_ip: ip, firewall_user: user, firewall_pass: pass, firewall_type: fwType, firewall_port: port, firewall_timeout: timeout } })
     })
     .then(r => r.json())
     .then(d => showToast(d.success ? 'Firewall guardado' : 'Error al guardar', d.success ? 'success' : 'error'))
@@ -1144,6 +1174,12 @@ tbody tr:last-child { border-bottom:none; }
         document.getElementById('cfg-firewall-port').value = h.firewall_port || '22';
       if (document.getElementById('cfg-firewall-timeout'))
         document.getElementById('cfg-firewall-timeout').value = h.firewall_timeout || '10';
+      const fwTypeEl = document.getElementById('cfg-firewall-type');
+      if (fwTypeEl) {
+        fwTypeEl.value = h.firewall_type || 'openwrt';
+        fwTypeEl.onchange = onFirewallTypeChange;
+        onFirewallTypeChange();
+      }
       if (document.getElementById('cfg-autoblock-enabled'))
         document.getElementById('cfg-autoblock-enabled').checked = _hunterCfg.auto_block_enabled;
       if (document.getElementById('cfg-autoblock-min-sev'))

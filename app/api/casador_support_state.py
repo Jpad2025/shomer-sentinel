@@ -59,12 +59,16 @@ def _get_firewall_creds() -> Dict[str, Any]:
         timeout = max(3, int(timeout_raw))
     except (TypeError, ValueError):
         timeout = 10
+    fw_type = _get_config("hunter.firewall_type", "openwrt") or "openwrt"
+    if fw_type not in ("openwrt", "routeros"):
+        fw_type = "openwrt"
     return {
         "ip": _get_config("hunter.firewall_ip", ""),
         "user": _get_config("hunter.firewall_user", ""),
         "pass": _get_config("hunter.firewall_pass", ""),
         "port": port,
         "timeout": timeout,
+        "type": fw_type,
     }
 
 

@@ -20,6 +20,11 @@ from pydantic import BaseModel
 from app.api.auth_api import get_current_user, require_admin
 from app.api.shomer_common import get_db
 from app.backend.db import connect_inventory
+from app.scripts.tracker.extractor import (
+    _PS_PENDING_PATCHES,
+    _REMOTE_PATCH_SMB,
+    wmi_powershell_json,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["audit_network"])
@@ -154,6 +159,27 @@ def _init_tables():
 # Helpers
 # ──────────────────────────────────────────────
 
+def _get_asset_ip_map() -> dict[str, str]:
+    """IP → hostname desde inventory.db."""
+    mapping: dict[str, str] = {}
+    try:
+        conn = connect_inventory()
+        try:
+            rows = conn.execute(
+                "SELECT ip, hostname FROM assets WHERE ip IS NOT NULL AND ip != ''"
+            ).fetchall()
+            for ip, hostname in rows:
+                ip = (ip or "").strip()
+                hn = (hostname or "").strip()
+                if ip and hn:
+                    mapping[ip] = hn
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("No se pudo leer hostnames de inventory.db: %s", e)
+    return mapping
+
+
 def _get_asset_ips() -> list[str]:
     """Lee IPs únicas de inventory.db (Tracker assets)."""
     try:
@@ -177,12 +203,13 @@ def _run_nmap(ips: list[str]) -> Optional[str]:
     cmd = [
         "nmap", "-sV", "--version-intensity", "2",
         "-T3", "--open", "-oX", "-",
-        "--host-timeout", "30s",
+        "--host-timeout", "45s",
     ] + ips
+    nmap_timeout = min(900, max(300, len(ips) * 10))
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True,
-            timeout=300  # máx 5 min para toda la ejecución
+            timeout=nmap_timeout,
         )
         if result.returncode != 0:
             logger.warning("nmap exit=%s stderr=%s", result.returncode, result.stderr[:200])
@@ -281,11 +308,14 @@ def _parse_nmap_xml(xml_str: str) -> list[dict]:
     return findings
 
 
-def _save_findings(scan_id: int, findings: list[dict]) -> int:
+def _save_findings(scan_id: int, findings: list[dict], hostname_map: Optional[dict] = None) -> int:
     """Guarda hallazgos en BD. Evita duplicados por (ip, port, protocol) — actualiza si existe."""
+    hostname_map = hostname_map or {}
     count = 0
     with get_db() as conn:
         for f in findings:
+            if not f.get("hostname") and f.get("ip") in hostname_map:
+                f["hostname"] = hostname_map[f["ip"]]
             # Check if finding already exists for this ip+port+protocol (any previous scan)
             existing = conn.execute(
                 "SELECT id, finding_status FROM network_audit_findings WHERE ip=? AND port=? AND protocol=? ORDER BY id DESC LIMIT 1",
@@ -346,7 +376,7 @@ def _get_patchable_assets(live_ips: set) -> list[dict]:
             global_domain = (global_row[2] or "").strip() if global_row else ""
 
             rows = conn.execute(
-                "SELECT ip, os_family, override_user, override_pass FROM assets "
+                "SELECT ip, hostname, os_family, override_user, override_pass FROM assets "
                 "WHERE ip IS NOT NULL AND ip != ''"
             ).fetchall()
         finally:
@@ -358,9 +388,10 @@ def _get_patchable_assets(live_ips: set) -> list[dict]:
     result = []
     for row in rows:
         ip        = (row[0] or "").strip()
-        os_family = (row[1] or "").lower().strip()
-        ov_user   = (row[2] or "").strip()
-        ov_pass   = (row[3] or "").strip()
+        hostname  = (row[1] or "").strip()
+        os_family = (row[2] or "").lower().strip()
+        ov_user   = (row[3] or "").strip()
+        ov_pass   = (row[4] or "").strip()
 
         if ip not in live_ips:
             continue
@@ -377,6 +408,7 @@ def _get_patchable_assets(live_ips: set) -> list[dict]:
 
         result.append({
             "ip":        ip,
+            "hostname":  hostname,
             "os_family": os_family,
             "user":      user,
             "password":  password,
@@ -386,126 +418,49 @@ def _get_patchable_assets(live_ips: set) -> list[dict]:
     return result
 
 
-def _patch_check_wmi(ip: str, user: str, password: str, domain: str = "") -> Optional[dict]:
+def _patch_check_wmi(ip: str, user: str, password: str, domain: str = "", hostname: str = "") -> Optional[dict]:
     """
-    Consulta vía WMI (impacket) si el equipo Windows tiene actualizaciones pendientes.
-    Usa Win32_QuickFixEngineering para hotfixes y determina días sin parchear.
-    Síncrono — debe llamarse con asyncio.to_thread.
+    Windows: actualizaciones pendientes vía Windows Update API (PowerShell remoto).
+    Retorna hallazgo o None si el equipo está al día.
     """
-    try:
-        from impacket.dcerpc.v5.dcom import wmi as impacket_wmi
-        from impacket.dcerpc.v5.dcomrt import DCOMConnection
-    except ImportError:
-        return {
-            "ip": ip, "hostname": "", "port": 0, "protocol": "wmi",
-            "service": "windows-update", "version": "",
-            "severity": "info", "category": "parches",
-            "title": "Auditoría de parches Windows no disponible",
-            "description": "impacket no está instalado en el servidor Shomer.",
-            "recommendation": "Instalar impacket: pip install impacket",
-        }
-
-    try:
-        dcom = DCOMConnection(
-            ip,
-            username=user,
-            password=password,
-            domain=domain or ".",
-            oxidResolver=True,
-            doKerberos=False,
-        )
-        i_interface = dcom.CoCreateInstanceEx(
-            impacket_wmi.WBEM_CLSID, impacket_wmi.WBEM_IID
-        )
-        i_wbem_level1_login = impacket_wmi.IWbemLevel1Login(i_interface)
-        i_wbem_services = i_wbem_level1_login.NTLMLogin(
-            "//./root/cimv2", None, None
-        )
-        i_wbem_level1_login.RemRelease()
-
-        # Hotfixes instalados — el más reciente nos dice cuándo fue el último parche
-        enum = i_wbem_services.ExecQuery(
-            "SELECT HotFixID, InstalledOn FROM Win32_QuickFixEngineering"
-        )
-        hotfixes = []
-        while True:
-            try:
-                item = enum.Next(0xFFFF, 1)[0]
-                hf_id = item.HotFixID or ""
-                installed_on = item.InstalledOn or ""
-                if hf_id:
-                    hotfixes.append((hf_id, installed_on))
-            except Exception:
-                break
-
-        i_wbem_services.RemRelease()
-        dcom.disconnect()
-
-        if not hotfixes:
-            return None
-
-        # Calcular días desde el último hotfix
-        last_date_str = ""
-        for _, date_str in hotfixes:
-            if date_str and date_str > last_date_str:
-                last_date_str = date_str
-
-        days_since = None
-        if last_date_str:
-            try:
-                from datetime import datetime, timezone
-                # Formato típico: M/D/YYYY
-                last_dt = datetime.strptime(last_date_str.strip(), "%m/%d/%Y").replace(
-                    tzinfo=timezone.utc
-                )
-                days_since = (datetime.now(timezone.utc) - last_dt).days
-            except Exception:
-                pass
-
-        if days_since is None:
-            return None  # sin fecha fiable → no generar hallazgo
-
-        if days_since < 60:
-            return None  # al día (< 60 días desde último parche)
-
-        severity = "critico" if days_since > 180 else ("alto" if days_since > 90 else "medio")
-        return {
-            "ip":             ip,
-            "hostname":       "",
-            "port":           0,
-            "protocol":       "wmi",
-            "service":        "windows-update",
-            "version":        "",
-            "severity":       severity,
-            "category":       "parches",
-            "title":          f"Windows sin parchear hace {days_since} días",
-            "description":    (
-                f"Último hotfix instalado: {last_date_str} — hace {days_since} días.\n"
-                f"Total hotfixes registrados: {len(hotfixes)}."
-            ),
-            "recommendation": "Abrir Windows Update y aplicar todas las actualizaciones pendientes. "
-                               "En entornos con AD, verificar política WSUS.",
-        }
-
-    except Exception as e:
-        err = str(e).lower()
-        if "access denied" in err or "logon failure" in err:
-            return {
-                "ip":             ip,
-                "hostname":       "",
-                "port":           0,
-                "protocol":       "wmi",
-                "service":        "wmi",
-                "version":        "",
-                "severity":       "info",
-                "category":       "parches",
-                "title":          "Credenciales WMI no válidas",
-                "description":    f"No se pudo conectar a {ip} vía WMI con las credenciales configuradas.",
-                "recommendation": "Verificar usuario y contraseña en Tracker → Credenciales.",
-            }
-        # Equipo apagado, sin WMI habilitado, o firewall bloqueando → sin hallazgo
-        logger.debug("WMI %s: %s", ip, e)
+    data = wmi_powershell_json(
+        ip, user, password, domain,
+        _PS_PENDING_PATCHES,
+        _REMOTE_PATCH_SMB,
+        wait_sec=20.0,
+    )
+    if not isinstance(data, dict):
         return None
+
+    try:
+        count = int(data.get("count") or 0)
+    except (TypeError, ValueError):
+        count = 0
+
+    if count <= 0:
+        return None
+
+    titles = data.get("titles") or []
+    if isinstance(titles, str):
+        titles = [titles]
+    sample = "\n".join("- " + str(t)[:120] for t in titles[:8])
+    has_kernel = any("kernel" in str(t).lower() or "security" in str(t).lower() for t in titles)
+    severity = "critico" if has_kernel and count > 5 else ("alto" if count > 15 else ("medio" if count > 5 else "bajo"))
+
+    return {
+        "ip":             ip,
+        "hostname":       hostname,
+        "port":           0,
+        "protocol":       "wmi",
+        "service":        "windows-update",
+        "version":        "",
+        "severity":       severity,
+        "category":       "parches",
+        "title":          f"{count} actualización{'es' if count > 1 else ''} pendiente{'s' if count > 1 else ''} (Windows)",
+        "description":    f"Windows Update reporta {count} actualizaciones sin instalar.\n{sample}",
+        "recommendation": "Abrir Configuración → Windows Update → Instalar actualizaciones. "
+                           "En AD/WSUS, verificar que el equipo reciba las políticas de parches.",
+    }
 
 
 async def _patch_check_single(asset: dict) -> Optional[dict]:
@@ -518,11 +473,17 @@ async def _patch_check_single(asset: dict) -> Optional[dict]:
     os_family = asset["os_family"]
     user      = asset["user"]
     password  = asset["password"]
+    hostname  = asset.get("hostname") or ""
 
-    # Windows → WMI via impacket
+    # Windows → WMI + PowerShell (actualizaciones pendientes)
     if "windows" in os_family:
         return await asyncio.to_thread(
-            _patch_check_wmi, ip, asset["user"], asset["password"], asset.get("domain", "")
+            _patch_check_wmi,
+            ip,
+            asset["user"],
+            asset["password"],
+            asset.get("domain", ""),
+            hostname,
         )
 
     # Linux / macOS → SSH
@@ -547,7 +508,7 @@ async def _patch_check_single(asset: dict) -> Optional[dict]:
                 sample = "\n".join(updates[:5])
                 return {
                     "ip":             ip,
-                    "hostname":       "",
+                    "hostname":       hostname,
                     "port":           22,
                     "protocol":       "ssh",
                     "service":        "macos-update",
@@ -576,7 +537,7 @@ async def _patch_check_single(asset: dict) -> Optional[dict]:
                     title_extra = " (incluye kernel)" if has_kernel else ""
                     return {
                         "ip":             ip,
-                        "hostname":       "",
+                        "hostname":       hostname,
                         "port":           22,
                         "protocol":       "ssh",
                         "service":        "apt",
@@ -601,7 +562,7 @@ async def _patch_check_single(asset: dict) -> Optional[dict]:
                 if n > 0:
                     return {
                         "ip":             ip,
-                        "hostname":       "",
+                        "hostname":       hostname,
                         "port":           22,
                         "protocol":       "ssh",
                         "service":        "yum",
@@ -620,7 +581,7 @@ async def _patch_check_single(asset: dict) -> Optional[dict]:
     except (asyncssh.PermissionDenied, asyncssh.BadHostKeyError):
         return {
             "ip":             ip,
-            "hostname":       "",
+            "hostname":       hostname,
             "port":           22,
             "protocol":       "ssh",
             "service":        "ssh",
@@ -699,6 +660,7 @@ async def _do_scan(scan_id: int, triggered_by: str = "manual"):
             return
 
         logger.info("Auditoría de red: escaneo de %d hosts (scan_id=%d)", len(ips), scan_id)
+        hostname_map = await asyncio.to_thread(_get_asset_ip_map)
         xml_out = await asyncio.to_thread(_run_nmap, ips)
 
         if not xml_out:
@@ -713,13 +675,13 @@ async def _do_scan(scan_id: int, triggered_by: str = "manual"):
 
         # 1. Hallazgos nmap (puertos abiertos / servicios inseguros)
         findings = await asyncio.to_thread(_parse_nmap_xml, xml_out)
-        await asyncio.to_thread(_save_findings, scan_id, findings)
+        await asyncio.to_thread(_save_findings, scan_id, findings, hostname_map)
 
         # 2. Auditoría de parches SSH/WMI — solo en equipos que respondieron al nmap
         live_ips = await asyncio.to_thread(_extract_live_ips, xml_out)
         patch_findings = await _run_patch_audit(live_ips, scan_id)
         if patch_findings:
-            await asyncio.to_thread(_save_findings, scan_id, patch_findings)
+            await asyncio.to_thread(_save_findings, scan_id, patch_findings, hostname_map)
 
         total_findings = len(findings) + len(patch_findings)
 

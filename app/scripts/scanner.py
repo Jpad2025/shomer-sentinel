@@ -99,7 +99,7 @@ SSH_DEFAULT_USER = os.environ.get("SHOMER_SSH_USER", "")
 SSH_DEFAULT_PASSWORD = os.environ.get("SHOMER_SSH_PASSWORD", "")
 
 HOST_TIMEOUT_SEC = 5
-TIMEOUT_CRITICAL_SEC = 12
+TIMEOUT_CRITICAL_SEC = 90
 
 
 def _process_one_host(h: Dict[str, Any], idx: int, ctx: Dict[str, Any]) -> Dict[str, Any]:

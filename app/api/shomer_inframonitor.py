@@ -7,6 +7,7 @@ Alertas Telegram en transiciones de estado (online↔offline).
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
 import socket
@@ -103,6 +104,7 @@ def _init_tables():
         for col, tbl, defn in [
             ("tcp_port",         "infra_devices", "INTEGER DEFAULT NULL"),
             ("snmp_community",   "infra_devices", "TEXT DEFAULT 'public'"),
+            ("pc_server_ip",     "infra_devices", "TEXT DEFAULT NULL"),
             ("tcp_ok",           "infra_status",  "INTEGER DEFAULT NULL"),
             ("mac",              "infra_status",  "TEXT DEFAULT NULL"),
             ("last_state_change","infra_status",  "TEXT"),
@@ -253,8 +255,17 @@ def _parse_iftable(output: str, prev_snmp: Optional[dict]) -> tuple:
     return interfaces, raw_octets
 
 
-def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict]) -> dict:
-    """Blocking: collect SNMP system info + interface table. Run via asyncio.to_thread."""
+_PRINTER_STATUS_LABELS = {1: "otro", 2: "desconocido", 3: "lista", 4: "imprimiendo", 5: "calentando"}
+
+
+def _parse_snmp_string(rhs: str) -> str:
+    if "STRING:" in rhs:
+        return rhs.split("STRING:", 1)[1].strip().strip('"')
+    return ""
+
+
+def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict], device_type: str = "generic") -> dict:
+    """Blocking: collect SNMP system info + interface table (+ printer OIDs si aplica)."""
     snmpget  = shutil.which("snmpget")
     snmpwalk = shutil.which("snmpwalk")
     if not snmpget:
@@ -263,7 +274,7 @@ def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict]) -> dict:
     TIMEOUT = 4
     BASE = ["-v2c", "-c", community, "-t", str(TIMEOUT), "-r", "0"]
 
-    # System info: sysDescr + sysUpTime + sysName in one GET
+    # System info: sysDescr + sysUpTime + sysName
     try:
         r = subprocess.run(
             [snmpget] + BASE + [ip,
@@ -284,17 +295,17 @@ def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict]) -> dict:
         if "=" not in line:
             continue
         lhs, rhs = line.split("=", 1)
-        lhs_l = lhs.strip().lower()
+        lhs_s = lhs.strip()
+        lhs_l = lhs_s.lower()
         rhs = rhs.strip()
-        if "sysdescr" in lhs_l or lhs.strip().endswith(".1.3.6.1.2.1.1.1.0"):
-            if "STRING:" in rhs:
-                sys_descr = rhs.split("STRING:", 1)[1].strip().strip('"')[:150]
-        elif "sysuptime" in lhs_l:
+        # Soporta nombres simbólicos (SNMPv2-MIB::sysDescr.0) y numéricos (iso.3.6.1.2.1.1.1.0)
+        if "sysdescr" in lhs_l or lhs_s.endswith(".2.1.1.1.0"):
+            sys_descr = _parse_snmp_string(rhs)[:150]
+        elif "sysuptime" in lhs_l or lhs_s.endswith(".2.1.1.3.0"):
             m = re.search(r'\)\s+(.+)$', rhs)
-            sys_uptime = m.group(1).strip() if m else ""
-        elif "sysname" in lhs_l:
-            if "STRING:" in rhs:
-                sys_name = rhs.split("STRING:", 1)[1].strip().strip('"')
+            sys_uptime = m.group(1).strip() if m else rhs
+        elif "sysname" in lhs_l or lhs_s.endswith(".2.1.1.5.0"):
+            sys_name = _parse_snmp_string(rhs)
 
     # Interface table
     interfaces: list = []
@@ -310,7 +321,7 @@ def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict]) -> dict:
         except Exception:
             pass
 
-    return {
+    result = {
         "ok": True,
         "sys_descr": sys_descr,
         "sys_uptime": sys_uptime,
@@ -320,6 +331,51 @@ def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict]) -> dict:
         "_raw_ts": _time.time(),
         "polled_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    # OIDs específicos de impresora (printer MIB RFC 3805)
+    if device_type in ("printer", "pos") and snmpget:
+        try:
+            r_p = subprocess.run(
+                [snmpget] + BASE + [ip,
+                    "1.3.6.1.2.1.25.3.5.1.1.1",    # hrPrinterStatus
+                    "1.3.6.1.2.1.43.11.1.1.9.1.1",  # prtMarkerSuppliesLevel (tóner)
+                    "1.3.6.1.2.1.43.8.2.1.10.1.1",  # prtInputCurrentLevel (papel actual)
+                    "1.3.6.1.2.1.43.8.2.1.9.1.1",   # prtInputMaxCapacity (papel máx)
+                ],
+                capture_output=True, text=True, timeout=TIMEOUT + 2,
+            )
+            if r_p.returncode == 0 and r_p.stdout.strip():
+                pr_status = pr_toner = pr_paper = pr_paper_max = None
+                for line in r_p.stdout.splitlines():
+                    if "=" not in line:
+                        continue
+                    lhs, rhs = line.split("=", 1)
+                    lhs_s = lhs.strip()
+                    rhs = rhs.strip()
+                    val_str = rhs.split(":")[-1].strip() if ":" in rhs else rhs
+                    try:
+                        val = int(val_str)
+                    except ValueError:
+                        continue
+                    if "25.3.5.1.1.1" in lhs_s:
+                        pr_status = _PRINTER_STATUS_LABELS.get(val, f"código {val}")
+                    elif "43.11.1.1.9.1.1" in lhs_s:
+                        # -3=lleno, -2=desconocido, -1=otro, ≥0 = porcentaje/unidades
+                        pr_toner = None if val < 0 else val
+                    elif "43.8.2.1.10.1.1" in lhs_s:
+                        pr_paper = None if val < 0 else val
+                    elif "43.8.2.1.9.1.1" in lhs_s:
+                        pr_paper_max = None if val <= 0 else val
+                result["printer"] = {
+                    "status": pr_status,
+                    "toner_pct": pr_toner,
+                    "paper_current": pr_paper,
+                    "paper_max": pr_paper_max,
+                }
+        except Exception:
+            pass
+
+    return result
 
 
 async def _noop() -> None:
@@ -496,7 +552,7 @@ async def _poll_once():
                 prev_snmp = json.loads(prev["snmp_data"])
             except Exception:
                 pass
-        snmp_tasks_list.append(asyncio.to_thread(_snmp_poll, row["ip"], community, prev_snmp))
+        snmp_tasks_list.append(asyncio.to_thread(_snmp_poll, row["ip"], community, prev_snmp, row["device_type"] or "generic"))
         snmp_ips_list.append(row["ip"])
     if snmp_tasks_list:
         snmp_vals = await asyncio.gather(*snmp_tasks_list, return_exceptions=True)
@@ -528,10 +584,12 @@ async def _poll_once():
                     except Exception:
                         pass
 
-                asyncio.create_task(
-                    _send_infra_alert(name, ip, status, prev_status, duration_sec,
-                                      device_type=(row["device_type"] or "generic"))
-                )
+                # Telegram vía agente (watch_infra). Panel solo si INFRA_TELEGRAM_PANEL=1.
+                if os.environ.get("INFRA_TELEGRAM_PANEL", "0").strip() == "1":
+                    asyncio.create_task(
+                        _send_infra_alert(name, ip, status, prev_status, duration_sec,
+                                          device_type=(row["device_type"] or "generic"))
+                    )
             else:
                 last_change = last_change_str or now_utc.isoformat()
 
@@ -592,6 +650,7 @@ class DeviceIn(BaseModel):
     location: str = ""
     tcp_port: Optional[int] = None
     snmp_community: str = "public"
+    pc_server_ip: Optional[str] = None
 
 
 # ──────────────────────────────────────────────
@@ -615,8 +674,27 @@ def _fmt_duration(last_change_str: Optional[str]) -> Optional[str]:
         return None
 
 
+def _snmp_down_port_names(snmp_data_raw) -> list:
+    """Puertos ifOperStatus=down desde snmp_data cacheado (sin poll extra)."""
+    if not snmp_data_raw:
+        return []
+    try:
+        snmp = json.loads(snmp_data_raw) if isinstance(snmp_data_raw, str) else snmp_data_raw
+    except Exception:
+        return []
+    names = []
+    for iface in snmp.get("interfaces", []):
+        if iface.get("oper") != "down":
+            continue
+        name = (iface.get("name") or "").strip()
+        if not name or name.lower() in ("lo", "loopback"):
+            continue
+        names.append(name)
+    return names
+
+
 def _build_device_row(d, s, uptime: Optional[float]) -> dict:
-    return {
+    row = {
         "id": d["id"],
         "ip": d["ip"],
         "name": d["name"],
@@ -625,6 +703,7 @@ def _build_device_row(d, s, uptime: Optional[float]) -> dict:
         "location": d["location"],
         "tcp_port": d["tcp_port"],
         "snmp_community": d["snmp_community"] if "snmp_community" in d.keys() else "public",
+        "pc_server_ip": d["pc_server_ip"] if "pc_server_ip" in d.keys() else None,
         "status": s["status"] if s else "unknown",
         "latency_ms": s["latency_ms"] if s else None,
         "tcp_ok": s["tcp_ok"] if s else None,
@@ -635,6 +714,21 @@ def _build_device_row(d, s, uptime: Optional[float]) -> dict:
         "checked_at": (s["checked_at"] if s else None),
         "created_at": d["created_at"],
     }
+    # Para impresoras: incluir datos de tóner/papel/estado directamente en la fila
+    if s and s.get("snmp_data"):
+        try:
+            snmp = json.loads(s["snmp_data"])
+            if d["device_type"] in ("printer", "pos") and snmp.get("printer"):
+                row["printer"] = snmp["printer"]
+            if d["device_type"] in (
+                "switch", "router", "server", "nas", "controller", "generic",
+            ):
+                down = _snmp_down_port_names(snmp)
+                if down:
+                    row["snmp_down_ports"] = down
+        except Exception:
+            pass
+    return row
 
 
 # ──────────────────────────────────────────────
@@ -682,10 +776,10 @@ async def add_device(body: DeviceIn, user=Depends(get_current_user)):
     try:
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO infra_devices (ip, name, device_type, location, tcp_port, snmp_community) "
-                "VALUES (?,?,?,?,?,?)",
+                "INSERT INTO infra_devices (ip, name, device_type, location, tcp_port, snmp_community, pc_server_ip) "
+                "VALUES (?,?,?,?,?,?,?)",
                 (body.ip, body.name, body.device_type, body.location, body.tcp_port,
-                 body.snmp_community or "public")
+                 body.snmp_community or "public", body.pc_server_ip or None)
             )
             conn.commit()
         return {"success": True, "message": f"Equipo {body.ip} agregado"}
@@ -799,3 +893,103 @@ async def get_snmp_data(ip: str, user=Depends(get_current_user)):
         "snmp_ok": row["snmp_ok"],
         "data": clean,
     }
+
+
+@router.post("/infra/action/{device_id}")
+async def device_action(device_id: int, payload: dict, user=Depends(get_current_user)):
+    """Acciones remotas por tipo de equipo.
+
+    action=clear_queue  → limpiar cola de impresión vía SSH al PC asociado (printer/pos)
+    action=snmp_reboot  → reiniciar equipo vía SNMP SET (AP/switch con SNMP write)
+    action=stream_url   → devuelve URL de stream RTSP de la cámara
+    """
+    action = (payload.get("action") or "").strip()
+    if not action:
+        raise HTTPException(status_code=400, detail="Falta campo 'action'")
+
+    _init_tables()
+    with get_db() as conn:
+        dev = conn.execute(
+            "SELECT * FROM infra_devices WHERE id=? AND active=1", (device_id,)
+        ).fetchone()
+
+    if not dev:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+
+    dev = dict(dev)
+    ip = dev["ip"]
+    dtype = dev.get("device_type", "generic")
+
+    # ── Limpiar cola de impresión ────────────────────────────────────────────
+    if action == "clear_queue":
+        if dtype not in ("printer", "pos"):
+            raise HTTPException(status_code=400, detail="Solo disponible para impresoras")
+        pc_ip = (dev.get("pc_server_ip") or "").strip()
+        if not pc_ip:
+            raise HTTPException(
+                status_code=400,
+                detail="PC asociado no configurado. Edita el equipo y agrega la IP del servidor de impresión.",
+            )
+        # Obtener credenciales del PC desde Tracker (base.service_user/password)
+        with get_db() as conn:
+            svc_user = (conn.execute(
+                "SELECT value FROM system_state WHERE key='base.service_user'"
+            ).fetchone() or {}).get("value", "") or "shomer"
+            svc_pass = (conn.execute(
+                "SELECT value FROM system_state WHERE key='base.service_password'"
+            ).fetchone() or {}).get("value", "") or ""
+
+        try:
+            import asyncssh
+            async with asyncssh.connect(
+                pc_ip, username=svc_user, password=svc_pass,
+                known_hosts=None, connect_timeout=10
+            ) as conn_ssh:
+                result = await conn_ssh.run(
+                    "net stop spooler && del /Q /F /S \"%SystemRoot%\\System32\\spool\\PRINTERS\\*\" && net start spooler",
+                    timeout=30,
+                )
+            return {
+                "success": True,
+                "message": f"Cola de impresión limpiada en {pc_ip}",
+                "output": (result.stdout or "")[:500],
+            }
+        except Exception as ex:
+            logger.warning("clear_queue %s → %s: %s", ip, pc_ip, ex)
+            raise HTTPException(status_code=502, detail=f"Error SSH a {pc_ip}: {ex}") from ex
+
+    # ── Reinicio SNMP ────────────────────────────────────────────────────────
+    elif action == "snmp_reboot":
+        community_write = (dev.get("snmp_community") or "public")
+        # TP-Link EAP reboot OID
+        reboot_oid = "1.3.6.1.4.1.11863.10.1.2.1.0"
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["snmpset", "-v2c", "-c", community_write, ip, reboot_oid, "i", "1"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                return {"success": True, "message": f"Reinicio SNMP enviado a {ip}"}
+            raise HTTPException(status_code=502, detail=f"snmpset error: {result.stderr[:200]}")
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="Timeout enviando comando SNMP")
+        except HTTPException:
+            raise
+        except Exception as ex:
+            raise HTTPException(status_code=502, detail=str(ex)) from ex
+
+    # ── URL stream cámara ────────────────────────────────────────────────────
+    elif action == "stream_url":
+        if dtype != "camera":
+            raise HTTPException(status_code=400, detail="Solo disponible para cámaras")
+        # Devuelve URL RTSP estándar — el técnico la abre en VLC
+        rtsp_url = f"rtsp://{ip}:554/stream1"
+        return {
+            "success": True,
+            "stream_url": rtsp_url,
+            "message": f"Abre esta URL en VLC: {rtsp_url}",
+        }
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Acción desconocida: {action}")

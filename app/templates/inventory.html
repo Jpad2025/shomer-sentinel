@@ -3,10 +3,10 @@
 {% block page_title %}Tracker — Inventario IT{% endblock %}
 
 {% block extra_styles %}
-.page-header { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); background:var(--sidebar); padding:16px 24px; }
+.page-header { display:flex; flex-direction:column; align-items:flex-start; gap:12px; border-bottom:1px solid var(--border); background:var(--sidebar); padding:16px 24px; }
 .page-header-left h1 { font-size:18px; font-weight:700; color:var(--text); }
 .page-header-left p  { font-size:12px; color:var(--muted); margin-top:2px; }
-.header-btns { display:flex; align-items:center; gap:10px; }
+.header-btns { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 /* Botones header — migrados al sistema unificado .btn .btn-blue/btn-outline/btn-ghost/btn-red en base.html */
 .btn-hdr svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; }
 .step-badge { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background:rgba(255,255,255,0.2); font-size:11px; font-weight:700; margin-right:5px; }
@@ -47,6 +47,9 @@ tbody tr:hover { background:rgba(30,42,58,0.4); }
 tbody tr:last-child { border-bottom:none; }
 td { padding:10px 14px; font-size:13px; color:var(--text); }
 .td-mac { font-family:monospace; font-size:12px; color:var(--muted); }
+.row-reviewed { background: rgba(13,110,110,0.07) !important; }
+.row-reviewed:hover { background: rgba(13,110,110,0.13) !important; }
+.icon-reviewed { color: var(--online); }
 .td-ip  { color:#06b6d4; font-weight:600; }
 .td-type { display:flex; align-items:center; gap:6px; color:var(--muted); }
 .td-type svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; }
@@ -127,6 +130,15 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
 .modal-field textarea:focus { border-color:var(--teal); }
 .modal-field textarea { resize:vertical; min-height:80px; }
 .modal-field input[readonly] { color:var(--muted); cursor:not-allowed; }
+.detected-box { font-size:12px; color:var(--text); background:rgba(255,255,255,0.03);
+  border:1px solid var(--border); border-radius:6px; padding:10px; min-height:36px; line-height:1.5; }
+.detected-box ul { margin:0; padding-left:18px; }
+.detected-box li { margin-bottom:4px; }
+.monitor-slot { border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:8px; }
+.monitor-slot.integrated { border-color:rgba(13,110,110,0.45); background:rgba(13,110,110,0.06); }
+.monitor-slot-title { font-size:11px; font-weight:700; color:var(--teal); margin-bottom:8px; }
+.monitor-integrated-toggle { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; font-weight:600; color:var(--text); margin-bottom:10px; }
+.monitor-integrated-toggle input { width:16px; height:16px; accent-color:var(--teal); cursor:pointer; }
 .modal-field select option { background:var(--card); }
 .modal-footer { padding:16px 20px; border-top:1px solid var(--border);
   display:flex; justify-content:flex-end; gap:10px; flex-shrink:0; }
@@ -177,6 +189,9 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
     </button>
     <button class="btn btn-blue btn-hdr" id="btn-deep-scan" onclick="handleDeepScan()">
       <span class="step-badge">3</span> Escaneo Profundo
+    </button>
+    <button class="btn btn-red btn-hdr" id="btn-cancel-scan" style="display:none" onclick="handleCancelScan()">
+      ✕ Cancelar Escaneo
     </button>
     <button class="btn btn-outline btn-hdr" onclick="handleExcel()">
       <span class="step-badge">4</span> Excel Global
@@ -413,6 +428,77 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
           <div class="modal-field"><label>SSH</label><div id="m-ssh">—</div></div>
           <div class="modal-field"><label>WMI</label><div id="m-wmi">—</div></div>
           <div class="modal-field"><label>SNMP</label><div id="m-snmp">—</div></div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN: MONITORES Y PERIFÉRICOS -->
+      <div class="modal-section">
+        <div class="modal-section-title">Monitores (validación física)</div>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 8px;">
+          Marque monitor integrado en portátiles y All-in-One. Los monitores externos adicionales se registran abajo.
+          El escaneo automático muestra referencia al final.
+        </p>
+        <label class="monitor-integrated-toggle">
+          <input type="checkbox" id="m-integrated-monitor" onchange="toggleIntegratedMonitor()">
+          Monitor integrado (portátil / All-in-One)
+        </label>
+        <div id="m-integrated-monitor-fields" class="monitor-slot integrated" style="display:none;">
+          <div class="monitor-slot-title">Pantalla integrada del equipo</div>
+          <div class="modal-grid-2">
+            <div class="modal-field">
+              <label>Modelo</label>
+              <input type="text" id="m-integrated-model" placeholder="Ej: HP 24-f0xx All-in-One / panel portátil 15&quot;">
+            </div>
+            <div class="modal-field">
+              <label>Serial</label>
+              <input type="text" id="m-integrated-serial" placeholder="Etiqueta o serial del panel">
+            </div>
+          </div>
+        </div>
+        <div class="modal-field" style="max-width:280px;">
+          <label id="m-monitor-count-label">Monitores externos adicionales</label>
+          <select id="m-monitor-count" onchange="renderMonitorFields()">
+            <option value="0">— Ninguno —</option>
+            <option value="1">1 monitor externo</option>
+            <option value="2">2 monitores externos</option>
+            <option value="3">3 monitores externos</option>
+          </select>
+        </div>
+        <div id="m-monitor-slots"></div>
+        <div class="modal-field">
+          <label>Monitores detectados en escaneo</label>
+          <div id="m-monitors-detected" class="detected-box">—</div>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Periféricos USB / docks</div>
+        <div class="modal-field">
+          <label>Registro manual (docks, hubs, adaptadores)</label>
+          <textarea id="m-peripherals-manual" placeholder="Ej: Dock Dell WD19 — serial SN12345&#10;Hub USB 7 puertos Anker"></textarea>
+        </div>
+        <div class="modal-field">
+          <label>USB / docks detectados en escaneo</label>
+          <div id="m-peripherals-detected" class="detected-box">—</div>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Impresoras locales en este equipo</div>
+        <div id="m-printers-detected" class="detected-box">—</div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Sesión de usuario</div>
+        <div class="modal-grid-2">
+          <div class="modal-field">
+            <label>Usuario logueado (al escanear)</label>
+            <div class="modal-readonly" id="m-logged-user">—</div>
+          </div>
+          <div class="modal-field">
+            <label>Fecha detección</label>
+            <div class="modal-readonly" id="m-logged-user-at">—</div>
+          </div>
         </div>
       </div>
 
@@ -685,9 +771,13 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
     assets.forEach(a => {
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
+      if (a.reviewed == 1) tr.classList.add('row-reviewed');
       tr.onclick = () => openModal(a.mac);
+      const rowIcon = a.reviewed == 1
+        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="icon-reviewed" style="width:13px;height:13px"><polyline points="20 6 9 17 4 12"/></svg>`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;color:var(--muted)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
       tr.innerHTML = `
-        <td><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;color:var(--muted)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></td>
+        <td>${rowIcon}</td>
         <td class="td-mac">${a.mac || '—'}</td>
         <td class="td-ip">${a.ip || '—'}</td>
         <td>${statusDot(a)}</td>
@@ -753,38 +843,89 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
   }
 
   let _scanRunning = false;
+  let _scanPollInterval = null;
+
+  function _setScanUI(running, label) {
+    const btnScan = document.getElementById('btn-discovery-scan');
+    const btnDeep = document.getElementById('btn-deep-scan');
+    const btnCancel = document.getElementById('btn-cancel-scan');
+    if (btnScan) btnScan.disabled = running;
+    if (btnDeep) btnDeep.disabled = running;
+    if (btnCancel) btnCancel.style.display = running ? '' : 'none';
+    _scanRunning = running;
+    if (running) {
+      showProcessBanner(label || 'Escaneo en progreso…');
+    } else {
+      hideProcessBanner();
+    }
+  }
+
+  function _startScanPoll() {
+    if (_scanPollInterval) clearInterval(_scanPollInterval);
+    _scanPollInterval = setInterval(() => {
+      shomerFetch('/tracker/scan/status')
+        .then(r => r.json())
+        .then(d => {
+          if (!d.running) {
+            clearInterval(_scanPollInterval);
+            _scanPollInterval = null;
+            _setScanUI(false);
+            fetchAssets(true);
+            showToast('Escaneo completado', 'success');
+          } else {
+            const elapsed = d.elapsed_label || '';
+            showProcessBanner(`Escaneo ${d.mode || ''} en progreso — ${elapsed}`);
+          }
+        })
+        .catch(() => {});
+    }, 5000);
+  }
+
+  function _checkScanOnLoad() {
+    shomerFetch('/tracker/scan/status')
+      .then(r => r.json())
+      .then(d => {
+        if (d.running) {
+          _setScanUI(true, `Escaneo ${d.mode || ''} en progreso — ${d.elapsed_label || ''}`);
+          _startScanPoll();
+        }
+      })
+      .catch(() => {});
+  }
 
   function handleScan() {
     if (_scanRunning) {
-      showToast('Ya hay un escaneo en progreso. Espera a que termine.', 'warning');
+      showToast('Ya hay un escaneo en progreso — usa el botón Cancelar para detenerlo.', 'warning');
       return;
     }
-    _scanRunning = true;
-    const btn = document.getElementById('btn-discovery-scan');
-    const btnDeep = document.getElementById('btn-deep-scan');
-    btn.disabled = true;
-    btnDeep.disabled = true;
-    showProcessBanner('Escaneando red — puede tardar hasta 90 segundos…');
-
+    _setScanUI(true, 'Escaneando red — puede tardar hasta 90 segundos…');
     shomerFetch('/tracker/scan', { method: 'POST' })
       .then(r => r.json())
       .then(d => {
+        if (d.running || d.success === false) {
+          showToast(d.message || 'Error al iniciar', 'error');
+          _setScanUI(false);
+          return;
+        }
         showToast(d.message || 'Escaneo iniciado', 'success');
-        setTimeout(() => {
-          btn.disabled = false;
-          btnDeep.disabled = false;
-          _scanRunning = false;
-          hideProcessBanner();
-          fetchAssets(true);
-        }, 90000);
+        _startScanPoll();
       })
       .catch(() => {
         showToast('Error al iniciar escaneo', 'error');
-        btn.disabled = false;
-        btnDeep.disabled = false;
-        _scanRunning = false;
-        hideProcessBanner();
+        _setScanUI(false);
       });
+  }
+
+  function handleCancelScan() {
+    shomerFetch('/tracker/scan/cancel', { method: 'POST' })
+      .then(r => r.json())
+      .then(() => {
+        if (_scanPollInterval) { clearInterval(_scanPollInterval); _scanPollInterval = null; }
+        _setScanUI(false);
+        showToast('Escaneo cancelado', 'success');
+        fetchAssets(true);
+      })
+      .catch(() => showToast('Error al cancelar', 'error'));
   }
 
   function deleteAsset(mac) {
@@ -903,37 +1044,24 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
 
   function handleDeepScan() {
     if (_scanRunning) {
-      showToast('Ya hay un escaneo en progreso. Espera a que termine.', 'warning');
+      showToast('Ya hay un escaneo en progreso — usa el botón Cancelar para detenerlo.', 'warning');
       return;
     }
-    _scanRunning = true;
-    const btn = document.getElementById('btn-deep-scan');
-    const btnScan = document.getElementById('btn-discovery-scan');
-    btn.disabled = true;
-    btnScan.disabled = true;
-    showProcessBanner('Escaneo profundo en progreso — puede tardar varios minutos…');
-
-    shomerFetch('/tracker/deep_scan', {
-      method: 'POST',
-      body: JSON.stringify({})
-    })
+    _setScanUI(true, 'Escaneo profundo en progreso — puede tardar varios minutos…');
+    shomerFetch('/tracker/deep_scan', { method: 'POST', body: JSON.stringify({}) })
       .then(r => r.json())
       .then(d => {
+        if (d.running || d.success === false) {
+          showToast(d.message || 'Error al iniciar', 'error');
+          _setScanUI(false);
+          return;
+        }
         showToast(d.message || 'Escaneo profundo iniciado', 'success');
-        setTimeout(() => {
-          btn.disabled = false;
-          btnScan.disabled = false;
-          _scanRunning = false;
-          hideProcessBanner();
-          fetchAssets(true);
-        }, 300000);
+        _startScanPoll();
       })
       .catch(() => {
         showToast('Error al iniciar escaneo profundo', 'error');
-        btn.disabled = false;
-        btnScan.disabled = false;
-        _scanRunning = false;
-        hideProcessBanner();
+        _setScanUI(false);
       });
   }
 
@@ -977,6 +1105,156 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
       setBtnRunning(btn, false, '');
       _netAuditRunning = false;
     }
+  }
+
+  /* ── MODAL — monitores / periféricos ─────────── */
+  function _parseJsonField(raw, fallback) {
+    if (!raw) return fallback;
+    try {
+      const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return Array.isArray(p) ? p : fallback;
+    } catch (e) { return fallback; }
+  }
+
+  function _renderDetectedBox(elId, items, fmt) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (!items || !items.length) {
+      el.innerHTML = '<span style="color:var(--muted);">Sin datos en último escaneo</span>';
+      return;
+    }
+    el.innerHTML = '<ul>' + items.map(fmt).map(t => '<li>' + t + '</li>').join('') + '</ul>';
+  }
+
+  function renderMonitorFields() {
+    const count = parseInt(document.getElementById('m-monitor-count').value || '0', 10) || 0;
+    const wrap = document.getElementById('m-monitor-slots');
+    if (!wrap) return;
+    const existing = [];
+    wrap.querySelectorAll('.monitor-slot').forEach((slot, i) => {
+      existing[i] = {
+        model: (slot.querySelector('.mon-model') || {}).value || '',
+        serial: (slot.querySelector('.mon-serial') || {}).value || '',
+      };
+    });
+    wrap.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+      const data = existing[i] || {};
+      const div = document.createElement('div');
+      div.className = 'monitor-slot';
+      div.innerHTML =
+        '<div class="monitor-slot-title">Monitor externo ' + (i + 1) + '</div>' +
+        '<div class="modal-grid-2">' +
+          '<div class="modal-field"><label>Modelo</label>' +
+            '<input type="text" class="mon-model" placeholder="Ej: Dell P2419H" value="' + (data.model || '').replace(/"/g, '&quot;') + '"></div>' +
+          '<div class="modal-field"><label>Serial</label>' +
+            '<input type="text" class="mon-serial" placeholder="Etiqueta del monitor" value="' + (data.serial || '').replace(/"/g, '&quot;') + '"></div>' +
+        '</div>';
+      wrap.appendChild(div);
+    }
+    _updateMonitorCountLabel();
+  }
+
+  function _updateMonitorCountLabel() {
+    const integrated = document.getElementById('m-integrated-monitor');
+    const label = document.getElementById('m-monitor-count-label');
+    if (!label) return;
+    label.textContent = integrated && integrated.checked
+      ? 'Monitores externos adicionales'
+      : 'Cantidad de monitores (solo externos)';
+  }
+
+  function _guessIntegratedFromDetected(detected) {
+    if (!detected || !detected.length) return null;
+    const integratedHints = /integrad|all-in-one|all in one|built.?in|internal|laptop|notebook|portátil|portatil/i;
+    for (const m of detected) {
+      const blob = [m.manufacturer, m.model, m.name].filter(Boolean).join(' ');
+      if (integratedHints.test(blob)) return m;
+    }
+    if (detected.length === 1) return detected[0];
+    return null;
+  }
+
+  function toggleIntegratedMonitor() {
+    const cb = document.getElementById('m-integrated-monitor');
+    const fields = document.getElementById('m-integrated-monitor-fields');
+    if (!cb || !fields) return;
+    fields.style.display = cb.checked ? 'block' : 'none';
+    _updateMonitorCountLabel();
+    if (cb.checked) {
+      const modelEl = document.getElementById('m-integrated-model');
+      const serialEl = document.getElementById('m-integrated-serial');
+      if (modelEl && serialEl && !modelEl.value && !serialEl.value) {
+        const guess = _guessIntegratedFromDetected(window._lastDetectedMonitors || []);
+        if (guess) {
+          const model = [guess.manufacturer, guess.model].filter(Boolean).join(' ').trim();
+          if (model) modelEl.value = model;
+          if (guess.serial) serialEl.value = guess.serial;
+        }
+      }
+    }
+  }
+
+  function _collectMonitorsJson() {
+    const slots = document.querySelectorAll('#m-monitor-slots .monitor-slot');
+    const items = [];
+    slots.forEach(slot => {
+      const model = (slot.querySelector('.mon-model') || {}).value || '';
+      const serial = (slot.querySelector('.mon-serial') || {}).value || '';
+      if (model || serial) items.push({ model: model.trim(), serial: serial.trim() });
+    });
+    return items.length ? JSON.stringify(items) : '';
+  }
+
+  function _loadPeripheralSections(a) {
+    const count = parseInt(a.monitor_count || '0', 10) || 0;
+    document.getElementById('m-monitor-count').value = String(Math.min(3, Math.max(0, count)));
+    let manualMonitors = _parseJsonField(a.monitors_json, []);
+    if (!count && manualMonitors.length) {
+      document.getElementById('m-monitor-count').value = String(Math.min(3, manualMonitors.length));
+    }
+
+    const integratedOn = a.integrated_monitor === 1 || a.integrated_monitor === '1' || a.integrated_monitor === true;
+    document.getElementById('m-integrated-monitor').checked = integratedOn;
+    document.getElementById('m-integrated-model').value = a.integrated_monitor_model || '';
+    document.getElementById('m-integrated-serial').value = a.integrated_monitor_serial || '';
+
+    const detMon = _parseJsonField(a.monitors_detected_json, []);
+    window._lastDetectedMonitors = detMon;
+
+    renderMonitorFields();
+    toggleIntegratedMonitor();
+
+    const slots = document.querySelectorAll('#m-monitor-slots .monitor-slot');
+    manualMonitors.forEach((m, i) => {
+      if (!slots[i]) return;
+      const modelEl = slots[i].querySelector('.mon-model');
+      const serialEl = slots[i].querySelector('.mon-serial');
+      if (modelEl) modelEl.value = m.model || m.Model || '';
+      if (serialEl) serialEl.value = m.serial || m.Serial || '';
+    });
+
+    document.getElementById('m-peripherals-manual').value = a.peripherals_manual || '';
+    document.getElementById('m-logged-user').textContent = a.logged_user || '—';
+    document.getElementById('m-logged-user-at').textContent = a.logged_user_at || '—';
+
+    _renderDetectedBox('m-monitors-detected', detMon, m => {
+      const parts = [];
+      if (m.manufacturer) parts.push(m.manufacturer);
+      if (m.model) parts.push(m.model);
+      if (m.serial) parts.push('S/N ' + m.serial);
+      return parts.join(' — ') || 'Monitor';
+    });
+
+    const detUsb = _parseJsonField(a.peripherals_detected_json, []);
+    _renderDetectedBox('m-peripherals-detected', detUsb, u =>
+      (u.name || 'USB') + (u.manufacturer ? ' (' + u.manufacturer + ')' : '')
+    );
+
+    const detPrn = _parseJsonField(a.local_printers_json, []);
+    _renderDetectedBox('m-printers-detected', detPrn, p =>
+      (p.name || 'Impresora') + (p.port ? ' — ' + p.port : '') + (p.default ? ' [default]' : '')
+    );
   }
 
   /* ── MODAL ─────────────────────────────────────── */
@@ -1032,6 +1310,7 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
     document.getElementById('m-last-maintenance').value = (a.last_maintenance || '').split(' ')[0];
     document.getElementById('m-override-user').value   = a.override_user  || '';
     document.getElementById('m-override-pass').value   = a.override_pass  || '';
+    _loadPeripheralSections(a);
 
     // Software: parsear a lista de {name, version}
     let swList = [];
@@ -1133,10 +1412,20 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
       // Credenciales
       override_user:          document.getElementById('m-override-user').value,
       override_pass:          document.getElementById('m-override-pass').value,
+      monitor_count:          document.getElementById('m-monitor-count').value,
+      monitors_json:          _collectMonitorsJson(),
+      peripherals_manual:     document.getElementById('m-peripherals-manual').value,
+      integrated_monitor:     document.getElementById('m-integrated-monitor').checked ? 1 : 0,
+      integrated_monitor_model: document.getElementById('m-integrated-monitor').checked
+        ? document.getElementById('m-integrated-model').value : '',
+      integrated_monitor_serial: document.getElementById('m-integrated-monitor').checked
+        ? document.getElementById('m-integrated-serial').value : '',
+      // Marcar como revisado al guardar
+      reviewed:               1,
     };
-    // Limpiar campos vacíos — no enviar strings vacíos innecesarios
+    // Limpiar campos vacíos — no enviar strings vacíos innecesarios (excepto reviewed)
     Object.keys(payload).forEach(k => {
-      if (payload[k] === '') delete payload[k];
+      if (k !== 'reviewed' && payload[k] === '') delete payload[k];
     });
 
     const btn = document.getElementById('btn-save-asset');
@@ -1232,8 +1521,19 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
       method: 'POST',
       body: JSON.stringify({ ip: a.ip })
     })
-    .then(r => r.json())
-    .then(d => {
+    .then(r => r.json().then(d => ({ status: r.status, d })))
+    .then(({ status, d }) => {
+      if (status === 409) {
+        addLog('warning', 'SCAN', 'Hay un escaneo activo — ' + (d.message || ''));
+        showToast('⏳ Ya hay un escaneo en progreso. Espera y vuelve a intentarlo.', 'warning');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🔄 Reintentar (escaneo activo)';
+          setTimeout(() => { if (btn) btn.textContent = '🔄 Rescanear este equipo'; }, 15000);
+        }
+        hideProcessBanner();
+        return;
+      }
       addLog('success', 'SCAN', d.message || 'Rescan de ' + a.ip + ' iniciado');
       showToast('Rescan iniciado — actualiza en 2-3 min', 'success');
       setTimeout(() => { fetchAssets(); }, 150000);
@@ -1243,8 +1543,12 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
       showToast('Error en rescan', 'error');
     })
     .finally(() => {
-      if (btn) { btn.disabled = false; btn.textContent = '🔄 Rescanear este equipo'; }
-      hideProcessBanner();
+      const curText = btn && btn.textContent;
+      if (btn && curText !== '🔄 Reintentar (escaneo activo)') {
+        btn.disabled = false;
+        btn.textContent = '🔄 Rescanear este equipo';
+        hideProcessBanner();
+      }
     });
   }
 
@@ -1338,6 +1642,7 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
   addLog('success', 'DB',     'Conectando con API de inventario...');
   fetchAssets();
   loadTrackerConfig();
+  _checkScanOnLoad();
 </script>
 
 <!-- MODAL: Cerrar y Archivar -->

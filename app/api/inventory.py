@@ -31,6 +31,8 @@ from app.api.inventory_discovery import (
     DISCOVERY_SCRIPT_PATH,
     SCANNER_PATH,
     build_deep_scan_environment,
+    get_scan_status,
+    kill_scan,
     run_inventory_deep_scan_background,
     run_inventory_quick_scan_background,
 )
@@ -71,6 +73,16 @@ async def discovery_scan(
             status_code=500,
             detail=f"Script de discovery no encontrado: {DISCOVERY_SCRIPT_PATH}",
         )
+    status = get_scan_status()
+    if status.get("running"):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "running": True,
+                "message": f"Ya hay un escaneo activo ({status.get('mode','')}) — {status.get('elapsed_label','')} en progreso.",
+            },
+        )
     background_tasks.add_task(run_inventory_quick_scan_background)
     return JSONResponse(
         status_code=202,
@@ -93,16 +105,37 @@ async def scan_inventory(
             status_code=500,
             detail=f"scanner.py no encontrado en {SCANNER_PATH}",
         )
+    status = get_scan_status()
+    if status.get("running"):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "running": True,
+                "message": f"Ya hay un escaneo activo ({status.get('mode','')}) — {status.get('elapsed_label','')} en progreso. Cancélalo primero.",
+            },
+        )
     env = build_deep_scan_environment(payload)
     background_tasks.add_task(run_inventory_deep_scan_background, env)
     return JSONResponse(
         status_code=202,
         content={
             "success": True,
-            "message": "Escaneo iniciado en segundo plano. Actualice la tabla en 1-2 min.",
+            "message": "Escaneo iniciado en segundo plano. Actualice la tabla en 2-5 min.",
             "background": True,
         },
     )
+
+
+@router.get("/scan/status")
+async def scan_status(_user: Dict[str, Any] = Depends(get_current_user)):
+    return JSONResponse(content=get_scan_status())
+
+
+@router.post("/scan/cancel")
+async def scan_cancel(_user: Dict[str, Any] = Depends(get_current_user)):
+    killed = kill_scan()
+    return JSONResponse(content={"success": True, "killed": killed})
 
 
 @router.delete("/asset/{mac}")

@@ -46,6 +46,13 @@ ASSET_EDITABLE_FIELDS = frozenset(
         "ownership_type",
         "owner_name",
         "last_maintenance",
+        "reviewed",
+        "monitor_count",
+        "monitors_json",
+        "peripherals_manual",
+        "integrated_monitor",
+        "integrated_monitor_model",
+        "integrated_monitor_serial",
     }
 )
 

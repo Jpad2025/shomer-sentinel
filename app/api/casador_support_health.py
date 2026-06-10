@@ -21,8 +21,14 @@ def _systemctl_is_active(unit: str) -> str:
         return "unknown"
 
 
+def _lab_no_span() -> bool:
+    """Lab sin espejo SPAN: sin tráfico en NIC mirror es normal — no degradar pipeline por EVE vacío."""
+    return os.environ.get("SHOMER_LAB_NO_SPAN", "").strip().lower() in ("1", "true", "yes")
+
+
 def _collect_pipeline_health() -> Dict[str, Any]:
     stale_sec = int(os.environ.get("HUNTER_PIPELINE_STALE_SEC", "900"))  # 15 min default
+    lab_no_span = _lab_no_span()
     path = _resolve_suricata_alerts_file()
     issues: List[str] = []
     warnings: List[str] = []
@@ -56,13 +62,22 @@ def _collect_pipeline_health() -> Dict[str, Any]:
 
     last_age = _last_eve_event_age_sec(eve_path) if checks["eve_log_exists"] else None
     checks["last_event_age_sec"] = last_age
+    checks["lab_no_span"] = lab_no_span
     if last_age is not None and last_age > stale_sec:
-        issues.append(
+        stale_msg = (
             f"Último evento en EVE hace {int(last_age // 60)} min (> {stale_sec // 60} min) — "
             "revisar espejo SPAN, cable de la NIC mirror (Hunter) o red sin tráfico"
         )
-    elif last_age is None and checks.get("eve_log_exists") and os.path.getsize(eve_path) > 0:
-        warnings.append("No se pudo parsear timestamp en la cola del log — revisar formato")
+        if lab_no_span:
+            warnings.append(stale_msg + " (lab sin SPAN — esperado)")
+        else:
+            issues.append(stale_msg)
+    elif last_age is None and checks.get("eve_log_exists"):
+        eve_size = os.path.getsize(eve_path) if eve_path else 0
+        if eve_size > 0:
+            warnings.append("No se pudo parsear timestamp en la cola del log — revisar formato")
+        elif lab_no_span and suricata == "active":
+            warnings.append("Log EVE sin alertas — lab sin espejo SPAN (normal)")
 
     overall_ok = len(issues) == 0
     checks["stale_threshold_sec"] = stale_sec
