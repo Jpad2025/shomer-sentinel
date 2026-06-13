@@ -1,0 +1,10 @@
+# Drop-in de ejemplo: colocar en
+#   /etc/systemd/system/shomer-guardian.service.d/bind-localhost.conf
+# cuando Caddy (u otro proxy) escuche en :443 y reenvíe a 127.0.0.1:8000.
+# Así el puerto 8000 no queda expuesto en todas las interfaces.
+#
+#   sudo systemctl daemon-reload && sudo systemctl restart shomer-guardian.service
+
+[Service]
+ExecStart=
+ExecStart=/opt/network_monitor/venv/bin/python -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000

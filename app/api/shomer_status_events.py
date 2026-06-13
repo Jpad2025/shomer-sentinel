@@ -480,6 +480,7 @@ def compute_outages(hours: int = 48) -> List[Dict[str, Any]]:
                 "confirmed_by": note.get("confirmed_by") or "",
                 "confirmed_at": note.get("confirmed_at") or "",
                 "sample_ips": ips[:10],
+                "all_ips": ips,
                 "sample_names": list({e.get("name") or e["ip"] for e in cluster})[:6],
                 "sources": sorted({e["source"] for e in cluster}),
             }
@@ -560,6 +561,34 @@ def _mark_report_sent(key: str, report_type: str) -> None:
         conn.commit()
 
 
+def _format_topology_hint(outage: Dict[str, Any]) -> str:
+    """Sugerencia switch padre si hay mapa en network_links (manual o UniFi)."""
+    try:
+        from app.api.shomer_topology import correlate_outage_to_switches, get_topology_config
+    except Exception:
+        return ""
+    ips = outage.get("all_ips") or outage.get("sample_ips") or []
+    if not ips:
+        return ""
+    corr = correlate_outage_to_switches(ips)
+    groups = corr.get("groups") or []
+    if not groups:
+        hint = ""
+        if get_topology_config().get("enabled"):
+            hint = (
+                "\n<i>Mapa AP→switch pendiente — cargar en panel Topología cuando Ricardo confirme.</i>\n"
+            )
+        return hint
+    lines = []
+    for g in groups[:3]:
+        ports = ", ".join(g.get("ports") or []) or "puerto por confirmar"
+        lines.append(
+            f"• <b>{g.get('parent_name') or g['parent_ip']}</b> ({g['parent_ip']}) — "
+            f"{g.get('count', 0)} AP(s) · {ports}"
+        )
+    return "\n<b>Switch(es) sospechoso(s):</b>\n" + "\n".join(lines) + "\n\n"
+
+
 def format_outage_summary_message(outage: Dict[str, Any], site_name: str) -> str:
     """Resumen post-oleada — complementa (no sustituye) alertas individuales por AP."""
     cause = outage.get("display_cause") or outage.get("probable_cause") or "desconocido"
@@ -572,6 +601,7 @@ def format_outage_summary_message(outage: Dict[str, Any], site_name: str) -> str
     wan_note = "Internet del Shomer: OK" if not outage.get("wan_down_at_event") else "Internet del Shomer: posible caída WAN"
     recovered = "✅ Todos recuperados" if outage.get("ended_at_utc") else "⏳ Aún en curso"
     names_block = f"<i>Ej.: {names}</i>\n\n" if names else ""
+    topo_block = _format_topology_hint(outage)
 
     return (
         f"📋 <b>SALUD DE NODOS</b> {site_name}\n"
@@ -583,6 +613,7 @@ def format_outage_summary_message(outage: Dict[str, Any], site_name: str) -> str
         f"{wan_note}\n\n"
         f"<b>Causa probable:</b> {label}\n"
         f"{names_block}"
+        f"{topo_block}"
         f"<b>Revisar en sitio:</b>\n{checks}\n\n"
         f"ℹ️ Las alertas <b>por AP</b> que recibiste son normales — ayudan a reaccionar rápido. "
         f"Este mensaje es un <b>resumen adicional</b> cuando caen varios a la vez."

@@ -43,6 +43,7 @@ from app.api.shomer_status_events import (
     start_retention_prune_loop,
     start_outage_report_loop,
 )
+from app.api.shomer_topology import router as topology_router
 
 _APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _STATIC_DIR = os.path.join(_APP_DIR, "static")
@@ -54,7 +55,10 @@ async def lifespan(app: FastAPI):
     from app.api.shomer_inframonitor import start_inframonitor_poller
     from app.api.shomer_poller_leader import try_acquire_poller_leader
 
+    from app.api.shomer_topology import _ensure_tables as ensure_topology_tables
+
     ensure_status_events_table()
+    ensure_topology_tables()
     if try_acquire_poller_leader():
         run_data_retention_prune(force=True)
         start_retention_prune_loop()
@@ -130,6 +134,7 @@ app.include_router(reports_router)
 app.include_router(technician_router)
 # Historial transiciones red + oleadas (Guardian + Infra)
 app.include_router(status_events_router)
+app.include_router(topology_router)
 # Web UI — templates Jinja2 (todas las vistas del panel)
 app.include_router(web_router)
 

@@ -1,0 +1,22 @@
+# Ejemplo — HTTPS delante del panel Shomer (puerto 8000).
+# Idea simple: el navegador habla cifrado con Caddy; Caddy habla en claro con la app en localhost.
+#
+# 1) Instalar Caddy en el Shomer (Ubuntu): https://caddyserver.com/docs/install
+# 2) Copiar este archivo (ajustando host/puerto) a /etc/caddy/Caddyfile
+# 3) Opcional: hacer que uvicorn escuche solo 127.0.0.1 (ver shomer-guardian-bind-localhost.conf.example)
+# 4) En /etc/shomer/shomer-runtime.env activar (ver comentarios RECETA HTTPS en ese archivo):
+#    SHOMER_BEHIND_PROXY=1
+#    SHOMER_TRUSTED_HOSTS y SHOMER_CORS_ORIGINS acordes con la URL que usen en el navegador
+#    SHOMER_ENABLE_HSTS=1 solo cuando el HTTPS sea definitivo
+#
+# Sustituye el bloque :443 por la IP del Shomer en la red del cliente o un nombre DNS interno.
+
+:443 {
+	tls internal
+	reverse_proxy 127.0.0.1:8000
+}
+
+# Redirige HTTP → HTTPS (misma máquina)
+:80 {
+	redir https://{host}{uri}
+}
