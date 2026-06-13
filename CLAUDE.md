@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 10 jun 2026 (Sesión 51 — Tracker Ópera + **matriz políticas agente autónomo** `POLITICAS_AGENTE.md` en shomer-agent ✅ §AK.8) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
+**Última unificación:** 13 jun 2026 (Sesión 54–55 — Historial `status_events` + Telegram mantenimiento global + deploy Ópera ✅ §AP–§AQ) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
 
 ---
 
@@ -39,7 +39,7 @@ Encaje registro abril 2026: **35** ✅ de **52** casos; mayo 2026 suma Protector
 | **Tracker F2** | `/inventory/` carga, quick/deep scan, campos y export cuando se cerró ese bloque en doc |
 | **Hunter F3** | `/security/` alertas, bloqueo manual, políticas `auto_block_*`, Telegram asociado a prueba (28–29/04/2026 en doc de pruebas). **Sesión 23 (10/05/2026):** bugs corregidos, cadena Wazuh→API→OpenWrt `.206`→Telegram verificada end-to-end en hardware real. Ver Parte E §E.1. |
 | **Protector — backups físicos** | Backup SSH Linux `.203` (Kali) ✅ · SSH macOS `.90` (`/Users/shomer/backups`) ✅ · SMB Windows `.50` (share `backups`) ✅ · B2 sync confirmado (`lab-usb-shomer`) ✅ · Scheduler dispara en hora local MT ✅ |
-| **Bot Telegram (agente)** | Docker `shomer-agent` activo en `.205`. **31 comandos slash** + 7 callbacks + **15 tools** (function calling). **Chat interactivo:** OpenAI `gpt-4o-mini` (`.205` lab). **Monitores background + `/doc`:** Groq Llama 3.3-70b (gratis). Router `core/llm_router.py` — fallback automático a Groq si OpenAI falla o supera caps. Memoria SQLite + **`token_usage`** (columnas `provider`, `user_id`). Hard caps OpenAI en código (~$0.05–0.15/mes/Shomer). Tope web OpenAI $5/mes (cliente). 20 monitores. Rate-limit 5s/usuario. ✅ Sesión 33 (22/05) tools+tokens · ✅ Sesión 34 (23/05) OpenAI operativo lab `.205`. |
+| **Bot Telegram (agente)** | Docker `shomer-agent` activo en `.205`. **Sin `/start`** — entrada `/consultas` · `/ayuda` · texto libre. **~25 comandos slash** + aliases por módulo + callbacks (reboot, guardar solución, bloqueo). **22 tools** function calling. **Chat interactivo:** OpenAI `gpt-4o-mini`. **Monitores:** Groq Llama 3.3-70b — **26 tareas** (30 líneas en `/salud monitores`, incl. 5 Infra). Alertas formato **una línea**; triage off por defecto (`BOT_TRIAGE_ENABLED=0`). **`knowledge.db`:** guardar solución post-reboot/desbloqueo/recuperación; antecedente en alertas (`📋`). `/salud` solo texto (sin botones repair). Menú ⋮ Telegram: 16 comandos. Rate-limit 5s/usuario. ✅ Sesión 52 (jun 2026) UX unificado. |
 | **Inframonitor SNMP** | `/infra` monitorea switches/routers/firewalls/servidores via ICMP + TCP + **SNMP v2c**. Poll cada 30s paralelo. Datos: modelo, uptime, hostname, estado puertos, velocidad, tráfico Rx/Tx Mbps (delta entre polls), errores. Modal UI por equipo. Badge `SNMP ✓/✗`. ✅ Sesión 38 (27/05/2026). Ver §Z. |
 
 ## A.0 Entorno de laboratorio — estado permanente (no preguntar)
@@ -219,7 +219,7 @@ Se elige en el wizard. El selector incluye zonas de América Latina, Norteaméri
 
 - Wazuh consume alertas desde archivo **filtro tipo** `eve-alerts.json`, **no** el `eve.json` completo brutal.
 - Cadena oficial autobloqueo “fuerte”: **manager Wazuh** → script **`wazuh_shomer_block.py`** → `POST /remedies/block` con cabecera `X-Shomer-Integration-Key`.
-- Firewall remoto ejecuta sobre equipo **Linux/OpenWrt** con credencial `hunter.firewall_*` vía SSH (asyncssh). El código se llama `_mikrotik_block` internamente pero usa **iptables** estándar Linux — funciona en OpenWrt; NO usar con RouterOS MikroTik nativo (sintaxis distinta).
+- Firewall remoto vía SSH (`hunter.firewall_*`): **OpenWrt/Linux** → `iptables` en `FORWARD` (automático). **MikroTik RouterOS nativo** → address-list `shomer-blocked` + **regla DROP manual obligatoria** en `chain=forward` (`hunter.firewall_type=routeros`). Ver §AF.1 y §AO.1; doc `HUNTER_MIKROTIK_ROUTEROS.md`.
 
 **Firma ICMP laboratorio SID 9009001** suele estar bajo **`/etc/suricata/rules/`** en un fichero tipo `shomer-local.rules`; recarga lógica: `POST /remedies/rules/reload`.
 
@@ -647,32 +647,39 @@ El bot tiene **un nombre por cliente** (ej. `Shomer Hotel Calle 26`) — se conf
 
 ## N.5 Comandos Telegram
 
+**Sin `/start`** (eliminado jun 2026). Entrada: `/consultas`, `/ayuda` o texto libre. Lista canónica en código: `_ayuda_text()` + `set_my_commands` en `core/bot.py`.
+
 | Comando | Técnico | Developer | Acción |
 |---------|---------|-----------|--------|
-| `/ayuda` | ✅ | ✅ | Lista de comandos disponibles |
-| `/salud` | ✅ resumen | ✅ + botones repair | Estado servicios, disco, Guardian, Hunter pipeline |
-| `/resumen` | ✅ | ✅ | Resumen IA on-demand del sistema |
-| `/equipos` | ✅ | ✅ | Lista equipos con estado |
-| `/diagnostico <ip>` | ✅ | ✅ | Ping + estado Guardian + fallos + último reboot |
-| `/ping <ip>` | ✅ | ✅ | ICMP ping |
-| `/reiniciar <ip>` | ✅ | ✅ | Reboot AP con confirmación |
-| `/clientes <ip>` | ✅ | ✅ | Dispositivos conectados |
-| `/info <ip>` | ✅ | ✅ | Firmware, uptime, recursos |
-| `/alertas` | ✅ | ✅ | Últimas alertas Hunter con botón bloqueo |
-| `/desbloquear <ip>` | ✅ | ✅ | Desbloquear IP en Hunter |
+| `/consultas` | ✅ | ✅ | Ejemplos de texto libre por módulo |
+| `/ayuda` | ✅ | ✅ | Lista completa comandos + 30 monitores |
+| `/salud` | ✅ | ✅ | Estado servidor (solo texto: CPU, RAM, disco, servicios, Guardian, Infra, Hunter, WAN) |
+| `/salud monitores` | ✅ | ✅ | Estado de cada monitor automático |
+| `/salud resumen` | ✅ | ✅ | Reporte del día con IA |
+| `/equipos` | ✅ | ✅ | Nodos Guardian + equipos agente |
+| `/infra` | ✅ | ✅ | Lista equipos Infra |
+| `/infra <ip>` | ✅ | ✅ | Detalle conexión: ping, TCP, SNMP, impresora |
+| `/puertos <ip>` | ✅ | ✅ | Puertos SNMP (switch/router/server) |
+| `/diagnostico <ip>` | ✅ | ✅ | Ping + estado Guardian + fallos + uptime |
+| `/diagnostico <ip> reparar` | ✅ | ✅ | Diagnóstico + remediación automática |
+| `/reboot <ip>` | ✅ | ✅ | Reboot con confirmación (`/reiniciar`, `guardian_reiniciar`) |
+| `/clientes <ip>` | ✅ | ✅ | Dispositivos WiFi conectados al AP |
+| `/modo on\|off` | ✅ | ✅ | Mantenimiento Guardian (`/mantenimiento`) — **Telegram al activar/desactivar** (panel o bot) |
+| `/alertas` | ✅ | ✅ | Alertas Hunter + IPs bloqueadas |
 | `/bloquear <ip>` | ✅ | ✅ | Bloquear IP manualmente |
-| `/mantenimiento` | ✅ | ✅ | Pausar reboots automáticos Guardian |
-| `/agregar` | ✅ | ✅ | Registrar equipo en el agente |
+| `/desbloquear <ip>` | ✅ | ✅ | Desbloquear IP (+ botón guardar falso positivo) |
+| `/guardar <ip> <texto>` | ✅ | ✅ | Guardar solución en `knowledge.db` |
+| `/historial` | ✅ | ✅ | Últimos cambios del bot |
+| `/revertir <id>` | ✅ | ✅ | Deshacer bloqueo/desbloqueo |
+| `/instalar` | ✅ | ✅ | Guía instalación (10 pasos) |
+| `/verificar` | ✅ | ✅ | Checklist final instalación |
+| `/usuario` | ✅ | ✅ | Crear usuario servicio `shomer` |
+| `/agregar` | ✅ | ✅ | Registrar equipo en agente |
 | `/eliminar <ip>` | ✅ | ✅ | Quitar equipo |
-| `/instalar` | ✅ | ✅ | Guía instalación paso a paso (10 pasos) |
-| `/verificar` | ✅ | ✅ | Checklist final de instalación |
-| `/monitores` | ✅ | ✅ | Estado de los 20 monitores background |
-| `/usuario` | ✅ | ✅ | Comandos para crear usuario de servicio `shomer` |
 | `/nuevo` | ✅ | ✅ | Limpiar historial conversación IA |
-| `/doc <pregunta>` | ❌ | ✅ | Consulta técnica interna (developer) |
-| `/tokens` | ❌ | ✅ | Consumo tokens por proveedor + costo USD estimado |
-| `/botstatus` | ❌ | ✅ | Proveedor LLM activo, caps, nodos online |
-| Texto libre | ✅ | ✅ | OpenAI (o Groq fallback) con 15 tools — ver §V |
+| Texto libre | ✅ | ✅ | OpenAI (o Groq fallback) con **22 tools** — ver §V |
+
+**Aliases compatibilidad:** `shomer_salud`, `guardian_*`, `hunter_*`, `infra_equipos`, `infra_puertos`, `instalar_*`, `diag`→`diagnostico`.
 
 ## N.6 Monitores automáticos (background)
 
@@ -698,6 +705,18 @@ El bot tiene **un nombre por cliente** (ej. `Shomer Hotel Calle 26`) — se conf
 | `watch_groq` | 15 min | Developer | Estado API Groq |
 | `watch_security` | 5 min | Developer | Logs firewall Linux/OpenWrt — spikes DROP |
 | `watch_mikrotik_security` | 5 min | Developer | Logs firewall MikroTik — spikes + flood |
+| `watch_openai` | 15 min | Developer | Estado API OpenAI (chat interactivo) |
+| `watch_network_audit` | 6 h | Técnico | Riesgos de red pendientes (auditoría nmap/parches) |
+| `watch_protector_sample` | Configurable | Developer | Revisión muestral backups Protector |
+| `watch_log_truncate` | Periódico | Developer | Trunca logs grandes del servidor |
+| `watch_active_threats` | 10 min | Técnico | Estado IPs bloqueadas (sin resumen periódico — fix jun 2026; nuevos bloqueos: `watch_hunter`) |
+| `watch_infra_equipment` | 30s | Técnico | Infra — caídas y recuperaciones |
+| `watch_infra_printer` | 30s | Técnico | Infra — tóner y papel bajo |
+| `watch_infra_service` | 30s | Técnico | Infra — servicio TCP desconectado |
+| `watch_infra_snmp` | 30s | Técnico | Infra — puertos SNMP DOWN |
+| `watch_infra_flap` | 30s | Técnico | Infra — flapping cable/PoE |
+
+**Total:** 26 tareas en `start_all()` — 30 entradas en `/salud monitores` (Infra = 5 ticks del loop `watch_infra`).
 
 **Limpieza automática de disco** (sin autorización):
 - Journal >7 días, logs Shomer >7 días, /tmp >1 día, cache APT
@@ -720,14 +739,15 @@ Para el hotel piloto agregar equipos con campo `grupo`:
 /agregar 192.168.X.20 AP-Piso2-A admin pass linux piso2
 ```
 
-## N.8 Reparación guiada — `/salud` (developer)
+## N.8 Reparación — `/salud` y post-acción (jun 2026)
 
-Botones disponibles cuando hay problemas:
-- `🔧 Reiniciar Guardian/Tools/Nginx` → SSH → `sudo systemctl restart`
-- `🦁 Reiniciar Suricata` → SSH → `sudo systemctl restart suricata`
-- `🗑️ Docker prune` → SSH → `sudo docker image prune -f` (requiere autorización)
+**`/salud` ya no muestra botones** — solo reporte de estado. Reparación manual vía:
+- `/diagnostico <ip> reparar` — reboot nodo caído, limpieza disco, restart servicios según contexto
+- Callbacks `repair:*` siguen registrados si algún mensaje antiguo conserva botones
 
-SSH usa clave dedicada `/storage/shomer-agent/data/agent_restart_key` generada para el agente. Clave pública en `~/.ssh/authorized_keys` del host.
+**Guardar solución (`knowledge.db`):** tras reboot manual, desbloqueo Hunter, recuperación Guardian/Infra → botones `save_know:r|u|o:IP`. Antecedente aparece en alertas (`📋` vía `_kn()` en `monitor.py`).
+
+SSH repair usa clave `/storage/shomer-agent/data/agent_restart_key`. Clave pública en `~/.ssh/authorized_keys` del host.
 
 ## N.9 Lógica multi-vendor
 
@@ -930,7 +950,7 @@ El poller usaba etiquetas `"NODO CAÍDO — REINICIANDO"` y `"REINICIO ENVIADO"`
 
 **Comandos agregados:**
 - `/diagnostico <ip>` — ping + estado Guardian + fallos acumulados + tiempo desde último reboot + modo mantenimiento, en un solo mensaje con botón de reboot si aplica
-- `/mantenimiento on/off` — activa/desactiva `shomer_maintenance=1` en Redis; pausa reboots automáticos de Guardian durante trabajo en sitio
+- `/mantenimiento on/off` — activa/desactiva `shomer_maintenance=1` vía API Guardian; pausa reboots automáticos; **notifica Telegram** al chat configurado (igual que mantenimiento por nodo)
 - `/alertas` — últimas 15 alertas Hunter con botones de bloqueo directo por IP
 
 **Monitor proactivo nuevo (`watch_guardian_nodes`):**
@@ -1374,7 +1394,7 @@ Primer appliance de campo instalado de forma completamente remota desde Utah ví
 |------|-------|
 | Hostname | `shomerbogota` (renombrado a `shomer-hotelopera` el 7 jun 2026 — Sesión 50, ver nota abajo) |
 | Tailscale IP | `100.103.148.119` |
-| LAN IP | `192.168.10.206/24` |
+| LAN IP | `192.168.10.206/24` *(instalación inicial; ver nota abajo)* |
 | Gateway | `192.168.10.1` |
 | NIC gestión | `eno1` |
 | Hardware | Lenovo (single NIC física) |
@@ -1397,6 +1417,8 @@ Primer appliance de campo instalado de forma completamente remota desde Utah ví
 
 **Teclado en español:** `sudo localectl set-keymap es`
 
+> **Nota — IP LAN actual Hotel Ópera (verificado jun 2026):** red admin del hotel **`192.168.0.0/24`** — Shomer en **`192.168.0.250`** (`eno1`), gateway **`192.168.0.1`**, panel **`https://192.168.0.250:8443`**. Los valores `192.168.10.206` de esta bitácora son del primer despliegue; **no usar** en campo. Detalle vivo en `SITE.md` del servidor y `docs/EQUIPOS.md`.
+>
 > **Nota — convención de nombres por cliente (Sesión 50, 7 jun 2026):** el hostname `shomerbogota` se renombró a **`shomer-hotelopera`** (`hostnamectl set-hostname` + fix `/etc/hosts`). Razón: nombrar por **ciudad** deja de servir en cuanto haya más de un cliente en la misma ciudad — no se podría diferenciar entre ellos al gestionar varios equipos a la vez. La convención correcta es nombrar por **cliente/sitio** (`shomer-<nombre-cliente>`), igual que ya hace `SITE.md` (§AH.1). Actualizado en `tools/servers.txt` y referencias activas de este documento; las menciones a `shomerbogota` en bitácoras de sesiones anteriores se conservan tal cual como registro histórico (era el nombre real en ese momento).
 
 ## S.2 Bugs corregidos — instalaciones nuevas
@@ -2778,7 +2800,7 @@ Panel nginx ya escucha en todas las interfaces. El bloqueo era UFW (ya tenía re
 | Servidor | IP LAN | IP Tailscale | URL panel |
 |---|---|---|---|
 | .205 Utah lab | 192.168.1.205 | 100.100.188.87 | `https://100.100.188.87:8443` |
-| shomer-hotelopera (ex-shomerbogota) | 192.168.10.206 | 100.103.148.119 | `https://100.103.148.119:8443` |
+| shomer-hotelopera (Hotel Ópera) | `192.168.0.250` | 100.103.148.119 | `https://192.168.0.250:8443` (LAN) · `https://100.103.148.119:8443` (Tailscale) |
 | shomer245 Utah | 192.168.1.245 | 100.75.182.116 | `https://100.75.182.116:8443` |
 | shomer243 Utah | 192.168.1.243 | 100.108.17.50 | `https://100.108.17.50:8443` |
 
@@ -3355,3 +3377,290 @@ Documento operativo: `/storage/shomer-agent/docs/POLITICAS_AGENTE.md`
 **v1.1:** Autonomía por **catálogo TASK-001…010** (tareas explícitas), modos **`off` / `learning` / `approved`** por sitio — no IA eligiendo libre. **Capa A** (Guardian reboot, Hunter auto-block Suricata→Wazuh→API→iptables) **no pasa por el bot**. Catálogo ejemplos: limpieza logs ≥85 % (TASK-001), restart servicios Shomer (TASK-002–004), auditoría muestral Protector solo lectura (TASK-006).
 
 Promoción `learning`→`approved`: decisión **USB** tras N éxitos Green State + stats; correlaciona `incident_knowledge` / guardar solución.
+
+---
+
+# Parte AL — Sesión 52 (jun 2026) — Bot Telegram UX unificado
+
+## AL.1 Cambios de producto
+
+| Cambio | Detalle |
+|--------|---------|
+| **`/start` eliminado** | Sin logo, sin foto, sin teclado inline de bienvenida. Entrada: `/consultas`, `/ayuda`, saludo en texto libre |
+| **`/salud` sin botones** | Solo reporte; monitores y resumen vía `/salud monitores` y `/salud resumen` |
+| **`/ayuda` completo** | Todos los comandos por módulo + lista de 30 monitores (incl. 5 Infra) |
+| **Menú ⋮ Telegram** | 26 comandos en `set_my_commands` (incl. `/monitores`, `/resumen`, aliases; sin `start`) |
+| **Alertas una línea** | `fmt.alert_line()` — monitores y triage off por defecto |
+| **Knowledge post-acción** | Botones guardar tras reboot, desbloqueo, recuperación; callbacks `save_know:TIPO:IP` |
+| **Infra en alertas** | 5 monitores: equipment, printer, service, snmp, flap — tools `get_infra_device` con `prior_solution` |
+
+## AL.2 Archivos
+
+| Archivo | Cambio |
+|---------|--------|
+| `core/bot.py` | Sin `/start`; `MONITOR_LABELS`/`MONITOR_GROUPS`; `_ayuda_text()` expandido |
+| `core/monitor.py` | `_kn()` antecedentes; `_save_kb_after_reboot` / `_save_kb_recovery` |
+| `core/fmt.py` | `alert_line()` formato unificado |
+| `BEHAVIOR.md`, `TECNICO_OPERACION.md`, `docs/campo/*.md` | Comandos y monitores actualizados |
+
+## AL.3 Docs montados en container
+
+`CLAUDE.md`, `TECNICO_OPERACION.md`, `BEHAVIOR.md`, `SOPORTE_TECNICO.md` — volumen `:ro` en `docker-compose.yml`. Tras editar en host, el bot los ve sin rebuild.
+
+---
+
+# Parte AM — Catálogo TASK + protocolo cambios agente (10 jun 2026)
+
+## AM.1 Catálogo TASK-* y política Ópera
+
+Documento maestro: **`/storage/shomer-agent/docs/CATALOGO_TASK.md`** (v1.1).
+
+**Ópera producción — automático (`approved`):** TASK-001, 002, 003, 004, 005, 006, 008, 009.  
+**Siempre `off`:** TASK-007, TASK-010. Reboot AP / Hunter auto = Capa A (panel), no catálogo.
+
+`.env` agente en cada sitio — ver bloque en `CATALOGO_TASK.md` §2. **No** commitear `.env`.
+
+## AM.2 Feedback técnico → aprendizaje (L3–L5 implementado)
+
+| Capa | Estado | Qué hace |
+|------|--------|----------|
+| **L3** | ✅ | `/guardar` + botones `save_know:*` → `incident_knowledge` + **`agente_skills`** + correlación TASK-* |
+| **L4** | ✅ | `BOT_LEARN_AUTONOMOUS=1` — tras Green State OK en TASK-* → skill auto en `agente_skills` |
+| **L5** | ✅ | Chat inyecta `agente_skills` + `SITE.md` + knowledge; tool **`get_agente_skills`** |
+| Post-TASK | ✅ | Botones `save_task:y/n/o` tras TASK automática |
+| Promoción | ✅ | `/aprobar_task TASK-001` (developer) + Telegram sugerencia tras 5 OK en learning |
+
+**Tablas:** `knowledge.db` → `incident_knowledge`, `agente_skills`, `auto_task_stats`.  
+**No confundir:** `memory.py` / `conversations.db` = chat IA por usuario.
+
+**Módulos:** `core/agente_skills.py`, `core/learning.py`, `core/llm_router.py` (inyección L5).
+
+## AM.3 Protocolo cambios (Cursor + Claude Code)
+
+Checklist obligatorio al agregar comandos, TASK-011+, o tools:  
+**`/storage/shomer-agent/docs/PROTOCOLO_CAMBIOS_AGENTE.md`**
+
+| Documento | Rol |
+|-----------|-----|
+| `CLAUDE.md` | Dev USB — arquitectura, bitácora sesiones |
+| `SITE.md` | **Por Shomer** — red/VLANs/SPAN/config cliente |
+| `CATALOGO_TASK.md` | TASK-001…010 + modos por sitio |
+| `POLITICAS_AGENTE.md` | Matriz T0–T4, Capas A–D |
+| `PROTOCOLO_CAMBIOS_AGENTE.md` | Checklist sin romper prod |
+| `BEHAVIOR.md` / manuales `docs/campo/` | IA + técnico campo |
+
+**Deploy agente:** `tools/deploy.sh` desde lab `.205` — no copiar `core/` a mano entre sitios.
+
+---
+
+# Parte AN — Sesión 53 (11 jun 2026) — Bot: fix alertas duplicadas APs Guardian↔Infra
+
+## AN.1 Problema (incidente real Hotel Ópera, 10 jun 2026)
+
+Un parpadeo de red afectó a los ~30 APs UniFi del hotel. El técnico recibió **~41 mensajes de Telegram** en pocos minutos — alerta y recuperación de cada AP **duplicadas**: una vez desde `watch_guardian_nodes` y otra vez desde `watch_infra`.
+
+**Causa:** `_sync_guardian_aps()` (`app/api/shomer_inframonitor.py` — función existente, sin cambios) refleja cada ~30s los APs de Guardian (`devices.device_type='access_point'`) hacia `infra_devices` como `device_type='ap'`, para que la página `/infra` los liste junto a switches/impresoras/etc. `watch_infra` (bot) no sabía distinguir estos reflejos y los trataba como equipos Infra normales → alerta propia además de la de Guardian.
+
+**Bug adicional:** `watch_guardian_nodes` enviaba "✅ Nodo recuperado" en cualquier transición `offline/no-internet → online`, incluso si nunca se había enviado la alerta de caída (porque el debounce de 2 ciclos no llegó a disparar) → mensaje "recuperado" huérfano sin alerta previa.
+
+## AN.2 Fix aplicado — solo `/storage/shomer-agent/core/monitor.py`
+
+Sin tocar `/opt/network_monitor/` (panel/Guardian/Inframonitor) — principio §T.1, "agregar sin tocar lo que funciona".
+
+1. **`watch_guardian_nodes`** — "recuperado" solo si `ip in _guardian_down_alerted` (es decir, solo si se había alertado la caída):
+   ```python
+   if prev in ("offline", "no-internet") and ip in _guardian_down_alerted and not _is_suppressed(ip):
+   ```
+
+2. **`watch_infra`** — ignora por completo `device_type == 'ap'` (son reflejo de Guardian, ya cubiertos por `watch_guardian_nodes`):
+   - Excluidos de la lista `offline` usada para alertas grupales/stale.
+   - `continue` inmediato en el loop principal por dispositivo.
+
+## AN.3 Decisión de diseño — NOC y `/infra` sin cambios
+
+- **NOC** (`/noc`): nunca tuvo duplicado real. La sección "Infraestructura" del NOC (`TYPE_GROUPS` en `noc.html`) no incluye tipo `'ap'` — esas filas de `infra_devices` son invisibles ahí. Los APs del NOC vienen exclusivamente de `guardian.devices` (cuadrícula superior), independiente de `infra_devices`.
+- **`/infra` (panel Inframonitor)**: sigue listando los APs (vía `_sync_guardian_aps`) — es su única utilidad real, dar inventario completo al técnico en un solo lugar. **No se tocó.**
+- **Solución "agrupar mensajes en uno solo" — descartada permanentemente** (decisión Juan Pablo, 10 jun 2026): si los mensajes son reales (caída real de 30 APs), no es ruido, es información real — no se debe ocultar agrupando.
+
+## AN.4 Estado de despliegue
+
+| Servidor | `core/monitor.py` actualizado | Bot reiniciado |
+|----------|-------------------------------|-----------------|
+| `.205` (origen) | ✅ | — (no corre prod aquí) |
+| **Hotel Ópera** `100.103.148.119` | ✅ | ✅ — `docker compose restart shomer-agent`, 26 monitores activos, log limpio |
+| shomer245 `100.75.182.116` | ✅ código sincronizado | ⏳ agente aún no arrancado (sin container activo — pendiente `.env`/arranque, tema aparte) |
+| shomer243 `100.108.17.50` | ✅ código sincronizado | ⏳ ídem |
+
+---
+
+# Parte AO — Sesión 53 cont. (11 jun 2026) — Fix bug rotación backups del agente
+
+## AO.1 Problema (descubierto al hacer backup de checkpoint en Hotel Ópera)
+
+`/backup` (o `create_backup()` en `core/backup_manager.py`) reportaba éxito (`✅ shomer_backup_AAAAMMDD_HHMMSS.tar.gz — N MB`) pero el archivo **no quedaba** en `/storage/shomer-agent/data/backups/` — desaparecía justo después de crearse.
+
+**Causa raíz:** `_rotate()` (mantiene máx. `MAX_BACKUPS=2`) ordenaba los archivos **alfabéticamente por nombre** con `sorted(glob(...))` y borraba `backups[0]` pensando que era el más antiguo. En Hotel Ópera había 2 backups viejos con prefijo `shomer_backup_bogota_...` (de antes del rename Sesión 50, ver §S.1 nota). Alfabéticamente `'2' < 'b'` → el backup **recién creado** (`shomer_backup_20260611_...`) ordenaba primero y `_rotate()` lo borraba a él, dejando los 2 viejos intactos.
+
+**Por qué importa en cualquier sitio:** el bug no es exclusivo de nombres "bogota" — cualquier mezcla de prefijos de archivo cuyo orden alfabético no coincida con el orden cronológico (p. ej. tras un rename de sitio, o archivos copiados manualmente con otro nombre) produce el mismo efecto: el backup más nuevo se autodestruye en `_rotate()`.
+
+## AO.2 Fix aplicado
+
+**Archivo:** `/storage/shomer-agent/core/backup_manager.py` — `_rotate()` y `list_backups()` ahora ordenan por `p.stat().st_mtime` (fecha real de modificación) en vez de por nombre:
+
+```python
+def _rotate():
+    backups = sorted(BACKUP_DIR_CONTAINER.glob("shomer_backup_*.tar.gz"), key=lambda p: p.stat().st_mtime)
+    while len(backups) > MAX_BACKUPS:
+        ...
+
+def list_backups() -> list[dict]:
+    ...
+    for p in sorted(BACKUP_DIR_CONTAINER.glob("shomer_backup_*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True):
+        ...
+```
+
+## AO.3 Limpieza Hotel Ópera (autorizada por Juan Pablo)
+
+Se borraron en `/storage/shomer-agent/data/backups/` los 2 backups obsoletos `shomer_backup_bogota_20260527_*.tar.gz` (231 KB c/u, pre-rename, ya superados) y un archivo de prueba `shomer_backup_test.tar.gz` generado durante el diagnóstico. Tras la limpieza se generó el backup de checkpoint:
+
+- `shomer_backup_20260611_043907.tar.gz` (40 KB) — incluye `network_monitor.db`, `inventory.db`, `shomer-runtime.env`, `.env` agente, units `shomer-guardian`/`shomer-tools`, `nginx/sites-available/*`, `suricata/rules/*` (50,210 reglas ET) — checkpoint con los fixes de §AN ya aplicados.
+
+**Nota `devices.json`:** no existe en Hotel Ópera (`--ignore-failed-read` lo omite sin error) — es el inventario de equipos del **bot** (`/agregar`), normal que no exista si los equipos se gestionan desde el panel web en vez del bot. Existe en `.205` porque ahí sí se usó `/agregar` en pruebas.
+
+## AO.4 Estado de despliegue
+
+| Servidor | `core/backup_manager.py` actualizado | Reinicio agente |
+|----------|----------------------------------------|------------------|
+| `.205` (origen) | ✅ | — (no corre prod aquí) |
+| **Hotel Ópera** `100.103.148.119` | ✅ | ✅ — restart limpio, 26 monitores activos |
+| shomer245 `100.75.182.116` | ✅ código sincronizado | ⏳ agente aún no arrancado (mismo pendiente de §AN.4) |
+| shomer243 `100.108.17.50` | ✅ código sincronizado | ⏳ ídem |
+
+**Despliegue dirigido** (primera parte): solo `core/monitor.py` (fix APs). **Más tarde el mismo día** (§AO): `deploy.sh` autorizado con código Hunter RouterOS + anti-spam monitores — ver §AO.5.
+
+---
+
+# Parte AO — Sesión 53 (11 jun 2026) — Hunter RouterOS DROP, anti-spam bot, backup lab
+
+## AO.1 Hunter MikroTik RouterOS — regla DROP obligatoria (Hotel Ópera)
+
+**Problema real (jun 2026):** `190.60.195.10` estaba en address-list `shomer-blocked` desde 7/jun y en BD como bloqueada, pero **faltaba** la regla `drop` en `chain=forward` del MikroTik `192.168.0.1`. Suricata (espejo/IDS) seguía generando alertas aunque el panel decía “bloqueada”.
+
+**Fix campo:** regla manual (y verificada):
+```
+/ip firewall filter add chain=forward action=drop src-address-list=shomer-blocked place-before=0 comment="Shomer-Hunter"
+```
+
+**Código panel/API** (`app/api/casador_support_firewall.py`, `casador_blocking.py`, `hunter.html`):
+- `GET /remedies/firewall/routeros/verify` — cuenta regla DROP + entradas en lista
+- `POST /remedies/firewall/routeros/ensure-drop-rule` — crea regla si falta (**solo si** `hunter.routeros_auto_drop_enabled=true`)
+- UI: caja de advertencia + *Verificar* / *Aplicar* (oculto en sitios manual-only)
+
+**Política por sitio:**
+
+| Sitio | `hunter.routeros_auto_drop_enabled` | Aplicar DROP desde panel |
+|-------|-------------------------------------|--------------------------|
+| Hotel Ópera | `false` (default / no set) | ❌ Solo manual Winbox/terminal |
+| Lab `.205`, `.245`, `.243` | `true` | ✅ Botón disponible |
+
+**Doc:** `app/static/docs/HUNTER_MIKROTIK_ROUTEROS.md` · checklist A5 en `SOPORTE_TECNICO.md`.
+
+## AO.2 Hunter — fix conteo alertas en panel
+
+Suricata generaba ~21k alertas/día en Ópera pero el panel mostraba tope **2000**. Fix: conteo completo del día en `casador_support_suricata.py` → `hunter_stats` en `casador_blocking.py`. Desplegado Ópera jun 2026.
+
+## AO.3 Bot — anti-spam Hunter (tras bloqueo y riesgos resueltos)
+
+**Síntoma:** técnico seguía recibiendo mensajes tipo *“Amenaza contenida”* y *“Riesgos de red pendientes”* aunque `.10` ya estaba bloqueada y los **18 altos** marcados `terminado` en panel.
+
+**Causas en `core/monitor.py`:**
+
+| Monitor | Problema | Fix |
+|---------|----------|-----|
+| `watch_active_threats` | Resumen cada **6 h** mientras hubiera IPs bloqueadas + alerta inmediata en cada **reinicio** del container | Eliminado resumen periódico; solo seed interno (avisos nuevos los cubre `watch_hunter`) |
+| `watch_network_audit` | Repetía *“Riesgos altos pendientes”* cada 6 h con el **mismo** conteo | Alerta solo si sube `(criticos, altos)`; al llegar a 0 resetea |
+| `watch_hunter_verify` | Tras reinicio, IPs viejas parecían “nuevas” | Seed de IPs pre-existentes al arrancar (igual que `watch_hunter`) |
+
+**Estado Ópera verificado en BD (11/jun):** 1 IP bloqueada (`190.60.195.10`, `firewall_blocked=1`); 0 alto/crítico pendiente (30 bajo + 70 info).
+
+**Nota:** Suricata en espejo **sigue registrando** tráfico de IPs bloqueadas en el panel Hunter — eso es IDS, no Telegram del bot.
+
+## AO.4 Backup lab `.205` (11 jun 2026)
+
+Backup manual completo sistema + bot:
+- Archivo: `/storage/shomer-agent/data/backups/shomer_backup_20260611_042227.tar.gz` (**6,3 MB**)
+- Incluye: BDs, `app/`, agente `core/`, `.env`, `devices.json`, `conversations.db`, `knowledge.db`, nginx, systemd, Suricata rules
+- Enviado a **jpad** (`100.119.205.86`) vía `sudo tailscale file cp`
+
+## AO.5 Deploy sesión — matriz final
+
+| Servidor | Panel Hunter RouterOS | Bot `monitor.py` anti-spam | Notas |
+|----------|----------------------|----------------------------|-------|
+| `.205` lab | ✅ origen | ✅ | `routeros_auto_drop_enabled=true` |
+| **Ópera** `.119` | ✅ | ✅ reiniciado | DROP **manual**; regla verificada en MikroTik |
+| shomer245 `.116` | ✅ | ✅ código sync | `routeros_auto_drop_enabled=true` |
+| shomer243 `.050` | ✅ | ✅ código sync | `routeros_auto_drop_enabled=true` |
+
+**Claves BD nuevas (panel):** `hunter.firewall_type`, `hunter.firewall_port`, `hunter.firewall_timeout`, `hunter.routeros_auto_drop_enabled` — expuestas en `GET/POST /config/system` (`shomer_config.py`).
+
+---
+
+# Parte AP — Sesión 54 (13 jun 2026) — Historial incidentes + retención + deploy
+
+## AP.1 Módulo `shomer_status_events.py`
+
+Historial unificado Guardian + Inframonitor (APs solo en Guardian — no duplicar en Infra).
+
+| Componente | Detalle |
+|------------|---------|
+| Tabla `status_events` | Transiciones online/offline/no-internet con WAN snapshot y flag mantenimiento |
+| Tabla `network_outage_notes` | Causa confirmada en campo por oleada |
+| Oleadas | Agrupación ~3 s; clasificación: microcorte, WAN ISP, sector parcial, mantenimiento, etc. |
+| Retención | `monitor.status_retention_days` (90), `infra_events_retention_days` (90), `event_log_retention_days` (30); poda horaria + agresiva si disco ≥ 85 % |
+| UI | `/system-status` — tabla 48 h, retención, confirmar causa, CSV |
+| APIs | `GET/POST /api/network/retention`, `GET /api/network/outages`, `POST /api/network/outages/confirm` |
+
+**No altera** alertas Telegram ni lógica reboot Guardian.
+
+## AP.2 Deploy 13 jun 2026
+
+| Servidor | Estado |
+|----------|--------|
+| **Ópera** `100.103.148.119` | ✅ `SHOMER_DEPLOY_AUTHORIZED=1` — app/ + agente; health OK (30 nodos) |
+| **shomer245** `.116` | ✅ |
+| **shomer243** `.050` | ✅ |
+| **.205** lab | Código local + restart (no rsync a sí mismo vía Tailscale) |
+
+`SITE.md` actualizado **en cada servidor** (no via deploy.sh). `docs/EQUIPOS.md` maestro en repo.
+
+## AP.3 Fix acceso panel Ópera (mismo día)
+
+- Creado `/etc/shomer/shomer-runtime.env` + systemd drop-in (faltaba post-instalación)
+- Nginx: redirect 443→8443; proxy headers en `/auth/login`
+- **No** relacionado con el módulo `status_events` — problema preexistente de URL/puerto/runtime
+
+## AP.4 Incidente APs Contabilidad/Spa (13 jun 2026, ~1:11 AM Bogotá)
+
+- Oleada breve post-deploy: AP CONTABILIDAD (`.217`) y AP SPA (`.204`) — caída real de ping en SPA; Contabilidad en recuperación de reboot
+- **No causado** por `status_events` (solo registra). Coincidió con reinicio de `shomer-guardian` tras deploy
+- **Recomendación producción:** activar `/modo on` antes de deploy; desactivar al terminar
+- Guardian corre con **3 workers uvicorn** → poller triplicado (eventos `status_events` x3); pendiente corregir a 1 poller
+
+---
+
+# Parte AQ — Sesión 55 (13 jun 2026) — Telegram mantenimiento global
+
+## AQ.1 Problema
+
+Activar/desactivar mantenimiento **global** desde panel o bot **no enviaba Telegram** — solo log en panel o respuesta en el chat del bot. Mantenimiento **por nodo** sí notificaba.
+
+## AQ.2 Fix
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/api/shomer_guardian_events.py` | `POST /maintenance/on` y `/off` → `send_telegram_safe` con etiqueta `MANTENIMIENTO` + usuario panel |
+| `/storage/shomer-agent/core/shomer_api.py` | `set_maintenance()` usa API Guardian (Redis + Telegram); fallback Redis directo |
+
+Mensajes: `🔧 MANTENIMIENTO GLOBAL ACTIVADO` / `✅ DESACTIVADO` — incluyen usuario (`root`, `admin`, etc.).
+
+**Deploy:** Ópera 13/jun tras fix.

@@ -123,16 +123,23 @@ def _prune_old_logs() -> None:
     if _LOG_PRUNE_LAST_RUN is not None and (now - _LOG_PRUNE_LAST_RUN) < LOG_PRUNE_INTERVAL_SEC:
         return
     _LOG_PRUNE_LAST_RUN = now
+    days = LOG_RETENTION_DAYS
+    try:
+        v = get_config("monitor.event_log_retention_days")
+        if v is not None:
+            days = max(7, min(365, int(v)))
+    except Exception:
+        pass
     try:
         with get_db() as conn:
             cur = conn.execute(
                 "DELETE FROM event_log WHERE created_at < datetime('now', ?)",
-                (f"-{LOG_RETENTION_DAYS} days",),
+                (f"-{days} days",),
             )
             deleted = cur.rowcount
             conn.commit()
             if deleted and deleted > 0:
-                print(f"[SHOMER] Prune event_log: eliminados {deleted} registros > {LOG_RETENTION_DAYS} días")
+                print(f"[SHOMER] Prune event_log: eliminados {deleted} registros > {days} días")
     except sqlite3.OperationalError as e:
         if "no such table" not in str(e).lower():
             print(f"[SHOMER] Prune event_log error: {e}")

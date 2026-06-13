@@ -4,7 +4,9 @@
 No contiene información interna de código ni arquitectura del producto.
 Los valores específicos de cada instalación (IPs, comunidades SNMP, claves, tokens) te los entrega USB Ingeniería antes de cada visita.
 
-**Versión:** mayo 2026
+**Versión:** junio 2026
+
+> **Importante:** La configuración de cada hotel (`SITE.md`, credenciales, redes) es **solo de ese sitio**. Actualizaciones remotas del software en producción las autoriza **Juan Pablo (USB Ingeniería)** — no mezclar configs entre clientes.
 
 ---
 
@@ -432,12 +434,16 @@ Si el AP se reinicia solo: es normal, Guardian hizo su trabajo. Llega aviso por 
 
 Antes de desconectar cables, hacer cambios en el switch, o cualquier trabajo que vaya a bajar equipos:
 
-**Activar mantenimiento:** `/mantenimiento` en el bot de Telegram → botón de activar.
-O en el panel: Guardian → Configuración → Modo mantenimiento ON.
+**Activar mantenimiento:** `/modo on` o `/mantenimiento` en el bot → botón de activar.  
+O en el panel: **Guardian** → botón **🔧 Activar Mantenimiento**.
 
-Mientras mantenimiento está activo, Guardian no reinicia nada automáticamente.
+**Telegram:** al activar y desactivar llega aviso al chat del técnico (`MANTENIMIENTO GLOBAL` + usuario). Desde jun 2026 — panel y bot.
 
-**Al terminar:** desactivar mantenimiento. Mismo comando.
+Mientras mantenimiento está activo, Guardian no reinicia nada automáticamente (sigue monitoreando).
+
+**Al terminar:** desactivar mantenimiento. Mismo comando o botón.
+
+**Producción:** activar mantenimiento antes de deploy o reinicio de servicios Shomer.
 
 ---
 
@@ -711,12 +717,18 @@ Si el cliente tiene Active Directory con carpetas de red ya configuradas: avisa 
 
 ## Tracker — cómo hacer inventario
 
-1. **Quick Scan:** encuentra equipos vivos. Dura 2–5 minutos. Úsalo al llegar a un sitio.
-2. **Deep Scan:** rellena más datos de cada equipo (sistema operativo, servicios, detalles). Dura más. Úsalo cuando el cliente pide inventario detallado.
-3. **Credenciales:** para que el scan profundo obtenga más datos de equipos Windows, necesita credenciales de administrador de ese equipo. Las cargas en Tracker → Credenciales.
-4. **Exportar:** cuando el cliente pide inventario en papel → Exportar → Excel global.
+1. **Quick Scan:** encuentra equipos vivos. Dura 2–5 minutos (más si hay muchas subredes). Úsalo al llegar a un sitio.
+2. **Deep Scan:** rellena OS, CPU, RAM, disco, **software**, **usuario logueado**, monitores/USB detectados. Requiere credenciales WMI/SSH. ~15–90 s por PC Windows; en redes de **500+ equipos** escanear **por VLAN de noche**, no todo de golpe.
+3. **Credenciales:** usuario de dominio AD en Tracker → Credenciales (usuario, contraseña, dominio). Para Active Directory: usuario sin prefijo de dominio en el campo Usuario, dominio en campo Dominio.
+4. **Ficha del equipo:** abrir cualquier fila → sección *Monitores (validación física)*:
+   - Marcar **Monitor integrado** en portátiles y All-in-One (modelo/serial del panel).
+   - Registrar **monitores externos** adicionales (0–3) con modelo y serial de etiqueta.
+   - Revisar bloques *detectados en escaneo* (USB, impresoras locales, monitores WMI).
+5. **Exportar:** Excel global o etiqueta PDF por equipo.
 
 **Regla de cierre formal de inventario:** si el cliente requiere un "snapshot" oficial (cierre contractual), el sistema lo guarda y la tabla viva puede quedar vacía. **Exporta el Excel el mismo día del cierre.** No mezcles archivos viejos de base de datos con el snapshot nuevo.
+
+**Rescan de un solo PC:** desde servidor, `INVENTORY_SCAN_TARGETS=192.168.X.Y ./venv/bin/python3 -m app.scripts.scanner` (modo deep).
 
 ## Hunter — política de bloqueos
 
@@ -732,6 +744,8 @@ La columna **Firewall** en la lista de IPs bloqueadas dice:
 - `solo BD` → se registró pero no se aplicó en el router (puede pasar si el router estaba caído)
 
 Si ves muchas entradas `solo BD`: usa el botón **Sincronizar Firewall** para re-aplicarlas.
+
+**Riesgos de Red (auditoría):** Hunter → sección *Riesgos de Red* → botón escanear. Analiza puertos abiertos y **parches pendientes** en PCs Windows del inventario. En redes grandes puede tardar 15–45 min; ejecutar fuera de horario pico.
 
 **Cuando el router se reinicia:** las reglas iptables desaparecen. El panel sigue mostrando las IPs como bloqueadas, pero en la red ya están libres. Usa el botón de sincronización al volver de mantenimiento o cuando el router reinicia.
 
@@ -1021,7 +1035,8 @@ Cuando ingeniería libera una actualización, te avisará por Telegram con instr
 
 **Prerrequisitos:** MikroTik/OpenWrt con TEE o reglas de espejo ya aplicadas; `rp_filter=0` en la NIC de captura del Shomer (`Instalacion_Shomer_Produccion_Tecnico.md` §2.3).
 
-> **Nota firewall**: el código usa `iptables` estándar Linux (OpenWrt). Si el firewall del cliente corre **RouterOS MikroTik nativo**, los comandos SSH de bloqueo no son compatibles — informar a ingeniería antes de activar `hunter.firewall_*`.
+> **Nota firewall — OpenWrt:** bloqueo por `iptables` en `FORWARD` (automático vía SSH).  
+> **Nota firewall — MikroTik RouterOS nativo:** soportado con `hunter.firewall_type=routeros`. Shomer agrega IPs a la address-list `shomer-blocked`; **obligatorio** crear una vez la regla DROP en `chain=forward` (panel Hunter → *Verificar/Aplicar regla DROP*, o manual). Sin esa regla el bloqueo no es efectivo. Ver `HUNTER_MIKROTIK_ROUTEROS.md`.
 
 ## A. Infraestructura (5 min)
 
@@ -1031,6 +1046,10 @@ Cuando ingeniería libera una actualización, te avisará por Telegram con instr
 | A2 | Servicios Core / Tools | `systemctl is-active shomer-guardian shomer-tools redis-server` | |
 | A3 | Puertos API | `ss -tlnp \| egrep ':(8000\|8001)\b'` — un listener en cada uno (8001 suele ser localhost) | |
 | A4 | Circuit breaker firewall | `GET /remedies/firewall/status` — `circuit_open: false` esperado | |
+| A5 | RouterOS — regla DROP (solo si `firewall_type=routeros`) | Panel Hunter → *Verificar regla DROP* → `drop_rule_ok: true`; o `HUNTER_MIKROTIK_ROUTEROS.md` | |
+| A6 | Bot — sin spam por IP ya bloqueada | Tras bloquear y marcar riesgos altos *terminado*, el bot no debe repetir “amenaza contenida” cada 6 h (fix jun 2026 — `core/monitor.py`) | |
+
+**Nota Suricata vs bot:** el panel Hunter puede seguir mostrando alertas del espejo (IDS) para una IP bloqueada en firewall — es normal. El bloqueo corta el tráfico real; el espejo sigue viendo paquetes.
 
 ## B. Espejo de tráfico (obligatorio)
 

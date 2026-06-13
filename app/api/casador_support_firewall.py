@@ -228,3 +228,111 @@ async def _routeros_unblock(ip: str) -> tuple[bool, str]:
     except Exception as e:
         _cb_record_failure()
         return False, str(e)
+
+
+_ROS_DROP_COUNT_CMD = (
+    f'/ip firewall filter print count-only where chain=forward action=drop '
+    f'src-address-list={_ROS_LIST}'
+)
+_ROS_DROP_ADD_CMD = (
+    f'/ip firewall filter add chain=forward action=drop '
+    f'src-address-list={_ROS_LIST} place-before=0 comment="Shomer-Hunter"'
+)
+_ROS_LIST_COUNT_CMD = f'/ip firewall address-list print count-only where list={_ROS_LIST}'
+
+
+def _ros_count(stdout: str) -> int:
+    raw = (stdout or "").strip()
+    if not raw:
+        return 0
+    try:
+        return int(raw.splitlines()[-1].strip())
+    except ValueError:
+        return 0
+
+
+async def _routeros_verify_setup() -> dict:
+    """
+    Comprueba regla DROP en forward y entradas en address-list shomer-blocked.
+    La lista sola no bloquea tráfico — hace falta la regla filter.
+    """
+    creds = _get_firewall_creds()
+    if creds.get("type") != "routeros":
+        return {
+            "success": False,
+            "firewall_type": creds.get("type", "openwrt"),
+            "message": "Verificación solo aplica con hunter.firewall_type=routeros",
+        }
+    if not creds["ip"]:
+        return {"success": False, "message": "IP del firewall no configurada"}
+    if not creds["user"]:
+        return {"success": False, "message": "Usuario del firewall no configurado"}
+    if _cb_is_open():
+        return {"success": False, "circuit_open": True, "message": "Circuit breaker abierto — firewall inalcanzable"}
+
+    run_timeout = max(2, creds["timeout"] - 2)
+    try:
+        async with await _connect_routeros(creds) as conn:
+            drop_r = await conn.run(_ROS_DROP_COUNT_CMD, timeout=run_timeout)
+            list_r = await conn.run(_ROS_LIST_COUNT_CMD, timeout=run_timeout)
+        drop_count = _ros_count(drop_r.stdout)
+        list_count = _ros_count(list_r.stdout)
+        drop_ok = drop_count >= 1
+        _cb_record_success()
+        if drop_ok:
+            msg = f"Regla DROP activa ({drop_count}). Lista {_ROS_LIST}: {list_count} IP(s)."
+        elif list_count > 0:
+            msg = (
+                f"Hay {list_count} IP(s) en lista {_ROS_LIST} pero "
+                "falta la regla DROP en chain=forward — el bloqueo no es efectivo."
+            )
+        else:
+            msg = f"Lista {_ROS_LIST} vacía y sin regla DROP (normal antes del primer bloqueo)."
+        return {
+            "success": True,
+            "drop_rule_count": drop_count,
+            "drop_rule_ok": drop_ok,
+            "blocked_list_count": list_count,
+            "address_list": _ROS_LIST,
+            "message": msg,
+        }
+    except Exception as e:
+        _cb_record_failure()
+        return {"success": False, "message": str(e)}
+
+
+async def _routeros_ensure_drop_rule() -> tuple[bool, str]:
+    """Crea la regla DROP idempotente si no existe (place-before=0 en forward)."""
+    creds = _get_firewall_creds()
+    if creds.get("type") != "routeros":
+        return False, "Solo aplica con firewall MikroTik RouterOS"
+    if not creds["ip"]:
+        return False, "IP del firewall no configurada"
+    if not creds["user"]:
+        return False, "Usuario del firewall no configurado"
+    if _cb_is_open():
+        return False, "Firewall unreachable — circuito abierto"
+
+    run_timeout = max(2, creds["timeout"] - 2)
+    try:
+        async with await _connect_routeros(creds) as conn:
+            check = await conn.run(_ROS_DROP_COUNT_CMD, timeout=run_timeout)
+            if _ros_count(check.stdout) >= 1:
+                _cb_record_success()
+                return True, "Regla DROP ya existe en forward — no se modificó nada"
+            result = await conn.run(_ROS_DROP_ADD_CMD, timeout=run_timeout)
+            if result.exit_status != 0:
+                err = (result.stderr or "").strip()
+                opened = _cb_record_failure()
+                msg = f"RouterOS no pudo crear regla DROP: {err}"
+                if opened:
+                    msg += " — CIRCUITO ABIERTO"
+                return False, msg
+        _cb_record_success()
+        return True, "Regla DROP creada en forward (src-address-list=shomer-blocked)"
+    except Exception as e:
+        opened = _cb_record_failure()
+        msg = str(e)
+        if opened:
+            msg += " — CIRCUITO ABIERTO"
+        return False, msg

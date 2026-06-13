@@ -20,8 +20,10 @@ from app.api.casador_support import (
     _mikrotik_sync_block,
     _mikrotik_unblock,
     _routeros_block,
+    _routeros_ensure_drop_rule,
     _routeros_sync_block,
     _routeros_unblock,
+    _routeros_verify_setup,
     _require_hunter,
     _CB_FAIL_KEY,
     _CB_STATUS_KEY,
@@ -434,6 +436,42 @@ async def firewall_circuit_reset(user=Depends(get_current_user)):
     return {"success": True, "message": "Circuit breaker reseteado — firewall habilitado"}
 
 
+@router.get("/firewall/routeros/verify")
+async def firewall_routeros_verify(user=Depends(get_current_user)):
+    """Comprueba regla DROP y entradas en address-list (solo MikroTik RouterOS)."""
+    _require_hunter()
+    if _fw_type() != "routeros":
+        raise HTTPException(
+            status_code=400,
+            detail="Verificación RouterOS solo aplica con hunter.firewall_type=routeros",
+        )
+    data = await _routeros_verify_setup()
+    if not data.get("success"):
+        raise HTTPException(status_code=502, detail=data.get("message", "Error al verificar"))
+    return data
+
+
+@router.post("/firewall/routeros/ensure-drop-rule")
+async def firewall_routeros_ensure_drop(user=Depends(get_current_user)):
+    """Crea la regla DROP en forward si falta (idempotente)."""
+    _require_hunter()
+    if _fw_type() != "routeros":
+        raise HTTPException(
+            status_code=400,
+            detail="Solo aplica con hunter.firewall_type=routeros",
+        )
+    if not _get_config("hunter.routeros_auto_drop_enabled", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Aplicación automática desactivada en este sitio — crear la regla DROP manualmente en el MikroTik",
+        )
+    ok, msg = await _routeros_ensure_drop_rule()
+    if not ok:
+        raise HTTPException(status_code=502, detail=msg)
+    verify = await _routeros_verify_setup()
+    return {"success": True, "message": msg, "verify": verify}
+
+
 @router.post("/firewall/sync")
 async def firewall_sync(user=Depends(get_current_user)):
     """
@@ -520,15 +558,12 @@ async def hunter_stats(user=Depends(get_current_user)):
     except Exception:
         pass
 
-    # Alertas hoy desde EVE
+    # Alertas hoy desde EVE (archivo completo — sin tope 2000 del tail)
     alerts_today = 0
     try:
-        from app.api.casador_support_suricata import _read_suricata_recent_alerts
-        events, _ = _read_suricata_recent_alerts(limit=2000)
-        alerts_today = sum(
-            1 for e in events
-            if (e.get("timestamp") or "").startswith(today_str)
-        )
+        from app.api.casador_support_suricata import _count_suricata_alerts_for_day
+
+        alerts_today = _count_suricata_alerts_for_day(today_str)
     except Exception:
         pass
 

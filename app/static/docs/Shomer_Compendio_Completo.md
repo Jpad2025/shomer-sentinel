@@ -288,17 +288,22 @@ Por cada equipo monitorado, hace estas pruebas en orden:
 ## 5.2 Tracker — El inventario de red
 
 **¿Qué hace?**  
-Tracker escanea la red del cliente y construye una lista de todos los dispositivos: IP, MAC, fabricante, nombre del equipo, sistema operativo, CPU, RAM, disco, software instalado.
+Tracker escanea la red del cliente y construye una lista de todos los dispositivos: IP, MAC, fabricante, nombre del equipo, sistema operativo, CPU, RAM, disco, software instalado, usuario logueado, monitores/periféricos detectados (WMI).
 
 **¿Por qué es importante?**  
-El cliente necesita saber qué tiene en su red. Para cumplimiento, para soporte, para saber cuando aparece un equipo desconocido. El técnico puede exportar el inventario a Excel para el cliente.
+El cliente necesita saber qué tiene en su red. Para cumplimiento, para soporte, para saber cuando aparece un equipo desconocido. El técnico puede exportar el inventario a Excel para el cliente y completar en la ficha validación física (monitor integrado en portátiles/All-in-One, monitores externos, docks).
 
 **Tipos de escaneo:**
 
 | Tipo | Tiempo | Qué obtiene |
 |------|--------|------------|
-| **Quick Scan** | 2–5 min | IP, MAC, fabricante, nombre básico |
-| **Deep Scan** | 5–20 min | Todo lo anterior + OS, CPU, RAM, disco, software (requiere credenciales) |
+| **Quick Scan** | 2–15 min | IP, MAC, fabricante, nombre básico (depende del tamaño de subredes) |
+| **Deep Scan** | ~1–2 min por cada 20 PCs Windows en paralelo | Todo lo anterior + OS, CPU, RAM, disco, software, usuario sesión, monitores/USB/impresoras locales (requiere credenciales). Redes 500+ equipos: **por VLAN de noche**, no un solo escaneo masivo |
+
+**Ficha del equipo (validación física — jun 2026):**
+- Checkbox **Monitor integrado** (portátil / All-in-One) + modelo/serial del panel
+- **Monitores externos** adicionales (0–3) con modelo y serial de etiqueta
+- Bloques de solo lectura: detectados en último escaneo (monitores, USB, impresoras locales, usuario logueado)
 
 **Para el deep scan necesita credenciales en cada equipo:**
 - **Windows:** usuario con permisos WMI (ver Parte 9.2 de `SOPORTE_TECNICO.md`)
@@ -749,10 +754,12 @@ df -h
 
 Si vas a desconectar cables, hacer cambios en el switch o cualquier trabajo que baje equipos:
 
-**Activar:** `/mantenimiento` en el bot → botón activar  
+**Activar:** `/modo on` o `/mantenimiento` en el bot, o botón **🔧 Activar Mantenimiento** en panel Guardian  
 **Desactivar:** lo mismo al terminar
 
-Con mantenimiento activo, Guardian no reinicia nada automáticamente.
+**Telegram:** aviso al activar/desactivar (`MANTENIMIENTO GLOBAL` + usuario) — jun 2026.
+
+Con mantenimiento activo, Guardian no reinicia nada automáticamente (sigue monitoreando).
 
 ## 9.3 Actualizaciones del sistema
 

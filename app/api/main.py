@@ -36,6 +36,13 @@ from app.api.shomer_audit_export import router as audit_export_router
 from app.api.shomer_audit_network import router as audit_network_router
 from app.api.shomer_reports import router as reports_router
 from app.api.shomer_technician import router as technician_router
+from app.api.shomer_status_events import (
+    router as status_events_router,
+    _ensure_table as ensure_status_events_table,
+    run_data_retention_prune,
+    start_retention_prune_loop,
+    start_outage_report_loop,
+)
 
 _APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _STATIC_DIR = os.path.join(_APP_DIR, "static")
@@ -45,9 +52,16 @@ _STATIC_DIR = os.path.join(_APP_DIR, "static")
 async def lifespan(app: FastAPI):
     from app.api.shomer_guardian_nodes import start_node_poller
     from app.api.shomer_inframonitor import start_inframonitor_poller
-    start_node_poller()
-    start_server_health_tasks()
-    start_inframonitor_poller()
+    from app.api.shomer_poller_leader import try_acquire_poller_leader
+
+    ensure_status_events_table()
+    if try_acquire_poller_leader():
+        run_data_retention_prune(force=True)
+        start_retention_prune_loop()
+        start_outage_report_loop()
+        start_node_poller()
+        start_server_health_tasks()
+        start_inframonitor_poller()
     yield
 
 
@@ -114,6 +128,8 @@ app.include_router(audit_network_router)
 app.include_router(reports_router)
 # Gestión de técnicos — métricas rendimiento y bono (solo admin)
 app.include_router(technician_router)
+# Historial transiciones red + oleadas (Guardian + Infra)
+app.include_router(status_events_router)
 # Web UI — templates Jinja2 (todas las vistas del panel)
 app.include_router(web_router)
 

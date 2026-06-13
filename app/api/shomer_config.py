@@ -92,10 +92,26 @@ async def get_system_config(user=Depends(require_admin)):
             "high_recurrence_warn_at": get_config("hunter.high_recurrence_warn_at", 2),
             "integration_key": get_config("hunter.integration_key", ""),
             "wazuh_dashboard_url": get_config("hunter.wazuh_dashboard_url", ""),
+            "firewall_type": get_config("hunter.firewall_type", "openwrt"),
+            "firewall_port": get_config("hunter.firewall_port", 22),
+            "firewall_timeout": get_config("hunter.firewall_timeout", 10),
+            "routeros_auto_drop_enabled": get_config("hunter.routeros_auto_drop_enabled", False),
         },
         "protector": {
             "backup_sources": get_config("protector.backup_sources", []),
             "retention_days": get_config("protector.retention_days", 7),
+        },
+        "monitor": {
+            "status_retention_days": get_config("monitor.status_retention_days", 90),
+            "infra_events_retention_days": get_config("monitor.infra_events_retention_days", 90),
+            "event_log_retention_days": get_config("monitor.event_log_retention_days", 30),
+            "aggressive_prune_disk_pct": get_config("monitor.aggressive_prune_disk_pct", 85),
+            "outage_report_enabled": get_config("monitor.outage_report_enabled", True),
+            "outage_report_min_aps": get_config("monitor.outage_report_min_aps", 5),
+            "outage_report_min_devices": get_config("monitor.outage_report_min_devices", 10),
+            "outage_report_repeat_hours": get_config("monitor.outage_report_repeat_hours", 24),
+            "outage_report_repeat_min": get_config("monitor.outage_report_repeat_min", 2),
+            "outage_report_settle_sec": get_config("monitor.outage_report_settle_sec", 90),
         },
         "auto_detected": auto,
     }
@@ -160,6 +176,10 @@ async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(g
         "high_recurrence_warn_at",
         "integration_key",
         "wazuh_dashboard_url",
+        "firewall_type",
+        "firewall_port",
+        "firewall_timeout",
+        "routeros_auto_drop_enabled",
     ]:
         if field in hunter:
             if set_config(f"hunter.{field}", hunter[field]):
@@ -174,6 +194,32 @@ async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(g
                 saved.append(f"protector.{field}")
             else:
                 errors.append(f"protector.{field}")
+
+    monitor = payload.get("monitor", {})
+    for field in [
+        "status_retention_days",
+        "infra_events_retention_days",
+        "event_log_retention_days",
+        "aggressive_prune_disk_pct",
+        "outage_report_enabled",
+        "outage_report_min_aps",
+        "outage_report_min_devices",
+        "outage_report_repeat_hours",
+        "outage_report_repeat_min",
+        "outage_report_settle_sec",
+    ]:
+        if field in monitor and monitor[field] is not None:
+            if set_config(f"monitor.{field}", monitor[field]):
+                saved.append(f"monitor.{field}")
+            else:
+                errors.append(f"monitor.{field}")
+
+    if monitor:
+        try:
+            from app.api.shomer_status_events import run_data_retention_prune
+            run_data_retention_prune(force=True)
+        except Exception:
+            pass
 
     return {"success": len(errors) == 0, "saved": saved, "errors": errors}
 

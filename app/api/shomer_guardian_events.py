@@ -66,11 +66,19 @@ async def get_maintenance(user=Depends(get_current_user)):
 @router.post("/maintenance/on")
 async def set_maintenance_on(user=Depends(get_current_user)):
     """Activa modo mantenimiento (no reinicios automáticos). No afecta reinicio manual."""
+    who = (user or {}).get("username") or "panel"
     r = get_redis()
     if r:
         try:
             r.set(MAINTENANCE_KEY, "1")
             log_event(r, "warning", "MANTENIMIENTO", "Modo mantenimiento ACTIVADO — reboots automáticos pausados")
+            try:
+                send_telegram_safe(
+                    f"🔧 <b>MANTENIMIENTO GLOBAL</b> ACTIVADO por <b>{who}</b>\n"
+                    f"Guardian sigue monitoreando pero <b>no reiniciará APs</b> automáticamente."
+                )
+            except Exception:
+                pass
             return {"success": True, "maintenance": True}
         except Exception:
             pass
@@ -93,11 +101,19 @@ async def set_maintenance_on(user=Depends(get_current_user)):
 @router.post("/maintenance/off")
 async def set_maintenance_off(user=Depends(get_current_user)):
     """Desactiva modo mantenimiento."""
+    who = (user or {}).get("username") or "panel"
     r = get_redis()
     if r:
         try:
             r.delete(MAINTENANCE_KEY)
             log_event(r, "success", "MANTENIMIENTO", "Modo mantenimiento DESACTIVADO — reboots automáticos reanudados")
+            try:
+                send_telegram_safe(
+                    f"✅ <b>MANTENIMIENTO GLOBAL</b> DESACTIVADO por <b>{who}</b>\n"
+                    f"Guardian reanuda reboots automáticos normalmente."
+                )
+            except Exception:
+                pass
             return {"success": True, "maintenance": False}
         except Exception:
             pass

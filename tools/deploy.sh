@@ -44,6 +44,12 @@ _is_production() {
 deploy_server() {
     local ip=$1
     local name=$2
+    local key="$SSH_KEY"
+
+    if [[ "$ip" == "100.103.148.119" ]]; then
+        key="$HOME/.ssh/id_rsa_shomer"
+    fi
+    local opts="-i $key -o StrictHostKeyChecking=no -o ConnectTimeout=10"
 
     if _is_production "$ip" && [[ "${SHOMER_DEPLOY_AUTHORIZED:-}" != "1" ]]; then
         err "BLOQUEADO: $name ($ip) es PRODUCCIÓN."
@@ -61,7 +67,7 @@ deploy_server() {
         --exclude='.env' --exclude='*.env' \
         --exclude='__pycache__' --exclude='*.pyc' \
         --exclude='venv/' --exclude='*.log' \
-        -e "ssh $SSH_OPTS" \
+        -e "ssh $opts" \
         "$REPO_DIR/app/" \
         "$REMOTE_USER@$ip:$REMOTE_DIR/app/"
 
@@ -69,12 +75,12 @@ deploy_server() {
     rsync -az --delete \
         --exclude='data/' --exclude='.env' \
         --exclude='__pycache__' --exclude='*.pyc' \
-        -e "ssh $SSH_OPTS" \
+        -e "ssh $opts" \
         "$AGENT_DIR/" \
         "$REMOTE_USER@$ip:$AGENT_DIR/"
 
     # 3. Actualizar TRUSTED_HOSTS y CORS con IP Tailscale del servidor remoto
-    ssh $SSH_OPTS -n "$REMOTE_USER@$ip" "
+    ssh $opts -n "$REMOTE_USER@$ip" "
         TS_IP=\$(sudo tailscale ip -4 2>/dev/null || echo '')
         LAN_IP=\$(hostname -I | awk '{print \$1}')
         RUNTIME=/etc/shomer/shomer-runtime.env
@@ -85,7 +91,7 @@ deploy_server() {
     "
 
     # 4. Reiniciar servicios remotos
-    ssh $SSH_OPTS -n \
+    ssh $opts -n \
         "$REMOTE_USER@$ip" \
         "sudo systemctl restart shomer-guardian shomer-tools && \
          sudo docker compose -f $AGENT_DIR/docker-compose.yml restart 2>/dev/null; \

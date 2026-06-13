@@ -115,3 +115,34 @@ def _read_suricata_recent_alerts(limit: int = 200) -> tuple[List[Dict[str, Any]]
             }
         )
     return out, path
+
+
+def _count_suricata_alerts_for_day(day_prefix: str) -> int:
+    """Cuenta alertas del día en eve-alerts (archivo completo, sin tope de tail)."""
+    path = _resolve_suricata_alerts_file()
+    if not path or not os.path.isfile(path) or not day_prefix:
+        return 0
+    n = 0
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if '"event_type"' not in line or '"alert"' not in line:
+                    continue
+                if not line.lstrip().startswith("{"):
+                    continue
+                try:
+                    ev = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if ev.get("event_type") != "alert":
+                    continue
+                ts = ev.get("timestamp") or ""
+                if ts.startswith(day_prefix):
+                    n += 1
+                else:
+                    dt = _parse_suricata_timestamp(ts)
+                    if dt and dt.date().isoformat() == day_prefix:
+                        n += 1
+    except OSError:
+        return 0
+    return n

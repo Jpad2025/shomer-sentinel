@@ -239,7 +239,7 @@ El cambio es inmediato — no requiere reiniciar el servidor.
 | `/salud` | Estado del servidor y servicios |
 | `/equipos` | Lista de APs monitoreados |
 | `/alertas` | Últimas alertas de seguridad |
-| `/mantenimiento` | Activar/desactivar pausa de reboots |
+| `/mantenimiento` | Activar/desactivar pausa de reboots — notifica Telegram |
 | `/verificar` | Checklist completo de la instalación |
 | `/usuario` | Cómo crear usuario de servicio en cada OS |
 | `/ayuda` | Lista completa de comandos |

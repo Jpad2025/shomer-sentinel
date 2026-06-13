@@ -130,16 +130,35 @@
     if (i.type === 'password') { i.type = 'text'; e.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>'; }
     else { i.type = 'password'; e.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'; }
   }
+  function loginErrorMessage(ex, r) {
+    if (ex && ex.message && ex.message.indexOf('Failed to fetch') >= 0) {
+      return 'No hay conexión con el servidor. Verifique: Tailscale activo, URL con :8443 (https://100.103.148.119:8443) y certificado aceptado.';
+    }
+    if (r && r.status === 429) return 'Demasiados intentos. Espere 1 minuto e intente de nuevo.';
+    if (ex && ex.message) return ex.message;
+    return 'Error de conexión con el servidor';
+  }
   function doLogin(e) {
     e.preventDefault();
     const btn = document.getElementById('login-btn'), err = document.getElementById('error-msg');
     err.classList.remove('on'); btn.disabled = true;
     btn.innerHTML = '<span class="spin"></span>VERIFICANDO...';
+    var respStatus = 0;
     shomerFetch('/auth/login', { method: 'POST', body: JSON.stringify({ username: document.getElementById('username').value, password: document.getElementById('password').value }) })
-    .then(r => r.json()).then(d => {
-      if (d.success || d.token) { if (d.token) localStorage.setItem('auth_token', d.token); window.location.href = d.redirect || '/'; }
-      else { throw new Error(d.message || 'Credenciales incorrectas'); }
-    }).catch(ex => { btn.disabled = false; btn.innerHTML = 'INGRESAR AL SISTEMA'; err.textContent = ex.message; err.classList.add('on'); });
+    .then(function(r) {
+      respStatus = r.status;
+      if (r.status === 429) throw new Error('rate_limit');
+      return r.json();
+    })
+    .then(function(d) {
+      if (d.token || d.success) { if (d.token) localStorage.setItem('auth_token', d.token); window.location.href = d.redirect || '/'; }
+      else { throw new Error(d.detail || d.message || 'Credenciales incorrectas'); }
+    })
+    .catch(function(ex) {
+      btn.disabled = false; btn.innerHTML = 'INGRESAR AL SISTEMA';
+      err.textContent = ex.message === 'rate_limit' ? loginErrorMessage(ex, {status:429}) : loginErrorMessage(ex, {status:respStatus});
+      err.classList.add('on');
+    });
   }
   function loadSetupHint() {
     shomerFetch('/setup/status')

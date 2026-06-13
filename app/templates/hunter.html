@@ -460,11 +460,27 @@ tbody tr:last-child { border-bottom:none; }
             <option value="routeros">MikroTik RouterOS</option>
           </select>
         </div>
-        <div class="cfg-row" id="row-fw-routeros-hint" style="display:none;">
-          <span style="font-size:11px;color:var(--muted);line-height:1.5;max-width:480px;">
-            Requiere una regla previa en el MikroTik:<br>
-            <code style="font-size:10px;">/ip firewall filter add chain=forward src-address-list=shomer-blocked action=drop place-before=0 comment="Shomer-Hunter"</code>
-          </span>
+        <div id="row-fw-routeros-hint" style="display:none;margin:8px 0 12px;padding:10px 12px;border-radius:6px;border:1px solid rgba(217,119,6,0.45);background:rgba(217,119,6,0.08);max-width:640px;">
+          <div style="font-size:12px;font-weight:600;color:#fbbf24;margin-bottom:6px;">MikroTik RouterOS — paso obligatorio</div>
+          <p style="font-size:11px;color:var(--muted);line-height:1.5;margin:0 0 8px;">
+            Shomer solo <strong>agrega IPs</strong> a la address-list <code>shomer-blocked</code> vía SSH.
+            Eso <strong>no bloquea tráfico</strong> hasta que exista una regla <code>drop</code> en <code>chain=forward</code>
+            que use esa lista. Sin la regla, el panel puede mostrar “bloqueado” pero el atacante sigue pasando.
+            <a href="/static/docs/HUNTER_MIKROTIK_ROUTEROS.md" target="_blank" rel="noopener" style="color:var(--teal);">Documentación completa</a>
+          </p>
+          <ol style="font-size:11px;color:var(--muted);line-height:1.45;margin:0 0 10px 18px;padding:0;">
+            <li>Una sola vez en el router: regla DROP sobre <code>src-address-list=shomer-blocked</code> (al inicio de forward).</li>
+            <li>Después: cada bloqueo Hunter/Wazuh/manual solo añade la IP a la lista.</li>
+          </ol>
+          <code style="display:block;font-size:10px;word-break:break-all;margin-bottom:10px;padding:6px 8px;background:rgba(0,0,0,0.25);border-radius:4px;">/ip firewall filter add chain=forward action=drop src-address-list=shomer-blocked place-before=0 comment="Shomer-Hunter"</code>
+          <p id="fw-routeros-manual-note" style="font-size:11px;color:var(--muted);margin:0 0 8px;display:none;">
+            En este sitio la regla DROP se aplica <strong>solo manualmente</strong> (Winbox o terminal) con el comando de arriba.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="verifyRouterosDropRule()" id="btn-fw-ros-verify">Verificar regla DROP</button>
+            <button type="button" class="btn btn-blue btn-sm" onclick="ensureRouterosDropRule()" id="btn-fw-ros-ensure" style="display:none;" title="Crea la regla si no existe (idempotente)">Aplicar regla DROP</button>
+            <span id="fw-routeros-status" style="font-size:11px;color:var(--muted);"></span>
+          </div>
         </div>
         <div class="cfg-row">
           <label>IP del Firewall</label>
@@ -1048,10 +1064,76 @@ tbody tr:last-child { border-bottom:none; }
     .catch(() => showToast('Error al guardar Hunter', 'error'));
   }
 
+  function _updateRouterosAutoUi() {
+    const autoOn = !!_hunterCfg.routeros_auto_drop_enabled;
+    const btn = document.getElementById('btn-fw-ros-ensure');
+    const note = document.getElementById('fw-routeros-manual-note');
+    if (btn) btn.style.display = autoOn ? '' : 'none';
+    if (note) note.style.display = autoOn ? 'none' : '';
+  }
+
   function onFirewallTypeChange() {
     const t = document.getElementById('cfg-firewall-type')?.value;
     const hint = document.getElementById('row-fw-routeros-hint');
     if (hint) hint.style.display = (t === 'routeros') ? '' : 'none';
+    if (t === 'routeros') {
+      _updateRouterosAutoUi();
+      verifyRouterosDropRule(true);
+    }
+  }
+
+  function _setRouterosStatus(text, ok) {
+    const el = document.getElementById('fw-routeros-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = ok === true ? 'var(--online)' : (ok === false ? 'var(--offline)' : 'var(--muted)');
+  }
+
+  function verifyRouterosDropRule(silent) {
+    const btn = document.getElementById('btn-fw-ros-verify');
+    if (btn) btn.disabled = true;
+    if (!silent) _setRouterosStatus('Verificando…', null);
+    return shomerFetch('/remedies/firewall/routeros/verify')
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok) {
+          _setRouterosStatus(d.detail || 'Error al verificar', false);
+          if (!silent) showToast(d.detail || 'Error al verificar RouterOS', 'error');
+          return;
+        }
+        const icon = d.drop_rule_ok ? '✔' : '⚠';
+        _setRouterosStatus(`${icon} ${d.message || ''}`, d.drop_rule_ok);
+        if (!silent) showToast(d.message || 'Verificación RouterOS', d.drop_rule_ok ? 'success' : 'error');
+      })
+      .catch(() => {
+        _setRouterosStatus('Error de red al verificar', false);
+        if (!silent) showToast('Error al verificar RouterOS', 'error');
+      })
+      .finally(() => { if (btn) btn.disabled = false; });
+  }
+
+  function ensureRouterosDropRule() {
+    const btn = document.getElementById('btn-fw-ros-ensure');
+    if (btn) btn.disabled = true;
+    _setRouterosStatus('Aplicando regla…', null);
+    shomerFetch('/remedies/firewall/routeros/ensure-drop-rule', { method: 'POST' })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok) {
+          _setRouterosStatus(d.detail || 'Error', false);
+          showToast(d.detail || 'No se pudo aplicar la regla', 'error');
+          return;
+        }
+        const v = d.verify || {};
+        _setRouterosStatus(`✔ ${d.message || ''}`, true);
+        showToast(d.message || 'Regla DROP aplicada', 'success');
+        if (v.message) setTimeout(() => _setRouterosStatus(`✔ ${v.message}`, v.drop_rule_ok), 400);
+      })
+      .catch(() => {
+        _setRouterosStatus('Error al aplicar regla', false);
+        showToast('Error al aplicar regla DROP', 'error');
+      })
+      .finally(() => { if (btn) btn.disabled = false; });
   }
 
   function saveFirewallConfig() {
@@ -1174,6 +1256,7 @@ tbody tr:last-child { border-bottom:none; }
         document.getElementById('cfg-firewall-port').value = h.firewall_port || '22';
       if (document.getElementById('cfg-firewall-timeout'))
         document.getElementById('cfg-firewall-timeout').value = h.firewall_timeout || '10';
+      _hunterCfg.routeros_auto_drop_enabled = h.routeros_auto_drop_enabled === true;
       const fwTypeEl = document.getElementById('cfg-firewall-type');
       if (fwTypeEl) {
         fwTypeEl.value = h.firewall_type || 'openwrt';

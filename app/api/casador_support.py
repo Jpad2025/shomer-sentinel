@@ -15,7 +15,8 @@ from app.api.casador_support_constants import (
 )
 from app.api.casador_support_firewall import (
     _mikrotik_block, _mikrotik_sync_block, _mikrotik_unblock,
-    _routeros_block, _routeros_sync_block, _routeros_unblock,
+    _routeros_block, _routeros_ensure_drop_rule, _routeros_sync_block,
+    _routeros_unblock, _routeros_verify_setup,
 )
 from app.api.casador_support_health import _collect_pipeline_health, _systemctl_is_active
 from app.api.casador_support_redis_cb import (

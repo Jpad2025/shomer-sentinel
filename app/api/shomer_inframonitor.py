@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from app.api.auth_api import get_current_user
 from app.api.shomer_common import get_db, get_redis
+from app.api.shomer_status_events import record_status_event
 
 _security = HTTPBearer(auto_error=False)
 
@@ -116,6 +117,48 @@ def _init_tables():
             except Exception:
                 pass
         conn.commit()
+
+
+def _sync_guardian_aps() -> int:
+    """Guardian access_point → infra_devices (tipo ap). Los APs viven en devices; Infra los refleja."""
+    n = 0
+    try:
+        with get_db() as conn:
+            try:
+                ap_rows = conn.execute(
+                    "SELECT ip_address, name, location FROM devices "
+                    "WHERE is_active=1 AND device_type='access_point'"
+                ).fetchall()
+            except Exception:
+                return 0
+            for row in ap_rows:
+                ip = row["ip_address"]
+                if not ip:
+                    continue
+                conn.execute(
+                    "INSERT INTO infra_devices (ip, name, device_type, location, active, tcp_port, snmp_community) "
+                    "VALUES (?, ?, 'ap', ?, 1, NULL, '') "
+                    "ON CONFLICT(ip) DO UPDATE SET "
+                    "name=excluded.name, location=excluded.location, "
+                    "device_type='ap', active=1",
+                    (ip, row["name"] or ip, row["location"] or ""),
+                )
+                n += 1
+            # APs dados de baja en Guardian → ocultar en Infra
+            if ap_rows:
+                ips = [r["ip_address"] for r in ap_rows if r["ip_address"]]
+                ph = ",".join("?" * len(ips))
+                conn.execute(
+                    f"UPDATE infra_devices SET active=0 WHERE device_type='ap' "
+                    f"AND ip NOT IN ({ph})",
+                    ips,
+                )
+            conn.commit()
+            if n:
+                logger.info("Inframonitor: %d APs Guardian sincronizados a infra_devices", n)
+    except Exception as e:
+        logger.warning("sync guardian APs → infra: %s", e)
+    return n
 
 
 # ──────────────────────────────────────────────
@@ -513,6 +556,7 @@ async def _poll_once():
 
     redis = get_redis()
     now_utc = datetime.now(timezone.utc)
+    batch_id = f"i-{int(now_utc.timestamp())}"
 
     ping_tasks = [asyncio.to_thread(_ping, r["ip"]) for r in rows]
     tcp_tasks = [
@@ -584,6 +628,27 @@ async def _poll_once():
                     except Exception:
                         pass
 
+                device_type = row["device_type"] or "generic"
+                if device_type != "ap":
+                    lat_int = int(round(latency)) if latency is not None else None
+                    infra_reason = (
+                        "sin respuesta ping"
+                        if status == "offline"
+                        else "ping OK"
+                    )
+                    record_status_event(
+                        source="infra",
+                        ip=ip,
+                        name=name,
+                        device_type=device_type,
+                        prev_status=prev_status,
+                        status=status,
+                        reason=infra_reason,
+                        latency_ms=lat_int,
+                        loss_pct=None,
+                        batch_id=batch_id,
+                    )
+
                 # Telegram vía agente (watch_infra). Panel solo si INFRA_TELEGRAM_PANEL=1.
                 if os.environ.get("INFRA_TELEGRAM_PANEL", "0").strip() == "1":
                     asyncio.create_task(
@@ -624,6 +689,7 @@ async def _poller_loop():
     _init_tables()
     while True:
         try:
+            _sync_guardian_aps()  # catálogo APs Guardian → Infra (cada ciclo, ~30s)
             await _poll_once()
         except Exception as e:
             logger.error("infra poller error: %s", e)
@@ -738,6 +804,7 @@ def _build_device_row(d, s, uptime: Optional[float]) -> dict:
 @router.get("/infra/devices")
 async def list_devices(user=Depends(get_current_user)):
     _init_tables()
+    _sync_guardian_aps()
     with get_db() as conn:
         devices = conn.execute(
             "SELECT * FROM infra_devices WHERE active = 1 ORDER BY name"

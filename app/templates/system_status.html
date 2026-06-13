@@ -166,6 +166,29 @@
 .log-ok   { color:#4ade80; }
 .log-muted{ color:#475569; }
 
+/* incidentes de red */
+.outages-wrap { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+.outages-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+.outages-table { width:100%; border-collapse:collapse; font-size:12px; }
+.outages-table th { text-align:left; color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.6px;
+                    padding:6px 8px; border-bottom:1px solid var(--border); }
+.outages-table td { padding:8px; border-bottom:1px solid rgba(30,42,58,.5); vertical-align:top; }
+.outage-cause { font-size:11px; color:var(--text); max-width:280px; }
+.outage-meta { font-size:10px; color:var(--muted); }
+.badge-mass { color:var(--offline); font-weight:700; }
+.badge-single { color:var(--warning); font-weight:600; }
+.badge-sector { color:#d97706; font-weight:600; }
+.badge-wan { color:#dc2626; font-weight:700; }
+.badge-maint { color:#6366f1; font-weight:600; }
+.retention-bar { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:12px;
+  padding:10px 12px; background:rgba(30,42,58,.35); border-radius:6px; font-size:12px; }
+.retention-bar label { display:flex; flex-direction:column; gap:4px; color:var(--muted); font-size:10px; }
+.retention-bar input { width:72px; padding:6px 8px; background:var(--bg); border:1px solid var(--border);
+  border-radius:4px; color:var(--text); font-size:12px; }
+.retention-meta { font-size:10px; color:var(--muted); flex:1; min-width:180px; }
+.outage-actions { display:flex; gap:4px; flex-wrap:wrap; }
+.outage-confirmed { font-size:10px; color:var(--online); margin-top:4px; }
+
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 {% endblock %}
 
@@ -317,6 +340,53 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- incidentes de red (48 h) -->
+  <div>
+    <div class="ss-t">
+      <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Incidentes de red (últimas 48 h)
+    </div>
+    <div class="outages-wrap">
+      <div class="retention-bar" id="retention-bar">
+        <label>Historial eventos (días)
+          <input type="number" id="ret-status-days" min="7" max="365" value="90">
+        </label>
+        <label>Infra eventos (días)
+          <input type="number" id="ret-infra-days" min="7" max="365" value="90">
+        </label>
+        <label>Logs BD (días)
+          <input type="number" id="ret-log-days" min="7" max="365" value="30">
+        </label>
+        <label>Poda agresiva si disco ≥
+          <input type="number" id="ret-disk-pct" min="70" max="98" value="85">
+        </label>
+        <button type="button" class="btn btn-outline btn-sm" onclick="saveRetention()">Guardar retención</button>
+        <span class="retention-meta" id="retention-meta">Los registros más viejos se borran solos para no llenar el disco.</span>
+      </div>
+      <div class="outages-head">
+        <span class="outage-meta" id="outages-summary">Cargando…</span>
+        <a href="/api/network/outages/export?hours=168" class="btn btn-outline btn-sm">Exportar CSV</a>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="outages-table">
+          <thead>
+            <tr>
+              <th>Inicio (Bogotá)</th>
+              <th>Duración</th>
+              <th>Equipos</th>
+              <th>Causa probable</th>
+              <th>Confirmada</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="outages-body">
+            <tr><td colspan="6" class="outage-meta">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- consola de logs colapsable -->
@@ -573,6 +643,167 @@ function toggleAuto() {
   }
 }
 
+// ── incidentes de red ──
+var _causeCatalog = {};
+
+function outageBadgeClass(cause) {
+  if (cause === 'microcorte_red_admin' || cause === 'wan_ok_interno') return 'badge-mass';
+  if (cause === 'wan_isp') return 'badge-wan';
+  if (cause === 'mantenimiento') return 'badge-maint';
+  if (cause === 'equipo_aislado') return 'badge-single';
+  return 'badge-sector';
+}
+
+function loadRetention() {
+  shomerFetch('/api/network/retention')
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      if (!d.success) return;
+      _causeCatalog = d.cause_catalog || {};
+      var s = document.getElementById('ret-status-days');
+      var i = document.getElementById('ret-infra-days');
+      var l = document.getElementById('ret-log-days');
+      var p = document.getElementById('ret-disk-pct');
+      var m = document.getElementById('retention-meta');
+      if (s) s.value = d.status_retention_days || 90;
+      if (i) i.value = d.infra_events_retention_days || 90;
+      if (l) l.value = d.event_log_retention_days || 30;
+      if (p) p.value = d.aggressive_prune_disk_pct || 85;
+      if (m && d.disk_usage_pct != null) {
+        m.textContent = 'Disco: ' + Math.round(d.disk_usage_pct) + '% — poda automática cada hora; si supera '
+          + (d.aggressive_prune_disk_pct || 85) + '% la retención se reduce a la mitad.';
+      }
+    }).catch(function(){});
+}
+
+function saveRetention() {
+  var sEl = document.getElementById('ret-status-days');
+  var iEl = document.getElementById('ret-infra-days');
+  var lEl = document.getElementById('ret-log-days');
+  var pEl = document.getElementById('ret-disk-pct');
+  if (!sEl || !iEl || !lEl || !pEl) return;
+
+  function readDays(el, fallback) {
+    var n = parseInt(el.value, 10);
+    if (isNaN(n) || n < 7) {
+      alert('Cada retención debe ser entre 7 y 365 días.');
+      el.focus();
+      return null;
+    }
+    if (n > 365) n = 365;
+    return n;
+  }
+
+  var statusDays = readDays(sEl, 90);
+  if (statusDays === null) return;
+  var infraDays = readDays(iEl, 90);
+  if (infraDays === null) return;
+  var logDays = readDays(lEl, 30);
+  if (logDays === null) return;
+  var diskPct = parseInt(pEl.value, 10);
+  if (isNaN(diskPct) || diskPct < 70 || diskPct > 98) {
+    alert('Umbral de disco: entre 70 y 98 %.');
+    pEl.focus();
+    return;
+  }
+
+  var body = {
+    status_retention_days: statusDays,
+    infra_events_retention_days: infraDays,
+    event_log_retention_days: logDays,
+    aggressive_prune_disk_pct: diskPct
+  };
+
+  shomerFetch('/api/network/retention', { method: 'POST', body: JSON.stringify(body) })
+    .then(function(r) {
+      return r.json().then(function(d) {
+        if (!r.ok) {
+          var msg = (d && d.detail) ? d.detail : ('HTTP ' + r.status);
+          throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        }
+        return d;
+      });
+    })
+    .then(function(d) {
+      if (d.success && d.config) {
+        sEl.value = d.config.status_retention_days;
+        iEl.value = d.config.infra_events_retention_days;
+        lEl.value = d.config.event_log_retention_days;
+        pEl.value = d.config.aggressive_prune_disk_pct;
+      }
+      if (typeof showToast === 'function') {
+        showToast('Retención guardada (' + body.status_retention_days + '/' + body.infra_events_retention_days + '/' + body.event_log_retention_days + ' días)', 'success');
+      } else {
+        alert('Retención guardada.');
+      }
+    })
+    .catch(function(err) {
+      var msg = (err && err.message) ? err.message : 'Error de red';
+      if (typeof showToast === 'function') showToast('No se guardó: ' + msg, 'error');
+      else alert('Error al guardar: ' + msg);
+    });
+}
+
+function confirmOutage(startedUtc) {
+  var keys = Object.keys(_causeCatalog);
+  if (!keys.length) {
+    keys = ['microcorte_red_admin','wan_isp','wan_ok_interno','sector_parcial','equipo_aislado',
+            'fallo_electrico','mantenimiento','otro'];
+  }
+  var msg = 'Causa confirmada en campo:\n' + keys.map(function(k, i){ return (i+1) + '=' + k; }).join('\n');
+  var pick = prompt(msg + '\n\nEscriba el código (ej. fallo_electrico):', 'fallo_electrico');
+  if (!pick || keys.indexOf(pick) < 0 && pick !== 'otro') return;
+  var notes = prompt('Notas (opcional):', '') || '';
+  shomerFetch('/api/network/outages/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ started_at_utc: startedUtc, confirmed_cause: pick, notes: notes })
+  }).then(function(r){ return r.json(); }).then(function(d) {
+    if (d.success) loadOutages();
+  }).catch(function(){ alert('Error al guardar'); });
+}
+
+function renderOutages(items) {
+  var body = document.getElementById('outages-body');
+  var sum = document.getElementById('outages-summary');
+  if (!body) return;
+  if (!items || !items.length) {
+    body.innerHTML = '<tr><td colspan="6" class="outage-meta">Sin oleadas registradas en 48 h</td></tr>';
+    if (sum) sum.textContent = '0 incidentes';
+    return;
+  }
+  if (sum) sum.textContent = items.length + ' incidente(s) — hora Bogotá';
+  body.innerHTML = items.map(function(o) {
+    var cls = outageBadgeClass(o.probable_cause);
+    var dur = o.duration_sec != null ? o.duration_sec + ' s' : '—';
+    var eq = (o.devices_count || 0) + (o.ap_count ? ' (' + o.ap_count + ' APs)' : '');
+    var conf = o.confirmed_cause
+      ? '<span class="' + outageBadgeClass(o.confirmed_cause) + '">' + esc(o.confirmed_cause_label || o.confirmed_cause) + '</span>'
+      : '<span class="outage-meta">—</span>';
+    var noteLine = o.notes ? '<div class="outage-confirmed">' + esc(o.notes) + '</div>' : '';
+    return '<tr>'
+      + '<td><div>' + esc(o.started_at_bogota || '') + '</div>'
+      + '<div class="outage-meta">' + esc((o.sample_names || []).slice(0,2).join(', ')) + '</div></td>'
+      + '<td>' + esc(dur) + '</td>'
+      + '<td>' + esc(String(eq)) + '</td>'
+      + '<td class="outage-cause"><span class="' + cls + '">' + esc(o.probable_cause_label || '') + '</span></td>'
+      + '<td class="outage-cause">' + conf + noteLine + '</td>'
+      + '<td><div class="outage-actions"><button type="button" class="btn btn-outline btn-sm" onclick="confirmOutage(\''
+      + esc(o.started_at_utc || '') + '\')">Confirmar</button></div></td>'
+      + '</tr>';
+  }).join('');
+}
+
+function loadOutages() {
+  shomerFetch('/api/network/outages?hours=48')
+    .then(function(r){ return r.json(); })
+    .then(function(d){ renderOutages(d.outages || []); })
+    .catch(function(){
+      var body = document.getElementById('outages-body');
+      if (body) body.innerHTML = '<tr><td colspan="4" class="outage-meta">Error al cargar incidentes</td></tr>';
+    });
+}
+
 // ── carga principal ──
 function loadAll() {
   var btn = document.querySelector('[onclick="loadAll()"]');
@@ -596,7 +827,10 @@ function loadAll() {
 
 document.addEventListener('DOMContentLoaded', function(){
   loadAll();
+  loadRetention();
+  loadOutages();
   setInterval(loadAll, 30000);
+  setInterval(loadOutages, 60000);
 });
 </script>
 {% endblock %}

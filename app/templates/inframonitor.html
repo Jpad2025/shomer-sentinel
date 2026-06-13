@@ -477,7 +477,8 @@ tr:last-child td { border-bottom:none; }
   }
 
   const SNMP_TYPES = ['switch', 'router', 'server', 'nas', 'printer', 'pos', 'ups', 'controller'];
-  const TCP_DEFAULTS = { switch: '443', router: '443', server: '443', nas: '5000', printer: '9100', pos: '9100' };
+  // Windows Server (hotel): RDP 3389 — no asumir 443 (Zeus/PMS, AD, etc.)
+  const TCP_DEFAULTS = { switch: '', router: '443', server: '3389', nas: '5000', printer: '9100', pos: '9100' };
 
   const PC_IP_TYPES = ['printer', 'pos'];
 

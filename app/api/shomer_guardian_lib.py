@@ -24,6 +24,9 @@ AUTO_REBOOT_COOLDOWN_SEC = int(os.environ.get("SHOMER_REBOOT_COOLDOWN_SEC", "360
 SSH_KEY_PATH = (os.environ.get("SHOMER_SSH_KEY_PATH") or "").strip() or (
     "/home/usb_admin/.ssh/id_ed25519_shomer"
 )
+SSH_KNOWN_HOSTS = (os.environ.get("SHOMER_SSH_KNOWN_HOSTS") or "").strip() or (
+    "/home/usb_admin/.ssh/known_hosts"
+)
 SSH_CONNECT_TIMEOUT = 5
 SSH_FALLBACK_PASSWORD = os.environ.get("SSH_FALLBACK_PASSWORD", "")
 ALLOWED_IP_PATTERN = re.compile(
@@ -109,26 +112,30 @@ def _normalize_success(payload: Dict[str, Any]) -> bool:
 _SNMP_REBOOT_OID = "1.3.6.1.4.1.11863.10.1.2.1.0"
 
 
-def _get_device_ssh_credentials(node_ip: str) -> Tuple[Optional[str], Optional[str], int]:
-    """Busca user/password/port en la tabla devices para la IP dada. Devuelve (user, password, port)."""
+def _get_device_ssh_credentials(
+    node_ip: str,
+) -> Tuple[Optional[str], Optional[str], int, str]:
+    """User/password/port/reboot_command desde devices. reboot_command default: reboot."""
     try:
         from app.backend.db import connect
         conn = connect(timeout=5, check_same_thread=False)
         conn.row_factory = __import__("sqlite3").Row
         try:
             cur = conn.execute(
-                "SELECT ssh_user, ssh_password, ssh_port FROM devices WHERE ip_address=? AND is_active=1 LIMIT 1",
-                (node_ip,)
+                "SELECT ssh_user, ssh_password, ssh_port, reboot_command "
+                "FROM devices WHERE ip_address=? AND is_active=1 LIMIT 1",
+                (node_ip,),
             )
             row = cur.fetchone()
             if row and row["ssh_user"] and row["ssh_password"]:
                 port = int(row["ssh_port"] or 22)
-                return row["ssh_user"], row["ssh_password"], port
+                cmd = (row["reboot_command"] or "reboot").strip() or "reboot"
+                return row["ssh_user"], row["ssh_password"], port, cmd
         finally:
             conn.close()
     except Exception:
         pass
-    return None, None, 22
+    return None, None, 22, "reboot"
 
 
 def _get_device_snmp_credentials(node_ip: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
@@ -202,7 +209,7 @@ def _run_ssh_reboot(node_ip: str) -> Tuple[bool, str]:
     sshpass_path = shutil.which("sshpass")
 
     # 1) Intentar con credenciales específicas del dispositivo (user+password de la BD)
-    db_user, db_pwd, db_port = _get_device_ssh_credentials(node_ip)
+    db_user, db_pwd, db_port, reboot_cmd = _get_device_ssh_credentials(node_ip)
     if db_user and db_pwd and sshpass_path:
         try:
             cmd_db = [
@@ -210,13 +217,13 @@ def _run_ssh_reboot(node_ip: str) -> Tuple[bool, str]:
                 "/usr/bin/ssh",
                 "-o", "ConnectTimeout=" + str(SSH_CONNECT_TIMEOUT),
                 "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "UserKnownHostsFile=" + SSH_KNOWN_HOSTS,
                 "-o", "HostKeyAlgorithms=+ssh-rsa,ssh-dss,ecdsa-sha2-nistp256,ssh-ed25519",
                 "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa,ssh-dss",
                 "-o", "KexAlgorithms=+diffie-hellman-group14-sha1,diffie-hellman-group14-sha256,diffie-hellman-group1-sha1",
                 "-p", str(db_port),
                 f"{db_user}@{node_ip}",
-                "reboot",
+                reboot_cmd,
             ]
             r = subprocess.run(cmd_db, capture_output=True, text=True, timeout=SSH_CONNECT_TIMEOUT + 5)
             if r.returncode == 0:

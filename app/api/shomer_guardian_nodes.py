@@ -36,6 +36,7 @@ from app.api.shomer_guardian_lib import (
     _run_ssh_reboot,
     _save_node_data_redis,
 )
+from app.api.shomer_status_events import record_status_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Shomer Guardian"])
@@ -69,22 +70,34 @@ def _update_infra_nodes(results: List[Dict[str, Any]]) -> None:
         return
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     active_ips = [r["ip"] for r in results]
-    try:
-        with get_db() as conn:
-            for rr in results:
+    import sqlite3
+    import time as _time
+
+    for attempt in range(4):
+        try:
+            with get_db() as conn:
+                for rr in results:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO infra_nodes "
+                        "(ip_address, status, last_heartbeat, latency_ms) VALUES (?, ?, ?, ?)",
+                        (rr["ip"], rr["status"], now, rr.get("latency_ms")),
+                    )
+                placeholders = ",".join("?" * len(active_ips))
                 conn.execute(
-                    "INSERT OR REPLACE INTO infra_nodes "
-                    "(ip_address, status, last_heartbeat, latency_ms) VALUES (?, ?, ?, ?)",
-                    (rr["ip"], rr["status"], now, rr.get("latency_ms")),
+                    f"DELETE FROM infra_nodes WHERE ip_address NOT IN ({placeholders})",
+                    active_ips,
                 )
-            placeholders = ",".join("?" * len(active_ips))
-            conn.execute(
-                f"DELETE FROM infra_nodes WHERE ip_address NOT IN ({placeholders})",
-                active_ips,
-            )
-            conn.commit()
-    except Exception as e:
-        logger.warning("update_infra_nodes: %s", e)
+                conn.commit()
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 3:
+                _time.sleep(0.15 * (attempt + 1))
+                continue
+            logger.warning("update_infra_nodes: %s", e)
+            return
+        except Exception as e:
+            logger.warning("update_infra_nodes: %s", e)
+            return
 
 
 async def _poller_tick() -> None:
@@ -116,19 +129,24 @@ async def _poller_tick() -> None:
     threshold, cooldown = _get_guardian_thresholds()
     health_cfg = _get_health_config()
     tick_results: List[Dict[str, Any]] = []
+    batch_id = f"g-{int(datetime.utcnow().timestamp())}"
 
     for dev in devices:
         ip = dev["ip_address"]
+        dev_name = dev.get("name") or ip
+        dev_type = dev.get("device_type") or "generic"
         try:
+            prev_redis = r.get(f"status:{ip}") or "unknown"
             lan_ok, lan_loss, lan_rtt = await asyncio.to_thread(
                 _ping_metrics, ip, health_cfg["ping_count"]
             )
 
             is_snmp_device = dev.get("reboot_method") == "snmp"
-            # Dispositivos SNMP-only no tienen permisos SSH para ping/reboot
-            is_router = not is_snmp_device and (
-                dev.get("reboot_method") == "ssh"
-                or dev.get("device_type") in ("router", "ap", "gateway")
+            # Solo routers/gateways reciben probes WAN (ping 8.8.8.8, DNS, HTTP) vía SSH.
+            # APs con reboot_method=ssh NO son routers — probes WAN en UniFi generaban
+            # falsos no-internet/degraded (Sesión Ópera jun 2026).
+            is_router = not is_snmp_device and dev.get("device_type") in (
+                "router", "gateway"
             )
 
             ssh_result: Any = None
@@ -171,6 +189,19 @@ async def _poller_tick() -> None:
             lat_ms = int(round(lan_rtt)) if lan_rtt is not None else None
 
             if status_label == "online":
+                if prev_redis != "online":
+                    record_status_event(
+                        source="guardian",
+                        ip=ip,
+                        name=dev_name,
+                        device_type=dev_type,
+                        prev_status=prev_redis,
+                        status="online",
+                        reason="ping OK",
+                        latency_ms=lat_ms,
+                        loss_pct=lan_loss,
+                        batch_id=batch_id,
+                    )
                 r.set(f"status:{ip}", "online")
                 r.delete(key)
                 r.delete(streak_key)
@@ -189,6 +220,19 @@ async def _poller_tick() -> None:
                     prev = r.get(f"status:{ip}") or "online"
                     tick_results.append({"ip": ip, "status": prev, "latency_ms": lat_ms})
                     continue
+                if prev_redis != "degraded":
+                    record_status_event(
+                        source="guardian",
+                        ip=ip,
+                        name=dev_name,
+                        device_type=dev_type,
+                        prev_status=prev_redis,
+                        status="degraded",
+                        reason=reason,
+                        latency_ms=lat_ms,
+                        loss_pct=lan_loss,
+                        batch_id=batch_id,
+                    )
                 r.set(f"status:{ip}", "degraded")
                 notify_key = f"{DEGRADED_NOTIFY_KEY_PREFIX}{ip}"
                 alert_cooldown = int(health_cfg.get("degraded_alert_cooldown_sec") or 1800)
@@ -202,6 +246,19 @@ async def _poller_tick() -> None:
                 tick_results.append({"ip": ip, "status": "degraded", "latency_ms": lat_ms})
                 continue
 
+            if prev_redis != status_label:
+                record_status_event(
+                    source="guardian",
+                    ip=ip,
+                    name=dev_name,
+                    device_type=dev_type,
+                    prev_status=prev_redis,
+                    status=status_label,
+                    reason=reason,
+                    latency_ms=lat_ms,
+                    loss_pct=lan_loss,
+                    batch_id=batch_id,
+                )
             r.set(f"status:{ip}", status_label)
             r.delete(streak_key)
             tick_results.append({"ip": ip, "status": status_label, "latency_ms": lat_ms})
