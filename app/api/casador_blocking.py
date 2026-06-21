@@ -1,4 +1,5 @@
 """Casador — bloqueo firewall, lista blocked_ips, circuit breaker."""
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
@@ -132,41 +133,34 @@ def _wazuh_integration_key_match(provided: Optional[str]) -> bool:
     return False
 
 
-@router.post("/block")
-async def block_ip(
-    body: Dict[str, Any] = Body(...),
-    x_shomer_integration_key: Optional[str] = Header(default=None, alias="X-Shomer-Integration-Key"),
-):
-    """
-    Bloquea una IP en el firewall y la registra en BD.
-    Wazuh → Shomer: `blocked_by: "wazuh"` + cabecera `X-Shomer-Integration-Key` (misma clave que
-    `hunter.integration_key` en BD o variable `SHOMER_WAZUH_INTEGRATION_KEY`).
-    """
-    _require_hunter()
-    ip = (body.get("ip") or "").strip()
-    blocked_by = (body.get("blocked_by") or "manual").strip().lower()
+async def execute_hunter_block(
+    ip: str,
+    *,
+    blocked_by: str = "manual",
+    alert_sid=None,
+    alert_signature: str = "",
+    severity=3,
+    integration_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Bloqueo central — panel, Wazuh, poller servidor y bot."""
+    blocked_by = (blocked_by or "manual").strip().lower()
     if blocked_by not in ("manual", "auto", "wazuh"):
         blocked_by = "manual"
-    alert_sid = body.get("alert_sid")
-    alert_signature = body.get("alert_signature", "")
-    severity = body.get("severity", 3)
-
-    if not ip:
-        raise HTTPException(status_code=400, detail="IP requerida")
-    try:
-        import ipaddress as _ipa; _ipa.ip_address(ip)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Formato de IP inválido: {ip}")
 
     # Cadena Wazuh → Shomer: filtrado/escalado en Wazuh; aquí solo confianza + excepciones globales.
     if blocked_by == "wazuh":
         if not _wazuh_integration_key_configured():
-            raise HTTPException(
-                status_code=503,
-                detail="Integración Wazuh: configure SHOMER_WAZUH_INTEGRATION_KEY o hunter.integration_key en Shomer",
-            )
-        if not _wazuh_integration_key_match(x_shomer_integration_key):
-            raise HTTPException(status_code=401, detail="X-Shomer-Integration-Key inválida o ausente")
+            return {
+                "success": False,
+                "detail": "Integración Wazuh: configure SHOMER_WAZUH_INTEGRATION_KEY o hunter.integration_key en Shomer",
+                "_http_status": 503,
+            }
+        if not _wazuh_integration_key_match(integration_key):
+            return {
+                "success": False,
+                "detail": "X-Shomer-Integration-Key inválida o ausente",
+                "_http_status": 401,
+            }
         policy = _auto_block_policy()
         if _ip_in_exceptions(ip, policy["exceptions"]):
             return {
@@ -256,7 +250,7 @@ async def block_ip(
         # Firewall no configurado: modo solo-BD (monitoreo sin firewall)
         _log.warning("Firewall no configurado — %s solo se registrará en BD sin bloqueo real en red", ip)
 
-    try:
+    def _write_block_row():
         with get_connection(timeout=10) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO blocked_ips (ip, blocked_at, blocked_by, alert_sid, alert_signature, severity, firewall_blocked) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -271,6 +265,13 @@ async def block_ip(
                 ),
             )
             conn.commit()
+
+    try:
+        # to_thread: esta escritura competía por el lock de SQLite directo en el hilo
+        # único de Guardian -- durante una ráfaga real de alertas Suricata (el momento
+        # donde más importa que el panel siga respondiendo) cada autobloqueo podía
+        # esperar hasta 10s bloqueando todo el servidor, no solo este endpoint.
+        await asyncio.to_thread(_write_block_row)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -303,8 +304,8 @@ async def block_ip(
     try:
         from app.api.shomer_incidents import create_incident
         create_incident(ip, alert_signature or "", int(severity or 3), blocked_by, ok)
-    except Exception:
-        pass
+    except Exception as _ci_err:
+        _log.warning("create_incident failed (ip=%s): %s", ip, _ci_err)
 
     out: Dict[str, Any] = {"success": True, "message": msg, "ip": ip, "firewall_ok": ok}
     if telegram_sent is not None:
@@ -312,8 +313,41 @@ async def block_ip(
     return out
 
 
+@router.post("/block")
+async def block_ip(
+    body: Dict[str, Any] = Body(...),
+    x_shomer_integration_key: Optional[str] = Header(default=None, alias="X-Shomer-Integration-Key"),
+):
+    """
+    Bloquea una IP en el firewall y la registra en BD.
+    Wazuh → Shomer: `blocked_by: "wazuh"` + cabecera `X-Shomer-Integration-Key` (misma clave que
+    `hunter.integration_key` en BD o variable `SHOMER_WAZUH_INTEGRATION_KEY`).
+    """
+    _require_hunter()
+    ip = (body.get("ip") or "").strip()
+    if not ip:
+        raise HTTPException(status_code=400, detail="IP requerida")
+    try:
+        import ipaddress as _ipa; _ipa.ip_address(ip)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Formato de IP inválido: {ip}")
+
+    result = await execute_hunter_block(
+        ip,
+        blocked_by=(body.get("blocked_by") or "manual"),
+        alert_sid=body.get("alert_sid"),
+        alert_signature=body.get("alert_signature", ""),
+        severity=body.get("severity", 3),
+        integration_key=x_shomer_integration_key,
+    )
+    status = result.pop("_http_status", None)
+    if status:
+        raise HTTPException(status_code=int(status), detail=result.get("detail") or "Error")
+    return result
+
+
 @router.post("/unblock")
-async def unblock_ip(body: Dict[str, Any] = Body(...)):
+async def unblock_ip(body: Dict[str, Any] = Body(...), user=Depends(get_current_user)):
     ip = (body.get("ip") or "").strip()
     if not ip:
         raise HTTPException(status_code=400, detail="IP requerida")

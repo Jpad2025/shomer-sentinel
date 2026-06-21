@@ -116,7 +116,15 @@ _PORT_RULE_MAP = {r[0]: r for r in _PORT_RULES}
 # DB init
 # ──────────────────────────────────────────────
 
+_tables_ready = False
+
+
 def _init_tables():
+    # Llamado en CADA endpoint de este módulo -- guard de una sola vez evita CREATE/ALTER
+    # repetido contra SQLite en el hilo único de Guardian por request.
+    global _tables_ready
+    if _tables_ready:
+        return
     with get_db() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS network_audit_scans (
@@ -153,6 +161,7 @@ def _init_tables():
             CREATE INDEX IF NOT EXISTS idx_naf_status ON network_audit_findings(finding_status);
         """)
         conn.commit()
+    _tables_ready = True
 
 
 # ──────────────────────────────────────────────

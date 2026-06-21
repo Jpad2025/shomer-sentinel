@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import time as _time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -47,7 +48,14 @@ router = APIRouter(tags=["inframonitor"])
 
 POLL_INTERVAL_SEC = 30
 _poller_running = False
+_executor_configured = False
+# El pool de hilos por defecto de asyncio es min(32, CPUs+4) -- en un servidor de
+# 4 CPUs son solo 8 hilos para ~100 tareas bloqueantes por ciclo (ping+tcp+snmp de
+# todos los equipos). Eso hacía que pings quedaran en cola y equipos sanos
+# aparecieran "offline" por unos segundos (falso flapping). Pool dedicado y fijo.
+INFRA_THREAD_WORKERS = int(os.environ.get("INFRA_THREAD_WORKERS", "48"))
 ALERT_COOLDOWN_SEC = 300  # no repetir alerta del mismo equipo por 5 min
+_sync_ap_cache: Optional[frozenset] = None  # evita writes en BD si los APs Guardian no cambiaron
 
 DEVICE_ICONS = {
     "generic":    "📡",
@@ -71,8 +79,36 @@ DEVICE_ICONS = {
 # DB init + migrations
 # ──────────────────────────────────────────────
 
+def _ensure_executor():
+    """Agranda el pool de hilos del event-loop actual para que asyncio.to_thread()
+    (ping/tcp/snmp del poller) no haga cola esperando hilo libre. Se llama una vez
+    desde _init_tables(), tanto en el poller standalone como en el embebido."""
+    global _executor_configured
+    if _executor_configured:
+        return
+    try:
+        loop = asyncio.get_event_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=INFRA_THREAD_WORKERS))
+        _executor_configured = True
+        logger.info("Inframonitor: pool de hilos configurado a %d workers", INFRA_THREAD_WORKERS)
+    except Exception as e:
+        logger.warning("Inframonitor: no se pudo ajustar el executor: %s", e)
+
+
+_tables_ready = False
+
+
 def _init_tables():
+    # Esta función hacía CREATE/ALTER TABLE en CADA request (list_devices, get_status,
+    # add_device, etc.) -- DDL real contra SQLite en el único hilo de Guardian, en cada
+    # llamada, no solo la primera. Bajo contención con otro escritor (poller, Hunter,
+    # backups) eso puede bloquear el event loop entero. Guard de una sola vez por proceso.
+    global _tables_ready
+    if _tables_ready:
+        return
+    _ensure_executor()
     with get_db() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS infra_devices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,7 +140,8 @@ def _init_tables():
         # Migrations for existing installs
         for col, tbl, defn in [
             ("tcp_port",         "infra_devices", "INTEGER DEFAULT NULL"),
-            ("snmp_community",   "infra_devices", "TEXT DEFAULT 'public'"),
+            ("snmp_community",         "infra_devices", "TEXT DEFAULT 'public'"),
+            ("snmp_community_write",   "infra_devices", "TEXT DEFAULT ''"),
             ("pc_server_ip",     "infra_devices", "TEXT DEFAULT NULL"),
             ("tcp_ok",           "infra_status",  "INTEGER DEFAULT NULL"),
             ("mac",              "infra_status",  "TEXT DEFAULT NULL"),
@@ -117,10 +154,12 @@ def _init_tables():
             except Exception:
                 pass
         conn.commit()
+    _tables_ready = True
 
 
 def _sync_guardian_aps() -> int:
     """Guardian access_point → infra_devices (tipo ap). Los APs viven en devices; Infra los refleja."""
+    global _sync_ap_cache
     n = 0
     try:
         with get_db() as conn:
@@ -131,6 +170,14 @@ def _sync_guardian_aps() -> int:
                 ).fetchall()
             except Exception:
                 return 0
+            # Solo escribir en BD si el conjunto de APs cambió
+            ap_snapshot = frozenset(
+                (r["ip_address"], r["name"] or "", r["location"] or "")
+                for r in ap_rows if r["ip_address"]
+            )
+            if ap_snapshot == _sync_ap_cache:
+                return 0
+            _sync_ap_cache = ap_snapshot
             for row in ap_rows:
                 ip = row["ip_address"]
                 if not ip:
@@ -307,6 +354,28 @@ def _parse_snmp_string(rhs: str) -> str:
     return ""
 
 
+def _snmp_cmd_base(community: str, timeout: int, version: str) -> list:
+    return ["-v" + version, "-c", community, "-t", str(timeout), "-r", "0"]
+
+
+def _snmp_probe_version(
+    snmpget: str, ip: str, community: str, timeout: int,
+) -> tuple[Optional[str], Optional[str]]:
+    """Prueba v2c primero; fallback v1 (EdgeSwitch / UniFi adoptados)."""
+    sys_oids = ["1.3.6.1.2.1.1.1.0", "1.3.6.1.2.1.1.3.0", "1.3.6.1.2.1.1.5.0"]
+    for ver in ("2c", "1"):
+        try:
+            r = subprocess.run(
+                [snmpget] + _snmp_cmd_base(community, timeout, ver) + [ip] + sys_oids,
+                capture_output=True, text=True, timeout=timeout + 2,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout, ver
+        except Exception:
+            continue
+    return None, None
+
+
 def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict], device_type: str = "generic") -> dict:
     """Blocking: collect SNMP system info + interface table (+ printer OIDs si aplica)."""
     snmpget  = shutil.which("snmpget")
@@ -315,23 +384,10 @@ def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict], device_type: 
         return {"ok": False, "error": "snmpget no disponible"}
 
     TIMEOUT = 4
-    BASE = ["-v2c", "-c", community, "-t", str(TIMEOUT), "-r", "0"]
-
-    # System info: sysDescr + sysUpTime + sysName
-    try:
-        r = subprocess.run(
-            [snmpget] + BASE + [ip,
-                "1.3.6.1.2.1.1.1.0",
-                "1.3.6.1.2.1.1.3.0",
-                "1.3.6.1.2.1.1.5.0",
-            ],
-            capture_output=True, text=True, timeout=TIMEOUT + 2,
-        )
-        if r.returncode != 0 or not r.stdout.strip():
-            return {"ok": False, "error": "SNMP no responde (timeout o comunidad incorrecta)"}
-        sys_out = r.stdout
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:120]}
+    sys_out, snmp_ver = _snmp_probe_version(snmpget, ip, community, TIMEOUT)
+    if not sys_out or not snmp_ver:
+        return {"ok": False, "error": "SNMP no responde (timeout o comunidad incorrecta)"}
+    BASE = _snmp_cmd_base(community, TIMEOUT, snmp_ver)
 
     sys_descr = sys_uptime = sys_name = ""
     for line in sys_out.splitlines():
@@ -353,16 +409,21 @@ def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict], device_type: 
     # Interface table
     interfaces: list = []
     raw_octets: dict = {}
+    walk_timeout = TIMEOUT + (20 if snmp_ver == "1" else 10)
     if snmpwalk:
         try:
             r_if = subprocess.run(
                 [snmpwalk] + BASE + [ip, "1.3.6.1.2.1.2.2.1"],
-                capture_output=True, text=True, timeout=TIMEOUT + 10,
+                capture_output=True, text=True, timeout=walk_timeout,
             )
             if r_if.returncode == 0 and r_if.stdout.strip():
                 interfaces, raw_octets = _parse_iftable(r_if.stdout, prev_snmp)
         except Exception:
             pass
+    # Walk incompleto: conservar tabla anterior (evita flapping falso en bot/panel)
+    if not interfaces and prev_snmp and prev_snmp.get("interfaces"):
+        interfaces = prev_snmp.get("interfaces") or []
+        raw_octets = prev_snmp.get("_raw_octets") or {}
 
     result = {
         "ok": True,
@@ -483,6 +544,56 @@ async def _send_infra_alert(
 # ──────────────────────────────────────────────
 # Uptime 24h calculation
 # ──────────────────────────────────────────────
+
+def _calc_uptime_24h_batch(conn, ips: list, status_map: dict) -> dict:
+    """2 queries para todos los IPs; devuelve {ip: uptime_pct}. Evita N×2 queries en /infra/devices."""
+    if not ips:
+        return {}
+    ph = ",".join("?" * len(ips))
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(hours=24)
+    rows_in = conn.execute(
+        f"SELECT ip, event, ts FROM infra_events WHERE ip IN ({ph}) "
+        f"AND ts >= datetime('now','-24 hours') ORDER BY ip, ts",
+        ips,
+    ).fetchall()
+    prev_rows = conn.execute(
+        f"""SELECT ip, event FROM infra_events ie
+            WHERE ip IN ({ph})
+              AND ts = (SELECT max(ts) FROM infra_events WHERE ip=ie.ip
+                        AND ts < datetime('now','-24 hours'))""",
+        ips,
+    ).fetchall()
+    events_by_ip: dict = {}
+    for r in rows_in:
+        events_by_ip.setdefault(r["ip"], []).append(r)
+    prev_by_ip = {r["ip"]: r["event"] for r in prev_rows}
+    result: dict = {}
+    for ip in ips:
+        current_status = (status_map.get(ip) or {}).get("status", "unknown")
+        events = events_by_ip.get(ip, [])
+        if not events:
+            result[ip] = 100.0 if current_status == "online" else 0.0
+            continue
+        initial = prev_by_ip.get(ip) or ("offline" if events[0]["event"] == "online" else "online")
+        online_secs = 0.0
+        cur_st = initial
+        cur_time = window_start
+        for row in events:
+            try:
+                ts = datetime.fromisoformat(row["ts"]).replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            if cur_st == "online":
+                online_secs += (ts - cur_time).total_seconds()
+            cur_time = ts
+            cur_st = row["event"]
+        if cur_st == "online":
+            online_secs += (now - cur_time).total_seconds()
+        total = (now - window_start).total_seconds()
+        result[ip] = round(min(100.0, online_secs / total * 100), 1) if total > 0 else None
+    return result
+
 
 def _calc_uptime_24h(conn, ip: str, current_status: str) -> Optional[float]:
     rows = conn.execute(
@@ -647,6 +758,7 @@ async def _poll_once():
                         latency_ms=lat_int,
                         loss_pct=None,
                         batch_id=batch_id,
+                        conn=conn,  # reusa la transacción del poller -- evita auto-contención
                     )
 
                 # Telegram vía agente (watch_infra). Panel solo si INFRA_TELEGRAM_PANEL=1.
@@ -659,6 +771,16 @@ async def _poll_once():
                 last_change = last_change_str or now_utc.isoformat()
 
             snmp_res = snmp_map.get(ip)
+            if snmp_res and snmp_res.get("ok") and not (snmp_res.get("interfaces") or []):
+                prev_row = existing.get(ip) or {}
+                if prev_row.get("snmp_data"):
+                    try:
+                        prev_snmp = json.loads(prev_row["snmp_data"])
+                        if prev_snmp.get("interfaces"):
+                            snmp_res = {**snmp_res, "interfaces": prev_snmp["interfaces"],
+                                        "_raw_octets": prev_snmp.get("_raw_octets", {})}
+                    except Exception:
+                        pass
             snmp_data_json = json.dumps(snmp_res) if snmp_res is not None else None
             snmp_ok_val = 1 if (snmp_res and snmp_res.get("ok")) else (0 if snmp_res is not None else None)
 
@@ -678,9 +800,18 @@ async def _poll_once():
             """, (ip, status, latency, tcp_ok, mac, last_change, snmp_data_json, snmp_ok_val))
 
             if redis:
-                redis.setex(f"infra:{ip}:status", POLL_INTERVAL_SEC * 4, status)
+                ttl = POLL_INTERVAL_SEC * 4
+                redis.setex(f"infra:{ip}:status", ttl, status)
                 if latency is not None:
-                    redis.setex(f"infra:{ip}:latency", POLL_INTERVAL_SEC * 4, str(latency))
+                    redis.setex(f"infra:{ip}:latency", ttl, str(latency))
+                redis.setex(
+                    f"infra:{ip}:data", ttl,
+                    json.dumps({
+                        "status": status, "latency_ms": latency,
+                        "tcp_ok": tcp_ok, "mac": mac, "snmp_ok": snmp_ok_val,
+                        "checked_at": datetime.now(timezone.utc).isoformat(),
+                    }),
+                )
         conn.commit()
 
 
@@ -759,7 +890,26 @@ def _snmp_down_port_names(snmp_data_raw) -> list:
     return names
 
 
-def _build_device_row(d, s, uptime: Optional[float]) -> dict:
+def _snmp_up_port_names(snmp_data_raw) -> list:
+    """Puertos ifOperStatus=up desde snmp_data cacheado."""
+    if not snmp_data_raw:
+        return []
+    try:
+        snmp = json.loads(snmp_data_raw) if isinstance(snmp_data_raw, str) else snmp_data_raw
+    except Exception:
+        return []
+    names = []
+    for iface in snmp.get("interfaces", []):
+        if iface.get("oper") != "up":
+            continue
+        name = (iface.get("name") or "").strip()
+        if not name or name.lower() in ("lo", "loopback"):
+            continue
+        names.append(name)
+    return names
+
+
+def _build_device_row(d, s, uptime: Optional[float], outages_today: int = 0) -> dict:
     row = {
         "id": d["id"],
         "ip": d["ip"],
@@ -776,6 +926,7 @@ def _build_device_row(d, s, uptime: Optional[float]) -> dict:
         "mac": s["mac"] if s else None,
         "snmp_ok": s["snmp_ok"] if s else None,
         "uptime_24h": uptime,
+        "outages_today": outages_today,
         "state_duration": _fmt_duration(s["last_state_change"] if s else None),
         "checked_at": (s["checked_at"] if s else None),
         "created_at": d["created_at"],
@@ -792,6 +943,9 @@ def _build_device_row(d, s, uptime: Optional[float]) -> dict:
                 down = _snmp_down_port_names(snmp)
                 if down:
                     row["snmp_down_ports"] = down
+                up = _snmp_up_port_names(snmp)
+                if up:
+                    row["snmp_up_ports"] = up
         except Exception:
             pass
     return row
@@ -803,8 +957,11 @@ def _build_device_row(d, s, uptime: Optional[float]) -> dict:
 
 @router.get("/infra/devices")
 async def list_devices(user=Depends(get_current_user)):
-    _init_tables()
-    _sync_guardian_aps()
+    # _init_tables/_sync_guardian_aps escriben en SQLite (get_db timeout=10) -- si chocan con
+    # otro escritor (poller, Hunter, backups) bloquean hasta 10s el event loop entero porque
+    # antes corrían síncronos aquí mismo. to_thread() libera el loop mientras esperan el lock.
+    await asyncio.to_thread(_init_tables)
+    await asyncio.to_thread(_sync_guardian_aps)
     with get_db() as conn:
         devices = conn.execute(
             "SELECT * FROM infra_devices WHERE active = 1 ORDER BY name"
@@ -812,9 +969,16 @@ async def list_devices(user=Depends(get_current_user)):
         status_map = {
             r["ip"]: dict(r) for r in conn.execute("SELECT * FROM infra_status").fetchall()
         }
+        ips = [d["ip"] for d in devices]
+        uptime_map = _calc_uptime_24h_batch(conn, ips, status_map)
+        outage_rows = conn.execute(
+            "SELECT ip, COUNT(*) as cnt FROM infra_events "
+            "WHERE event='offline' AND ts > datetime('now','-24 hours') GROUP BY ip"
+        ).fetchall()
+        outage_map = {r["ip"]: r["cnt"] for r in outage_rows}
         result = [
-            _build_device_row(d, status_map.get(d["ip"]),
-                              _calc_uptime_24h(conn, d["ip"], (status_map.get(d["ip"]) or {}).get("status", "unknown")))
+            _build_device_row(d, status_map.get(d["ip"]), uptime_map.get(d["ip"]),
+                              outage_map.get(d["ip"], 0))
             for d in devices
         ]
         row = conn.execute(
@@ -880,6 +1044,7 @@ async def get_status(
     elif user is None:
         raise HTTPException(status_code=401, detail="No autorizado")
 
+    redis_conn = get_redis()
     _init_tables()
     with get_db() as conn:
         devices = conn.execute(
@@ -889,21 +1054,41 @@ async def get_status(
         ).fetchall()
         result = []
         for d in devices:
-            st = d["status"] or "unknown"
+            ip = d["ip"]
+            # Redis-first: blob vivo (TTL=120s); fallback a fila SQLite del JOIN
+            live = None
+            if redis_conn:
+                try:
+                    raw = redis_conn.get(f"infra:{ip}:data")
+                    if raw:
+                        live = json.loads(raw)
+                except Exception:
+                    pass
+            if live:
+                st         = live.get("status", "unknown")
+                latency_ms = live.get("latency_ms")
+                tcp_ok     = live.get("tcp_ok")
+                mac        = live.get("mac")
+                checked_at = live.get("checked_at")
+            else:
+                st         = d["status"] or "unknown"
+                latency_ms = d["latency_ms"]
+                tcp_ok     = d["tcp_ok"]
+                mac        = d["mac"]
+                checked_at = d["checked_at"]
             result.append({
-                "ip": d["ip"],
+                "ip": ip,
                 "name": d["name"],
                 "device_type": d["device_type"],
                 "icon": DEVICE_ICONS.get(d["device_type"], "📡"),
                 "location": d["location"],
                 "tcp_port": d["tcp_port"],
                 "status": st,
-                "latency_ms": d["latency_ms"],
-                "tcp_ok": d["tcp_ok"],
-                "mac": d["mac"],
-                "uptime_24h": _calc_uptime_24h(conn, d["ip"], st),
+                "latency_ms": latency_ms,
+                "tcp_ok": tcp_ok,
+                "mac": mac,
                 "state_duration": _fmt_duration(d["last_state_change"]),
-                "checked_at": d["checked_at"],
+                "checked_at": checked_at,
             })
 
     online = sum(1 for d in result if d["status"] == "online")
@@ -941,7 +1126,7 @@ async def get_snmp_data(ip: str, user=Depends(get_current_user)):
             "SELECT snmp_data, snmp_ok FROM infra_status WHERE ip=?", (ip,)
         ).fetchone()
         dev = conn.execute(
-            "SELECT name, device_type, snmp_community FROM infra_devices WHERE ip=? AND active=1", (ip,)
+            "SELECT name, device_type, snmp_community, snmp_community_write FROM infra_devices WHERE ip=? AND active=1", (ip,)
         ).fetchone()
 
     if not row or row["snmp_data"] is None:
@@ -1013,7 +1198,7 @@ async def device_action(device_id: int, payload: dict, user=Depends(get_current_
                 known_hosts=None, connect_timeout=10
             ) as conn_ssh:
                 result = await conn_ssh.run(
-                    "net stop spooler && del /Q /F /S \"%SystemRoot%\\System32\\spool\\PRINTERS\\*\" && net start spooler",
+                    "net stop spooler && del /Q /F /S \"C:\\Windows\\System32\\spool\\PRINTERS\\*\" && net start spooler",
                     timeout=30,
                 )
             return {
@@ -1027,7 +1212,7 @@ async def device_action(device_id: int, payload: dict, user=Depends(get_current_
 
     # ── Reinicio SNMP ────────────────────────────────────────────────────────
     elif action == "snmp_reboot":
-        community_write = (dev.get("snmp_community") or "public")
+        community_write = (dev.get("snmp_community_write") or "").strip() or (dev.get("snmp_community") or "public")
         # TP-Link EAP reboot OID
         reboot_oid = "1.3.6.1.4.1.11863.10.1.2.1.0"
         try:

@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 13 jun 2026 (Sesión 54–55 — Historial `status_events` + Telegram mantenimiento global + deploy Ópera ✅ §AP–§AQ) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
+**Última unificación:** 21 jun 2026 (Sesión 60 — Causa de fondo de los apagones recurrentes en Ópera: 6 escrituras SQLite síncronas distintas en el hilo único de Guardian (5 módulos con `_init_tables()` en cada request + autobloqueo Hunter) ✅ §BB; auto-contención del poller de Inframonitor (`record_status_event` abría una segunda conexión dentro de su propia transacción) ✅ §BB.3; watchdog mataba Guardian durante una espera normal de SQLite por timeout demasiado corto (5s < busy_timeout 10s) ✅ §BB.4; bug de esquema preexistente en shomer245/shomer243 — `infra_nodes` sin columna `last_heartbeat`, nunca corrió `shomer-monitor.service`, causaba 503 permanente y loop de reinicio ✅ §BB.6; los 7 fixes desplegados y verificados en los 4 servidores (.205, Ópera, shomer245, shomer243) ✅ §BB.7) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
 
 ---
 
@@ -20,11 +20,12 @@ Si alguno falta, el panel puede abrir igual pero fallan módulos.
 | `shomer-tools.service` | **8001** — Tracker, Protector (solo localhost tras hardening típico) |
 | `nginx` | **80** redirect → **8443** HTTPS hacia backend |
 | `shomer-health-watchdog.timer` | Reintenta 8000/8001 si mueren |
+| `shomer-inframonitor-poller.service` | Poller ICMP/SNMP independiente de uvicorn. Arranca con el sistema, sobrevive reinicios de guardian. Si está activo, guardian omite el poller embebido. Instalar: ver §AS.3. |
 | Opcionales cliente | `suricata`, stack Wazuh, `redis-server`, `lldpd`, etc. según alcance |
 | `shomer-monitor.service` | Script de monitoreo de infraestructura (`monitor.py`). Instalar: `sudo cp /opt/network_monitor/etc/shomer-monitor.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now shomer-monitor`. Requiere Redis en 127.0.0.1:6379 y llave SSH `~/.ssh/id_rsa_shomer`. |
 
 **Comprobación rápida:**  
-`systemctl is-active shomer-guardian shomer-tools nginx shomer-health-watchdog.timer`
+`systemctl is-active shomer-guardian shomer-tools nginx shomer-health-watchdog.timer shomer-inframonitor-poller`
 
 ## A.2 Qué está bien probado en laboratorio (mayo 2026)
 
@@ -665,6 +666,8 @@ El bot tiene **un nombre por cliente** (ej. `Shomer Hotel Calle 26`) — se conf
 | `/reboot <ip>` | ✅ | ✅ | Reboot con confirmación (`/reiniciar`, `guardian_reiniciar`) |
 | `/clientes <ip>` | ✅ | ✅ | Dispositivos WiFi conectados al AP |
 | `/modo on\|off` | ✅ | ✅ | Mantenimiento Guardian (`/mantenimiento`) — **Telegram al activar/desactivar** (panel o bot) |
+| `/seguro on\|off` | ✅ | ✅ | **Autobloqueo Hunter** — activar/desactivar (alias `/autobloqueo`); guía al chat al cambiar |
+| `/liberar` | ✅ | ✅ | Ver IPs bloqueadas + botón liberar (o `/liberar IP`) |
 | `/alertas` | ✅ | ✅ | Alertas Hunter + IPs bloqueadas |
 | `/bloquear <ip>` | ✅ | ✅ | Bloquear IP manualmente |
 | `/desbloquear <ip>` | ✅ | ✅ | Desbloquear IP (+ botón guardar falso positivo) |
@@ -2217,6 +2220,8 @@ Ambos servidores sincronizados. Bot/IA visible en:
 
 # Parte Z — Sesión 38 (27 mayo 2026) — SNMP completo en Inframonitor
 
+**Arquitectura actual (Sesión 57, 19 jun 2026):** el poller vive en `shomer-inframonitor-poller.service` independiente. `/infra/status` lee Redis-first. SQLite en WAL mode. Ver §AS para detalle completo.
+
 ## Z.1 Qué se implementó
 
 SNMP v2c de lectura integrado al poller de Inframonitor. Sin código nuevo en Guardian ni en el bot — todo vive en `app/api/shomer_inframonitor.py` y `app/templates/inframonitor.html`.
@@ -3664,3 +3669,975 @@ Activar/desactivar mantenimiento **global** desde panel o bot **no enviaba Teleg
 Mensajes: `🔧 MANTENIMIENTO GLOBAL ACTIVADO` / `✅ DESACTIVADO` — incluyen usuario (`root`, `admin`, etc.).
 
 **Deploy:** Ópera 13/jun tras fix.
+
+---
+
+# Parte AR — Sesión 56 (16 jun 2026) — Seguro Hunter + deploy lab
+
+## AR.1 Seguro Hunter — autobloqueo (dos canales, mismo estado)
+
+| Canal | Cómo activar/desactivar |
+|-------|-------------------------|
+| **1. Panel web** | Botón **Seguro ON/OFF** (header Hunter) **o** Config → *Auto-bloqueo en Producción* → checkbox **Habilitado** → **Guardar** — los tres sincronizados |
+| **2. Telegram** | `/seguro on` · `/seguro off` · `/seguro` (estado + botón) — alias `/autobloqueo`, `/hunter_seguro` |
+
+Al cambiar estado (cualquier canal) → **Telegram al chat técnico** con guía: cómo apagar (panel + bot) y `/liberar` para IP puntual.
+
+**Archivos:** `app/templates/hunter.html` (botón header), `app/api/shomer_config.py` (`_notify_hunter_seguro`), `/storage/shomer-agent/core/bot.py` (`cmd_seguro`), `core/shomer_api.py` (`set_hunter_autoblock`).
+
+**Ópera (16 jun):** `hunter.auto_block_enabled=true` — activado con autorización JP; MikroTik `192.168.0.1`, subnets hotel en exclusión.
+
+## AR.2 Deploy código — dos modos (`tools/deploy.sh`)
+
+| Modo | Comando | Alcance |
+|------|---------|---------|
+| **Todos lab** | `bash tools/deploy.sh` | **243 + 245 + 205** — **omite Ópera** sin `SHOMER_DEPLOY_AUTHORIZED=1` |
+| **Un servidor** | `bash tools/deploy.sh <IP_Tailscale>` | Solo ese equipo |
+| **Lab + Ópera** | `SHOMER_DEPLOY_AUTHORIZED=1 bash tools/deploy.sh` | Todos en `tools/servers.txt` |
+
+**.205:** código ya local — `deploy.sh` a sí mismo puede fallar por SSH; usar **restart local** (`shomer-guardian`, `shomer-tools`, `shomer-agent`).
+
+**Deploy 16 jun:** ✅ 245 · ✅ 243 · ✅ 205 (restart) · Ópera ya desplegado sesión anterior + activación Seguro.
+
+## AR.3 Telegram — notificaciones (dos modos posibles)
+
+| Modo | Comportamiento |
+|------|----------------|
+| **Con sonido** | Mensaje normal — suena el tono que el técnico configuró **para ese chat** en la app Telegram |
+| **Silencioso** | API `disable_notification=true` — sin sonido (útil para avisos informativos) |
+
+**Limitación Telegram:** el bot **no** puede elegir sonidos distintos por tipo (alerta vs info vs warning) — solo un tono por chat. Shomer puede marcar severidades con emoji y, en el futuro, silenciar rutinarios vs críticos.
+
+## AR.4 Liberar IP puntual
+
+| Acción | Comando / UI |
+|--------|----------------|
+| Ver bloqueadas + botón | `/liberar` |
+| Liberar una IP | `/desbloquear IP` o panel Hunter |
+
+---
+
+# Parte AS — Sesión 57 (19 jun 2026) — Inframonitor: poller independiente + Redis-first + WAL + visual
+
+## AS.1 Resumen de cambios
+
+| Cambio | Beneficio |
+|--------|-----------|
+| `shomer-inframonitor-poller.service` independiente | Poller sobrevive reinicios de uvicorn/guardian |
+| SQLite WAL mode | Lecturas y escrituras concurrentes sin bloqueo |
+| Redis-first en `/infra/status` | Datos en memoria; elimina N queries SQLite por dispositivo |
+| Redis blob `infra:{ip}:data` | Estado completo por IP con TTL=120s |
+| `outages_today` por dispositivo en `/infra/devices` | Badge de caídas del día en el panel |
+| Visual: barras uptime + umbrales reales | Verde ≥99% / ámbar 98-99% / rojo <98% |
+
+**Deploy 19 jun:** ✅ .205 · ✅ 245 · ✅ 243 · ✅ Ópera (autorizado JP)
+
+## AS.2 Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/api/shomer_inframonitor.py` | WAL en `_init_tables()`, blob Redis en `_poll_once()`, `outages_today` en `_build_device_row()` y `list_devices()`, Redis-first en `GET /infra/status` |
+| `app/templates/inframonitor.html` | `uptimeBadge()` con barra visual + umbrales 99/98, badge `⚠️ N caída(s)` |
+| `app/api/main.py` | `_systemd_service_active()` — si poller externo activo, omite poller embebido |
+
+**Archivos nuevos:**
+- `app/scripts/inframonitor_poller.py` — runner standalone con SIGTERM limpio
+- `/etc/systemd/system/shomer-inframonitor-poller.service`
+
+## AS.3 Instalar poller en servidor nuevo
+
+```bash
+# 1. El código llega con deploy.sh (app/scripts/inframonitor_poller.py incluido)
+# 2. Crear service file:
+sudo tee /etc/systemd/system/shomer-inframonitor-poller.service > /dev/null << 'EOF'
+[Unit]
+Description=Shomer Inframonitor Poller
+After=network.target redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=usb_admin
+Group=usb_admin
+WorkingDirectory=/opt/network_monitor
+EnvironmentFile=-/etc/shomer/shomer-runtime.env
+ExecStart=/opt/network_monitor/venv/bin/python -m app.scripts.inframonitor_poller
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=shomer-inframonitor-poller
+MemoryMax=200M
+CPUQuota=30%
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 3. Activar:
+sudo systemctl daemon-reload
+sudo systemctl enable --now shomer-inframonitor-poller.service
+
+# 4. Reiniciar guardian para que detecte el poller externo:
+sudo systemctl restart shomer-guardian.service
+```
+
+**Verificación:**
+```bash
+systemctl is-active shomer-inframonitor-poller   # → active
+redis-cli keys "infra:*:data" | wc -l            # → N dispositivos
+sqlite3 /storage/db/network_monitor.db "PRAGMA journal_mode;"  # → wal
+```
+
+## AS.4 Lógica Redis-first
+
+`GET /infra/status` (usado por NOC y bot `watch_infra`):
+1. Lee lista de dispositivos de SQLite (config estática)
+2. Por cada IP: `redis.get(f"infra:{ip}:data")` → JSON con status/latency/tcp_ok/mac/snmp_ok/checked_at
+3. Si Redis miss (TTL expirado) → usa fila del JOIN SQLite como fallback
+4. **`uptime_24h` eliminado de `/infra/status`** — los callers no lo usan; `/infra/devices` (panel) sigue teniéndolo via batch
+
+`GET /infra/devices` (panel, incluye uptime):
+- Batch de uptime: 2 queries para todos los IPs (sin N queries individuales)
+- Batch de caídas: 1 query `GROUP BY ip` para `outages_today` de todos los IPs
+- Total queries para N dispositivos: 4 queries fijas, independiente de N
+
+## AS.5 Visual panel Inframonitor
+
+**`uptimeBadge(pct, outages)`:**
+- `pct >= 99` → verde (clase `uptime-hi`)
+- `98 <= pct < 99` → ámbar (clase `uptime-mid`)
+- `pct < 98` → rojo (clase `uptime-lo`)
+- Barra visual debajo del % con `width:${pct}%` y color reactivo, transición CSS 0.4s
+- Si `outages > 0` → `⚠️ N caída(s)` debajo de la barra
+
+**`outages_today`** viene del endpoint `/infra/devices` (1 query batch en BD). No disponible en `/infra/status` (callers NOC/bot no lo necesitan).
+
+---
+
+# Parte AT — Sesión 58 (19 jun 2026) — NOC: log de decisiones IA + fix crash loop /health
+
+## AT.1 Bug crítico — `/health` causaba crash loop real en Hotel Ópera
+
+**Síntoma:** ventana de 7 minutos (07:24–07:31 hora Bogotá) con ~14 reinicios forzados de
+`shomer-guardian.service`, varios con `SIGKILL` porque el proceso no respondía a `SIGTERM`.
+
+**Causa raíz:** `GET /health` (consultado por `shomer-health-check.sh` cada 30s, con timeout de
+5s) hacía un `CREATE TABLE IF NOT EXISTS infra_nodes` en **cada chequeo** — una escritura
+totalmente innecesaria, porque esa tabla ya se crea al arrancar (`app/scripts/monitor.py`).
+Guardian corre con `--workers 1` (un solo event-loop): si esa escritura chocaba con cualquier
+otra escritura en curso de Guardian/Hunter/Inframonitor sobre el mismo `network_monitor.db`,
+`/health` quedaba esperando el lock (hasta 10s por el `timeout=10` del conector) — más que los
+5s que tolera el watchdog. El watchdog declaraba "caído" y mataba el proceso, que en realidad
+solo estaba ocupado un instante.
+
+**Fix** (`app/api/shomer_guardian_nodes.py::health()`):
+- Se eliminó el `CREATE TABLE IF NOT EXISTS` del camino caliente — la tabla ya existe.
+- La lectura (ahora 100% de solo lectura) se movió a `asyncio.to_thread()` con una conexión
+  propia de `busy_timeout=2`, para que ni siquiera bloquee el event-loop si algo sale mal.
+
+**Prueba real:** se mantuvo un lock de escritura SQLite sostenido por 7 segundos (proceso Python
+con `BEGIN IMMEDIATE` + `sleep(7)`) mientras se hacían 5 peticiones a `/health` exactamente en esa
+ventana. Las 5 respondieron en 6-7ms — cero impacto. Antes del fix, esa misma prueba colgaba la
+petición.
+
+**Por qué nunca lo agarró ninguna auditoría:** es un bug de **concurrencia bajo carga real**, no
+algo visible leyendo la función aislada. Hace falta saber a la vez: (1) que Guardian corre con un
+solo worker, (2) que tres procesos más escriben al mismo archivo SQLite en paralelo, y (3) que
+SQLite —incluso en WAL— solo permite un escritor a la vez. Ningún code review de una función sola
+ve eso. Solo se manifiesta cuando coincide en el tiempo con otra escritura real — por diseño, casi
+nunca aparece en pruebas QA tranquilas de laboratorio.
+
+## AT.2 Bug confirmado — `/noc/data` se congelaba 0.5s garantizado en cada llamada
+
+A diferencia de `/health`, este no dependía de contención — era un `sleep` de diseño:
+`psutil.cpu_percent(interval=0.5)` en `_server_resources()` bloquea ese medio segundo siempre,
+sin excepción. El NOC pide `/noc/data` cada 30s, así que cada 30s el servidor completo (logins,
+bloqueos Hunter, heartbeats reales de APs) quedaba congelado mínimo 0.5s.
+
+**Fix** (`app/api/shomer_noc.py::_server_resources()`): `interval=0.5` → `interval=None`
+(lectura instantánea vs. la última muestra, sin bloquear). Como el NOC ya sondea cada 30s, el
+delta entre llamadas es representativo igual. Medido: de 0.55s a 0.045s por llamada.
+
+## AT.3 Auditoría completa del patrón — 75 funciones mapeadas, 2 reales, 73 sin tocar
+
+Barrido AST de todo `app/` buscando `async def` que llaman SQLite/Redis síncronos o `subprocess`
+sin pasar por `asyncio.to_thread()`. Encontró 75 funciones con el patrón. Probadas con carga real
+(mismo lock de 7-8s) las de mayor tráfico (`/nodes`, `/infra/status`) — **0% de impacto**, porque
+son solo lectura y en modo WAL los lectores no esperan a los escritores. El riesgo real nunca fue
+"usar SQLite dentro de `async def`" en general — es **mezclar una escritura con alta frecuencia o
+con vigilancia automática externa** (exactamente lo que tenía `/health`).
+
+Inventario completo de las 75 ubicaciones, categorizado, en
+[`docs/AUDITORIA_ASYNC_BLOQUEANTE.md`](docs/AUDITORIA_ASYNC_BLOQUEANTE.md) — no se tocó ninguna
+de las 73 restantes (son CRUD de bajo tráfico, sin proceso automático que las castigue por
+demorarse). Regla para revisarlas en el futuro: si alguna pasa a ser sondeada por un watchdog,
+poller o el bot cada pocos segundos, ahí sí aplica el mismo fix — no antes.
+
+## AT.4 NOC — Log de Decisiones IA ("SHOMER COGNITIVE CORE")
+
+El ticker de eventos genérico (`📋 Eventos — Sin eventos recientes`) se reemplazó por un log en
+vivo de lo que hace el agente IA, con motor (Groq/OpenAI) y hora exacta.
+
+**Arquitectura:**
+- `log_ia_action(engine, msg, action_type)` en `/storage/shomer-agent/core/shomer_api.py` —
+  escribe a Redis `noc:ia_log` (lista, máx 20 entradas, `LPUSH` + `LTRIM`).
+- `llm_router.py::chat()` registra cada consulta de técnico con el motor real usado (con fallback
+  Groq↔OpenAI ya resuelto antes de loguear).
+- `llm_router.py::explain()` registra cada alerta de monitor generada por Groq (filtra mensajes
+  vacíos/de error).
+- `shomer_noc.py::_ia_log()` lee las últimas 8 entradas de Redis, expuestas en `/noc/data` como
+  `ia_log`.
+- `noc.html`: pill con 🤖 pulsando en el header (`AGENTE IA ACTIVO` + modelo), tarjeta terminal
+  `SHOMER COGNITIVE CORE` en el sidebar, y el log de decisiones reemplazando el ticker viejo
+  (`renderIaLog()`).
+
+**LEDs de hardware en Inframonitor (NOC):** switches/routers muestran `SNMP ✓/✗` + `PUERTOS OK` /
+`⚠ N ERRORES`; impresoras muestran barra de tóner % + LED de papel (`OK`/`BAJO`/`SIN PAPEL`).
+
+## AT.5 Estado de despliegue
+
+| Cambio | `.205` | Hotel Ópera |
+|---|---|---|
+| NOC log IA + LEDs hardware | ✅ | ✅ |
+| Fix `/health` (crash loop) | ✅ probado con carga real | ✅ |
+| Fix `/noc/data` (0.5s bloqueo) | ✅ probado | ✅ |
+
+Agente reconstruido (`docker compose build --no-cache`) en ambos — los cambios de
+`llm_router.py`/`shomer_api.py` requieren rebuild, no solo restart.
+
+---
+
+# Parte AU — Sesión 58 cont. (19 jun 2026) — Hotel Ópera: causa real del ruido Infra/bot
+
+## AU.1 Contexto
+
+Juan Pablo sacó al bot del grupo de Telegram de Hotel Ópera por exceso de ruido. Pidió barrido
+completo del sitio antes de actuar. Hallazgo principal: **los 8 switches de Ópera caían
+"offline" juntos, en el mismo orden, con el mismo patrón escalonado (~10s entre cada uno),
+varias veces al día** — no era hardware fallando por separado, era el poller de Inframonitor
+quedándose sin hilos disponibles.
+
+## AU.2 Causa raíz — pool de hilos insuficiente en el poller
+
+Ópera tiene 4 CPUs. El executor por defecto de `asyncio.to_thread()` en Python es
+`min(32, CPUs+4)` → solo **8 hilos**. Cada ciclo de 30s, `_poll_once()` lanza ~52 pings + ~45
+chequeos TCP + 9 lecturas SNMP (hasta 4s cada una) — más de 100 tareas bloqueantes compitiendo
+por 8 hilos. Cuando la cola se saturaba, varios pings no llegaban a ejecutarse a tiempo dentro
+del ciclo, y esos equipos se registraban como "offline" por error — recuperándose solos 3-4
+minutos después, en el siguiente ciclo.
+
+**Evidencia:** tabla `infra_events`, 7 días — los 8 switches mostraban offline/online en el
+mismo orden de iteración del poller, separados por ~10s cada uno, varias veces al día. Switches
+con SNMP en 0 errores (`.118`, `.129`, `.133`) flapeaban igual que los que sí tienen hardware
+dañado (`.168`, `.216`) — la correlación temporal exacta entre todos descartó causa física común
+para los 6 sanos.
+
+**Fix** (`app/api/shomer_inframonitor.py`):
+```python
+INFRA_THREAD_WORKERS = int(os.environ.get("INFRA_THREAD_WORKERS", "48"))
+
+def _ensure_executor():
+    """Pool de hilos dedicado más grande -- se llama una vez desde _init_tables(),
+    tanto en el poller standalone (systemd) como en el embebido (Guardian)."""
+    global _executor_configured
+    if _executor_configured:
+        return
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=INFRA_THREAD_WORKERS))
+    _executor_configured = True
+```
+Llamado al inicio de `_init_tables()`. En Ópera corre aislado (poller standalone, proceso propio
+— no afecta a Guardian). En sitios sin el poller standalone instalado, beneficia también al
+proceso embebido (más hilos disponibles, sin downside).
+
+**Validado:** 8+ minutos monitoreados tras el restart — cero episodios de caída masiva
+sincronizada (antes recurría cada 1-5 horas), cero errores en el log. Solo un blip aislado de un
+switch (34 segundos) — exactamente el tipo de ruido residual que el fix de §AU.3 absorbe.
+
+**`tools/deploy.sh` no reinicia `shomer-inframonitor-poller.service`** (solo Guardian/Tools) —
+hay que reiniciarlo a mano tras cada deploy que toque `shomer_inframonitor.py`.
+
+## AU.3 Debounce en alertas Infra — evita ruido de blips cortos
+
+`watch_infra()` (agente, `core/monitor.py`) avisaba "Equipo Infra caído"/"recuperado" en la
+**primera** lectura offline, sin esperar confirmación — con 8 switches flapeando varias veces al
+día, eso eran ~40-50 mensajes de Telegram diarios solo por el bug de §AU.2.
+
+**Fix:** nuevo contador `_infra_offline_streak[ip]` — requiere `INFRA_OFFLINE_CONFIRM_CHECKS`
+(default 2, ciclos de ~120s c/u del propio watcher) viendo "offline" **consecutivo** antes de
+considerar la caída confirmada y avisar. Si el equipo vuelve a "online" antes de confirmarse, no
+se avisa nada — el blip queda silencioso. La recuperación sigue siendo inmediata una vez que SÍ
+hubo una caída confirmada (no se debounce el aviso de vuelta, solo el de caída).
+
+```python
+_infra_offline_streak: Dict[str, int] = {}
+_INFRA_OFFLINE_CONFIRM = int(os.environ.get("INFRA_OFFLINE_CONFIRM_CHECKS", "2"))
+```
+
+No se tocó la lógica de "varios equipos caídos en la misma ubicación" ni el recordatorio de
+"sigue caído >2h" — ambas ya tienen su propia resistencia natural a blips (cooldown 30 min y
+umbral de 120 min respectivamente).
+
+**Validado:** desplegado y probado contra los 52 equipos reales de Ópera — sin excepciones en
+dos ciclos reales. Un intento de envío a Telegram durante la prueba fue una alerta real y
+correcta de "papel bajo" (impresora Recepción WF-M5899, 0 de 80 hojas) — no relacionada al fix,
+bloqueada solo porque el bot sigue fuera del grupo.
+
+## AU.4 SNMP del MikroTik gateway — estaba apagado, no mal configurado
+
+`192.168.0.1` (MikroTik RB1100AHx2, mismo equipo que usa Hunter — `hunter.firewall_ip`) mostraba
+`snmp_ok=0` siempre. Diagnóstico vía SSH (reutilizando `_get_firewall_creds()` +
+`_connect_routeros()` de `casador_support_firewall.py`, sin exponer la contraseña en línea de
+comandos): la comunidad `public` ya estaba bien configurada (lectura, sin restricción de IP) —
+el servicio SNMP **estaba apagado** (`/snmp print` → `enabled: no`).
+
+**Fix:** `/snmp set enabled=yes` vía SSH. Confirmado: `snmpget` responde
+(`RouterOS RB1100AHx2 7.22.1`), `snmp_ok` pasa a 1 en el siguiente poll. Efecto secundario
+menor: libera un hilo que antes se gastaba 4s completos cada ciclo esperando un timeout inútil.
+
+## AU.5 Hallazgos confirmados, diferidos a pedido de Juan Pablo
+
+| Hallazgo | Detalle | Estado |
+|---|---|---|
+| Hardware dañado real en `.168` (`SW1-P50-OFC-SISTEMAS`) y `.216` (`SW-POE-OFC-SISTEMAS`) | Errores SNMP acumulados reales: 95,534 + 50,587 en `.168`; 2,860 en `.216` — cable/transceiver/equipo conectado | Diferido — requiere revisión física en sitio |
+| Scheduler de Protector duplicado | `shomer-tools.service` corre `--workers 2`; `start_backup_scheduler()` se dispara en el `lifespan` de **cada** worker → 2 schedulers paralelos capaces de lanzar el mismo backup programado a la vez | Diferido — no hay `backup_devices` configurados aún en Ópera, no es urgente todavía |
+| Protector sin configurar en Ópera | Juan Pablo tiene la ubicación de un equipo (SMB/Windows) lista para dar de alta | Pendiente — pausado a pedido propio, retomar en sesión dedicada |
+
+## AU.6 Auditoría general — sin deploys faltantes, sin riesgos nuevos
+
+- Código (`app/`, templates, agente) **100% sincronizado** `.205` ↔ Ópera (rsync dry-run sin
+  diferencias) — explicado por los deploys constantes de esta sesión.
+- Servicios, disco, RAM, CPU — todo normal. Sin unidades systemd fallidas.
+- `.bak`/`.disabled` sueltos de abril-mayo (plantillas, scripts viejos, `.env.bak` con permisos
+  600 correctos) — cruft acumulado, cero riesgo real, limpieza opcional futura.
+- `inventory.db` (Tracker) sin escanear desde el 10 de jun — manual, sin scheduler configurado,
+  no es un bug.
+- Bot confirmado fuera del grupo de Telegram (`Forbidden: bot was kicked from the group chat`)
+  desde que Juan Pablo lo sacó — sigue generando alertas internamente (correctas), solo no llegan
+  a nadie hasta que se re-agregue.
+
+## AU.7 Pendiente — antes de re-agregar el bot al grupo
+
+1. Dejar correr el fix de §AU.2 unas horas más para confirmar al 100% que el flapping masivo no
+   recurre (5-8 min de monitoreo ya mostraron cero episodios, pero el patrón viejo recurría cada
+   1-5h).
+2. ~~Configurar Protector/backups en Ópera~~ ✅ Sesión 58 cont. (mismo día) — ver §AV.
+3. Revisar físicamente `.168`/`.216` (cable, transceiver, equipo conectado al puerto dañado).
+4. Solo entonces re-agregar el bot al grupo de Telegram — para no repetir el ciclo de ruido.
+
+---
+
+# Parte AV — Sesión 58 cont. (19 jun 2026) — Protector: Zeus PMS configurado + 3 bugs reales de Protector corregidos
+
+## AV.1 Objetivo
+
+Configurar Protector para respaldar solo los `.bak` diarios del PMS Zeus (`192.168.0.5`,
+Hotel Ópera) desde `C$\back_bases\Copias Diarias`, sin tocar los jobs propios del hotel
+(Zeus genera el `.bak` ~3 AM, copia a NAS hasta ~4:30 AM).
+
+## AV.2 Bug real — `mount.cifs` no entiende `DOMINIO\usuario` embebido (causa real del "Permission denied")
+
+El equipo Zeus estaba dado de alta con usuario `.\administrador` (convención de la GUI de
+Windows para "cuenta local de esta máquina"). `_smb_mount_readonly()` y `_backup_windows()`
+escribían ese valor **literal** en el archivo de credenciales de `mount.cifs`:
+```
+username=.\administrador
+password=...
+```
+`mount.cifs` no interpreta el `.\` como lo hace Windows — lo toma como parte literal del
+username, y la autenticación SMB falla con `mount error(13): Permission denied` **aunque la
+contraseña sea 100% correcta**. Esto generaba el síntoma engañoso de "credencial mala" cuando
+en realidad la contraseña guardada en BD era correcta desde el principio (verificado
+descifrándola con la clave real del servicio — coincidía exactamente con la que dio Juan Pablo).
+
+**Fix** (`app/api/backups.py`): nueva función `_cifs_credentials_content(username, password)`
+que separa `DOMINIO\usuario` o `.\usuario` en líneas `domain=`/`username=` correctas para
+`mount.cifs` (`.` o vacío → cuenta local, sin línea `domain=`; cualquier otro valor → se escribe
+`domain=<valor>`). Usada tanto en `_smb_mount_readonly()` (test de conexión) como en
+`_backup_windows()` (backup real) — antes tenían la lógica de credenciales duplicada e
+inconsistente entre sí.
+
+## AV.3 Bugs secundarios corregidos en el mismo barrido
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | `_parse_smb_source_path()` no reconocía `C:` como error común (vs. el share real `C$`) — mount fallaba como si fuera credencial mala | Auto-corrige `^[A-Za-z]:$` → `{letra}$` antes de montar |
+| 2 | Botón **Probar conexión** del panel reenvía el literal `***` si el técnico no vuelve a escribir la contraseña al editar un equipo ya guardado — el test fallaba siempre en ese flujo | `POST /backups/devices/test` acepta `device_id`; si `password` viene vacío o `***`, descifra la contraseña real de BD para ese equipo en vez de probar con el string literal |
+| 3 | `backups.html`: `_localToUtc()`/`_utcToLocal()` seguían convirtiendo UTC↔local del navegador, pero el backend (desde Sesión 21, `_scheduler_loop()`) compara `schedule_time` **directo** contra la hora local del sitio (`base.timezone`) — diseño viejo nunca actualizado tras el fix de Sesión 21 | Ambas funciones ahora son pass-through; el panel guarda/muestra la hora tal cual la escribe el técnico, igual que la espera el backend |
+
+**Por qué importa el bug #3 más allá de Zeus:** afecta a **cualquier** equipo de Protector con
+horario configurado desde el panel, en cualquier sitio — no es exclusivo de Ópera. Verificado
+en los 4 servidores (`.205`, Ópera, `.245`, `.243`): ningún otro equipo tenía horario activo
+configurado todavía, así que no había daño hecho — pero el horario de Zeus que se configuró en
+esta sesión (ver §AV.4) se habría roto en el momento en que alguien lo reabriera y guardara desde
+el panel, sin tocar nada más.
+
+## AV.4 Diagnóstico — orden real de los hallazgos (todo verificado antes de tocar Zeus)
+
+1. Contraseña guardada en BD descifra correctamente con la clave real del servicio (`JWT_SECRET`
+   vía `EnvironmentFile` de systemd) y **coincide exactamente** con la que dio Juan Pablo
+   (`administrador` / `opera2023*`) — descartado problema de cifrado o de contraseña.
+2. Con el fix de §AV.2 aplicado, el mount **autentica y monta correctamente** (`C$` accesible).
+3. El subpath original en BD (`back_bases/copias_diarias`, sugerido verbalmente) no coincidía
+   con el real en disco — se listó el contenido de `back_bases\` (solo lectura, desmontado
+   inmediato) y se confirmó el nombre real: **`Copias Diarias`** (con espacio y mayúsculas, tal
+   cual estaba guardado desde el principio).
+4. Con la ruta real + fix de dominio, el test de conexión devuelve:
+   `SMB OK — 192.168.0.5 — subcarpeta accesible: back_bases/Copias Diarias — 9 archivo(s)
+   coinciden con filtro hoy` — coincide exactamente con los 9 `.bak` del 19 de junio que
+   describió Juan Pablo.
+
+Todo el diagnóstico y la corrección de configuración se hicieron llamando directamente a las
+funciones reales y validadas del panel (`update_backup_device()`, `test_backup_device()` de
+`app/api/backups.py`) vía script — **no** se usó SQL crudo contra la BD de producción ni se tocó
+nada en el propio Zeus.
+
+## AV.5 Configuración final — equipo "SRV Zeus PMS" (Hotel Ópera)
+
+| Campo | Valor |
+|-------|-------|
+| IP | `192.168.0.5` |
+| Usuario | `.\administrador` (cuenta local, ahora separada correctamente por el fix de §AV.2) |
+| Ruta | `C$/back_bases/Copias Diarias` |
+| Filtro | `*_{today}_*` (9 archivos `.bak` del día) |
+| Horario | `05:00` hora Bogotá (después de que el hotel termine su copia a NAS ~4:30 AM) |
+| Sync B2 | Desactivado por ahora (decisión Juan Pablo — solo copia local por el momento) |
+
+## AV.6 Pendiente relacionado — reabre prioridad de un hallazgo ya documentado
+
+§AU.5 había diferido el **scheduler duplicado de Protector** (`shomer-tools.service` con
+`--workers 2` dispara `start_backup_scheduler()` una vez por worker) con la justificación de que
+"no hay `backup_devices` configurados aún en Ópera, no es urgente todavía". Esa justificación
+**ya no aplica** — Zeus ahora tiene `schedule_enabled=1`. Sigue diferido a pedido explícito de
+Juan Pablo (no tocar sin que él lo pida), pero el riesgo real de que el scheduler duplicado
+dispare el mismo backup dos veces en paralelo a las 05:00 ya existe a partir de esta sesión.
+
+## AV.7 Archivos modificados y estado de despliegue
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/api/backups.py` | `_cifs_credentials_content()` nueva; `_parse_smb_source_path()` auto-corrige `C:`→`C$`; `/devices/test` acepta `device_id` y descifra contraseña de BD si viene `***`/vacío |
+| `app/templates/backups.html` | `_utcToLocal()`/`_localToUtc()` pass-through (sin conversión de zona horaria) |
+| `tests/test_backups_smb_path.py` | +8 tests nuevos (autocorrección `C:`, separación dominio/usuario, fallback contraseña `***`) — 15/15 OK |
+
+| Servidor | Código desplegado | Equipo Zeus configurado |
+|---------|-------------------|--------------------------|
+| `.205` (origen) | ✅ | — (no aplica, lab) |
+| **Hotel Ópera** `.119` | ✅ | ✅ probado end-to-end, horario activo 05:00 |
+| shomer245 `.116` | ⏳ pendiente deploy | — sin equipos Protector configurados |
+| shomer243 `.050` | ⏳ pendiente deploy | — sin equipos Protector configurados |
+
+---
+
+# Parte AW — Sesión 58 cont. (19 jun 2026) — Causa real del freeze recurrente de Guardian (más allá del fix de §AT)
+
+## AW.1 El fix de §AT.1 era real pero insuficiente
+
+El fix de `/health` (escritura SQLite innecesaria en el camino caliente del watchdog) era
+correcto y sigue desplegado, pero **las rachas de freeze de Guardian siguieron pasando después**:
+00:33, 02:58-03:05, 04:40-04:47, 07:24-07:30 (la que motivó §AT), 15:01-15:07, 15:57, 16:06-16:14,
+19:58-20:00 y 20:42-20:44, todas el 19 jun. Cada racha: el watchdog detecta `/health` sin
+respuesta, mata Guardian con `SIGKILL` (timeout de `stop-sigterm`), lo reinicia, y vuelve a
+fallar ~30s después — auto-sostenido durante 5-9 minutos hasta que se resuelve solo.
+
+## AW.2 Causa real — capturada con `py-spy` en vivo durante una racha
+
+Se instaló `py-spy` (`pip install py-spy` en el venv) y se hizo `py-spy dump --pid <PID>
+--nonblocking` exactamente durante una racha activa. Resultado:
+
+```
+Thread 0x... (active): "MainThread"
+    run_data_retention_prune (api/shomer_status_events.py:253)
+    lifespan (api/main.py:80)
+    __aenter__ (contextlib.py:199)
+    merged_lifespan (fastapi/routing.py:209)
+    ...
+```
+
+`lifespan()` en `app/api/main.py` llamaba `run_data_retention_prune(force=True)`
+**síncrona y bloqueante, antes del `yield`** — es decir, uvicorn no empieza a aceptar conexiones
+en el puerto 8000 hasta que esa llamada termina. La función hace varios `DELETE` directos sobre
+`network_monitor.db` (línea 253: `conn.execute(sql, (f"-{days} days",))`).
+
+**Por qué choca justo desde la Sesión 57:** `shomer-inframonitor-poller.service` (proceso
+independiente, §AS) escribe a esa misma BD cada 30 segundos. Si el arranque de Guardian coincide
+con una escritura del poller, `conn.execute()` espera el lock de SQLite hasta el timeout interno
+de la conexión (`timeout=10` en `shomer_common.py::get_db()`) — muy por encima de los 5s que
+tolera el watchdog (`curl --max-time 5` en `shomer-health-check.sh`). El watchdog mata el proceso
+pensando que está caído, lo reinicia, y el reinicio **vuelve a coincidir** con el siguiente ciclo
+de 30s del poller — un bucle auto-sostenido que solo se rompe cuando el timing se desincroniza
+por azar. Esto explica el patrón exacto observado: rachas de varios minutos que se resuelven solas.
+
+## AW.3 Fix aplicado
+
+**Archivo:** `app/api/main.py` — se eliminó la llamada síncrona `run_data_retention_prune(force=True)`
+de `lifespan()` (y el import ahora no usado). No se perdió funcionalidad: la línea siguiente,
+`start_retention_prune_loop()`, ya inicia `retention_prune_loop()` (en
+`app/api/shomer_status_events.py`), que espera 120s y luego repite con
+`await asyncio.to_thread(run_data_retention_prune, force=True)` — correctamente fuera del
+camino de arranque, sin bloquear el `yield`. La poda al boot era pura redundancia con esa
+segunda llamada, y la única responsable del freeze.
+
+```python
+# Antes (bloqueaba el arranque):
+if try_acquire_poller_leader():
+    run_data_retention_prune(force=True)
+    start_retention_prune_loop()
+    ...
+
+# Después:
+if try_acquire_poller_leader():
+    start_retention_prune_loop()
+    ...
+```
+
+## AW.4 Verificación
+
+- `.205`: reinicio limpio (`/health` 200 en <1s), 40/43 tests (`test_smoke_api` +
+  `test_backups_smb_path`) — mismas 3 fallas preexistentes de siempre, sin regresión.
+- **Hotel Ópera:** desplegado, `/health` 200 inmediato tras el restart del deploy.
+- Vigilante `py-spy` relanzado con ventana de 8h (`/tmp/_freeze_watcher.sh` →
+  `/var/log/shomer/freeze_dump.log`) para confirmar con el tiempo que la racha no recurre.
+  El primer intento de vigilante (lanzado antes de encontrar esta causa) tenía un bug de
+  permisos propio (`sudo chmod 644` deja el log root:root, el script no podía escribirlo como
+  `usb_admin`) — corregido (`chown usb_admin:usb_admin`) en el relanzamiento.
+
+## AW.5 Pendiente
+
+Confirmar en la próxima sesión que no hubo más rachas en `/var/log/shomer/watchdog.log` de Ópera
+desde el deploy (19 jun ~20:50). Si el vigilante capturó algo en `freeze_dump.log`, hay una
+segunda causa distinta por investigar; si no, el fix fue completo.
+
+---
+
+# Parte AX — Sesión 58 cont. (19 jun 2026) — Protector Zeus: 4 bugs más + primer backup real validado
+
+Continuación de §AV. Tras configurar la conexión y el horario, se ejecutó un **backup real**
+(`POST /devices/backup_now`) para validar el flujo completo antes de confiar en las 5am — y
+aparecieron 4 problemas más, todos de **instalación/infraestructura de Ópera**, no del código
+de `.205` (con la única excepción del bug de `restic --include`, que sí es de código y aplica a
+cualquier sitio).
+
+## AX.1 `RESTIC_PASSWORD_FILE` nunca configurado en Ópera
+
+`/etc/shomer/shomer-runtime.env` no tenía `RESTIC_PASSWORD` ni `RESTIC_PASSWORD_FILE` —
+`get_restic_password()` devolvía vacío y el backup fallaba con `503`. El repo (
+`/srv/shomer_backups/staging`) y el archivo de contraseña (`/home/usb_admin/.restic-local-pass`,
+mismo nombre que en `.205`) **ya existían**, creados el 21 de mayo durante la instalación — solo
+faltaba la variable de entorno que conecta ambos. Agregado a `shomer-runtime.env`:
+```
+RESTIC_PASSWORD_FILE=/home/usb_admin/.restic-local-pass
+RESTIC_REPOSITORY=/srv/shomer_backups/staging
+```
+
+## AX.2 Repo Restic completo propiedad de `root` desde su creación
+
+`/srv/shomer_backups/staging/{data,keys,config,snapshots,index,locks}` pertenecían a `root:root`
+modo `700` desde el 21 de mayo. `shomer-tools.service` corre como `usb_admin` (confirmado en el
+unit file) — **nunca pudo leer ni escribir ese repo**, ni siquiera para el primer `restic init`
+real (los 258 subdirectorios en `data/` sugieren que alguien corrió `sudo restic init` durante la
+instalación, y nada volvió a tocarlo desde entonces). `restic snapshots` confirmó el repo
+accesible pero con **0 snapshots** -- ningún backup se completó jamás en este sitio antes de hoy.
+
+**Fix:** `sudo chown -R usb_admin:usb_admin /srv/shomer_backups/staging` — solo cambia
+propietario de archivos existentes, no toca contenido.
+
+## AX.3 `/mnt/shomer_smb` nunca creado en Ópera
+
+`_backup_windows()` monta en `{SMB_MOUNT_BASE}/{device_id}` = `/mnt/shomer_smb/{id}`. En `.205`
+ese directorio base existe (`usb_admin:usb_admin`, creado durante instalación/uso del lab) — en
+Ópera **nunca se creó**, ni siquiera el directorio base, y `/mnt` es `root:root` así que
+`os.makedirs()` fallaba con `PermissionError`. Creado igual que en `.205`:
+```bash
+sudo mkdir -p /mnt/shomer_smb && sudo chown usb_admin:usb_admin /mnt/shomer_smb
+```
+
+## AX.4 Bug de código real — `restic backup` no soporta `--include`
+
+**Este aplica a cualquier sitio, no solo Ópera.** El flujo de `include_pattern` (construido esta
+misma sesión, nunca antes probado contra el binario real) generaba
+`restic backup <dir> --include <patrón> --tag ...` — pero `--include`/`--exclude` en restic
+0.12.1 **no existen para `backup`** (solo para `restore`/`dump`/`ls`). El primer backup real
+falló con `RuntimeError: unknown flag: --include`.
+
+**Fix** (`app/api/backups.py::_backup_windows`): en vez de pasar el directorio + una bandera que
+no existe, se resuelve el patrón con `glob` (igual que ya hacía el endpoint de test para el
+conteo) y se pasan los **archivos reales encontrados** como targets directos de
+`restic backup`:
+```python
+if include_pattern:
+    targets = []
+    for raw in str(include_pattern).split(","):
+        pat = _expand_include_pattern(raw.strip())
+        if pat:
+            targets.extend(glob.glob(os.path.join(backup_target, pat)))
+    targets = sorted(set(targets))
+else:
+    targets = [backup_target]
+...
+subprocess.run([RESTIC_BIN, "-r", RESTIC_REPO, "backup"] + targets + tags, ...)
+```
+Se eliminó `_restic_include_args()` (quedó muerta e incorrecta desde su creación) y sus tests;
+se agregó `TestBackupWindowsIncludeTargets` que valida con archivos reales en disco temporal que
+solo los que matchean el patrón se pasan como target, y que `--include` nunca aparece en el
+comando.
+
+## AX.5 Primer backup real de Zeus — validado completo
+
+```
+POST /devices/backup_now {device_id: 1}
+→ {"success": true, "message": "Backup SMB — 192.168.0.5 (9 archivos | 37s)"}
+```
+
+Snapshot confirmado en el repo (`restic snapshots`): 9 archivos `.bak` del 19 jun
+(ActivosFijos, Contabilidad, Inventario, Nomina, ZeusDnn, ZeusExcelComplementos,
+ZeusGuestServices, ZeusImagenes, Zeus_Nueva), tags `device_1, smb, SRV_Zeus_PMS`. BD:
+`last_status=ok, last_files_count=9, last_duration_sec=37, last_snapshot_id=f80f04bc`.
+
+Telegram de confirmación falló (`403 Forbidden: bot was kicked from the group chat`) — esperado,
+el bot sigue fuera del grupo desde §AU, no es un bug nuevo.
+
+## AX.6 Archivos y despliegue
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/api/backups.py` | `_backup_windows()` resuelve `include_pattern` con `glob` en vez de `--include`; eliminada `_restic_include_args()` |
+| `tests/test_backups_smb_path.py` | Eliminado `TestResticIncludeArgs`; agregado `TestBackupWindowsIncludeTargets` (14/14 tests OK) |
+
+| Servidor | Código restic fix | `.env`/permisos Ópera-específicos |
+|---------|--------------------|-----------------------------------|
+| `.205` | ✅ | — (ya estaba bien desde instalación) |
+| **Hotel Ópera** | ✅ | ✅ `RESTIC_PASSWORD_FILE`, `chown` repo, `mkdir /mnt/shomer_smb` |
+| shomer245 / shomer243 | ⏳ pendiente deploy código | sin verificar (sin equipos Protector configurados aún) |
+
+## AX.7 Nota — por qué importa para futuras instalaciones
+
+Los 3 problemas de §AX.1-AX.3 son específicos de la instalación de Ópera (21 mayo) y **no
+debían existir** si `install_shomer.sh` hubiera dejado todo en el estado correcto desde el
+principio. Vale la pena revisar ese script para confirmar que crea `/mnt/shomer_smb` con dueño
+correcto y que el `restic init` inicial (si lo hace) corre como `usb_admin`, no como `root` —
+para que el próximo sitio nuevo no repita exactamente estos 3 huecos.
+
+---
+
+# Parte AY — Sesión 58 cont. (19-20 jun 2026) — Object Lock B2: oculto del panel, código intacto
+
+## AY.1 Qué se pidió
+
+Juan Pablo, durante el barrido completo de Protector: "quita la opción de Object Lock B2 del
+panel y deja el código documentado por si algún día se necesita" — no eliminar la función, solo
+sacarla de la vista del técnico en `/backups`.
+
+## AY.2 Qué se hizo (solo `app/templates/backups.html`)
+
+- La tarjeta HTML completa de "Object Lock B2" (status, campo días de retención, botón Activar)
+  quedó envuelta en un comentario HTML con nota explicando por qué está oculta y cómo reactivarla.
+- La llamada de inicialización `loadObjectLockStatus();` quedó comentada — ya no se ejecuta al
+  cargar la página.
+- La función JS `loadObjectLockStatus()` se dejó completa, con un comentario arriba aclarando que
+  está sin uso actualmente pero se conserva para reactivación futura.
+
+**Nada se tocó en el backend.** `app/api/backups.py::enable_b2_object_lock()` y el resto de los
+endpoints `/b2/object-lock/*` siguen funcionando exactamente igual — accesibles vía API directa
+(`curl`/Postman) aunque no haya botón en el panel. El docstring de `enable_b2_object_lock()` tiene
+una nota apuntando a esta sección.
+
+## AY.3 Por qué no se borró
+
+Razón explícita de Juan Pablo: "por si algún día se necesita" — Object Lock B2 (WORM — Write
+Once Read Many) es valioso si algún cliente con requisitos de cumplimiento (ransomware
+insurance, retención legal) lo pide más adelante. Mantener el código vivo evita reescribirlo
+desde cero; solo hace falta descomentar la tarjeta en `backups.html` y la llamada de init.
+
+## AY.4 Cómo reactivar (futuro)
+
+1. Abrir `app/templates/backups.html`, buscar el comentario `<!-- Object Lock B2 -- OCULTO...`
+2. Quitar las etiquetas de comentario que envuelven la tarjeta HTML
+3. Descomentar `loadObjectLockStatus();` en el bloque de inicialización
+4. Nada más — el backend, el JS y los endpoints nunca dejaron de funcionar
+
+## AY.5 Estado de despliegue
+
+| Servidor | Card oculta |
+|----------|-------------|
+| `.205` | ✅ |
+| Hotel Ópera | ✅ |
+
+---
+
+# Parte AZ — Sesión 58 cont. (19-20 jun 2026) — Fix scheduler duplicado (Protector/Drill/Reportes bajo Tools --workers 2)
+
+## AZ.1 El riesgo real (no hipotético)
+
+`shomer-tools.service` corre `uvicorn ... --workers 2` — confirmado vía `pstree` que esto
+genera **2 procesos hijos reales** (no solo hilos) en cualquier sitio sin un drop-in que lo
+sobreescriba. Cada uno de esos 2 procesos ejecuta su propio `lifespan()` de FastAPI — y por lo
+tanto, sin protección, sus propios `asyncio.create_task()` de:
+
+- `backups.py::start_backup_scheduler()` — dispara backups programados por equipo
+- `restore_drill.py::start_drill_scheduler()` — dispara el drill mensual (día 1, 03:00)
+- `shomer_reports.py::start_report_scheduler()` — dispara el PDF mensual
+
+Antes de este fix, **los 3 corrían dos veces en paralelo** en cualquier servidor con 2 workers
+reales. Mientras Protector no tenía ningún `backup_devices` configurado, el bug existía pero no
+tenía consecuencia visible (ver `project_opera_inframonitor_noise.md`, nota ya actualizada). Eso
+cambió en esta misma sesión: Zeus PMS quedó configurado con backup programado real a las 05:00
+Bogotá (§AV) — el primer disparo real de un backup duplicado quedaba a horas de distancia,
+de ahí la urgencia de corregirlo ya.
+
+## AZ.2 Causa raíz por qué nadie lo notó antes
+
+Cada worker uvicorn es un **proceso del sistema operativo separado** (confirmado con
+`pstree -p <pid_padre>` — aparecen como hijos `multiprocessing.spawn.spawn_main`), no hilos. Los
+globals a nivel de módulo (`_scheduler_running = False`, etc.) viven en la memoria de cada
+proceso por separado — no sirven para coordinar entre los 2 workers. Cada uno arranca su propio
+`_scheduler_loop()` creyendo ser el único.
+
+**Confusión inicial en esta misma sesión:** al verificar el fix en `.205` primero, no se
+encontraron logs de "omitido" — parecía que el fix no hacía nada. La causa: en `.205` existe un
+drop-in (`/etc/systemd/system/shomer-tools.service.d/bind-localhost.conf`) que **sobreescribe
+por completo** el `ExecStart` sin el flag `--workers 2`, dejando Tools con **un solo proceso**
+real en el lab. El riesgo de duplicación nunca existió en `.205` — solo en sitios (como Hotel
+Ópera) que conservan el `--workers 2` del unit file original sin ese drop-in. Antes de descartar
+el fix como innecesario, verificar siempre con `pstree -p <PID>` cuántos procesos reales hay, no
+asumir por el `ExecStart=` del archivo base.
+
+## AZ.3 Fix — generalizar el lock de líder existente (`shomer_poller_leader.py`)
+
+Guardian ya tenía desde antes un lock de archivo (`fcntl.flock` no bloqueante sobre
+`/tmp/shomer-poller.lock`) para evitar que su propio poller corriera duplicado bajo múltiples
+workers. Se generalizó la función para aceptar un `lock_name` — permite locks independientes por
+scheduler dentro del mismo servicio, sin que adquirir uno bloquee a los demás:
+
+```python
+def try_acquire_poller_leader(lock_name: str = "default") -> bool:
+    # lock_name="default" preserva el comportamiento original de Guardian (un solo lock global)
+    ...
+    lock_path = _LOCK_PATH if lock_name == "default" else f"/tmp/shomer-poller-{lock_name}.lock"
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_fds[lock_name] = fd
+        return True
+    except BlockingIOError:
+        os.close(fd)  # evita fd leak en el worker que pierde el lock
+        return False
+```
+
+Aplicado con 3 nombres de lock distintos (no compiten entre sí, cada scheduler tiene su propio
+archivo en `/tmp/shomer-poller-<nombre>.lock`):
+
+| Scheduler | Archivo | `lock_name` |
+|-----------|---------|-------------|
+| Protector backup | `backups.py::start_backup_scheduler()` | `"protector-backup"` |
+| Restore Drill | `restore_drill.py::start_drill_scheduler()` | `"restore-drill"` |
+| Reportes PDF | `shomer_reports.py::start_report_scheduler()` | `"reports"` |
+
+## AZ.4 Verificación real en Hotel Ópera (no solo unit tests)
+
+Tras desplegar y reiniciar `shomer-tools.service`, `pstree -p <PID_padre>` confirmó 2 procesos
+hijos reales (`spawn_main`). El log crudo (`/var/log/shomer/tools_api.log`, sin systemd de por
+medio) mostró:
+
+```
+[protector][scheduler] worker pid=1761288 omitido — otro worker es líder
+```
+
+Un solo worker se excluyó — el otro asumió el rol de líder y arrancó los 3 schedulers. **Nota
+sobre logging:** los mensajes de `restore_drill.py`/`shomer_reports.py` usan `logger.info()` en
+vez de `print()` — como nadie llama `logging.basicConfig()` en el proceso, el logger raíz no
+tiene handler para nivel INFO (el "last resort handler" de Python solo emite WARNING+), así que
+esos dos no se ven en el log aunque corran el mismo mecanismo ya probado. No es un bug — solo
+significa que para depurar estos 2 específicos hay que confiar en el comportamiento del lock
+(`fuser <archivo>.lock`), no en buscar texto en el log.
+
+## AZ.5 Estado de despliegue
+
+| Servidor | Workers reales Tools | Fix desplegado | Verificado con `pstree`/log real |
+|----------|----------------------|-----------------|-----------------------------------|
+| `.205` | 1 (drop-in `bind-localhost.conf` lo fuerza) | ✅ código | Sin riesgo real — verificado por qué no aplica |
+| **Hotel Ópera** | 2 (sin drop-in que lo limite) | ✅ | ✅ — un worker omitido confirmado en log |
+| shomer245 / shomer243 | sin verificar | ✅ código sync (deploy.sh sin Ópera) | sin equipos Protector configurados aún — no urgente |
+
+## AZ.6 Archivos
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/api/shomer_poller_leader.py` | `lock_name` parametrizable + `os.close(fd)` en la rama de fd leak |
+| `app/api/backups.py` | `start_backup_scheduler()` usa lock `"protector-backup"` |
+| `app/scripts/restore_drill.py` | `start_drill_scheduler()` usa lock `"restore-drill"` |
+| `app/api/shomer_reports.py` | `start_report_scheduler()` usa lock `"reports"` |
+
+---
+
+# Parte BA — Sesión 59 (19-20 jun 2026) — Protector Zeus: B2 producción + retención + Drill rediseñado (3 capas)
+
+## BA.1 Backblaze B2 — configurado en Hotel Ópera
+
+Bucket compartido de la empresa (`shomer-backups`, mismo account_id que `.205`), con `b2_path` efectivo `hotel-opera` (slug automático desde `base.client_name="Hotel Opera"` vía `_effective_b2_path()` — sin necesidad de fijar `protector.b2_path` a mano, ver §D.1).
+
+**Validado real:** sync manual del snapshot de Zeus (9 archivos `.bak`, 3.9 GB) → confirmado en B2 con `restic snapshots` contra `b2:shomer-backups:hotel-opera`. `schedule_b2_enabled=1` en el equipo Zeus — cada backup de las 5am sube su delta a B2 automáticamente.
+
+## BA.2 Política de retención — decidida con Juan Pablo (20 jun 2026)
+
+**Antes de esta sesión no existía ningún borrado automático en B2** — `restic copy` solo agrega snapshots, nunca los quita. Sin intervención, B2 crece sin límite (~4GB/día → ~1.4TB/año por equipo).
+
+**Decisión:** 30 días de retención, tanto local como en B2.
+
+| Config (`system_state`) | Valor | Efecto |
+|---|---|---|
+| `protector.retention_days` | `30` | `_prune_local()` — sin cambios, ya existía |
+| `protector.b2_retention_days` | `30` | **Nuevo** — `_prune_b2()`, no existía nada similar antes |
+| `protector.b2_sync_enabled` | `1` | Activa el sync global nocturno (antes solo corría el sync por equipo) |
+| `protector.b2_sync_time` | `05:30` | Media hora después del backup de Zeus (05:00) |
+
+**Implementación** (`app/api/backups.py`):
+- `_get_b2_retention_days()` — espejo de `_get_retention_days()`, default 30 si no está configurado.
+- `_prune_b2()` — `restic forget --keep-daily=N --prune` contra el repo B2 (no el local). Usa las mismas credenciales B2 que el resto del módulo.
+- `_run_global_b2_sync()` ahora llama a `_prune_local()` **y** `_prune_b2()` tras el sync exitoso — antes solo podaba local.
+
+**Por qué no se fijó antes un número exacto:** restic es incremental por bloques (deduplicado) — un snapshot diario de una BD que cambia poco NO pesa lo mismo que el snapshot completo. Con solo 1 backup real (el de hoy) no había datos para estimar el costo real de 30 días; se decidió fijar el límite igual (sin riesgo, porque hoy nada se borraba solo) y medir el crecimiento real en los próximos días.
+
+## BA.3 Bug real — `update_backup_device()` borraba el horario en cualquier edición parcial
+
+**Síntoma:** al activar `schedule_b2_enabled` desde un script (mismo camino que usa el botón "Activar/Pausar auto" del panel), `schedule_enabled` y `schedule_time` de Zeus quedaron en `0`/`NULL`.
+
+**Causa:** el `SELECT` inicial de `update_backup_device()` (`app/api/backups.py`) no traía las columnas `schedule_enabled`, `schedule_time`, `schedule_b2_enabled` — cualquier `PATCH` que no las incluyera explícitamente hacía que `cur.get(...)` cayera al default (0/`None`), sobreescribiendo lo que ya estaba guardado. El botón del panel (`toggleSchedule()` en `backups.html`) solo envía `{schedule_enabled: enable}` — **nunca** mandó `schedule_time`, así que este bug afectaba a cualquier equipo, en cualquier sitio, cada vez que un técnico togglea el auto-backup desde la tabla de snapshots.
+
+**Fix:** el `SELECT` ahora incluye las 3 columnas. Verificado con tests (14/14 OK) y manualmente en Ópera (horario de Zeus restaurado a `05:00` tras el incidente).
+
+## BA.4 Bug real — `/srv/shomer_drill` no existía en ningún servidor
+
+Ni siquiera en `.205` (el lab). El Drill nunca se había ejecutado con éxito en ningún sitio — antes fallaba primero por B2 sin configurar (Ópera, 1 jun) o por este mismo motivo en cualquier intento real. `/srv` es `root:root`; `usb_admin` no puede crear subdirectorios ahí sin que alguien lo haga una vez con `sudo`. Creado en `.205` y Ópera (`sudo mkdir -p /srv/shomer_drill && sudo chown usb_admin:usb_admin /srv/shomer_drill`) — pendiente revisar `install_shomer.sh` para que lo cree en instalaciones nuevas (mismo tipo de hueco que `/mnt/shomer_smb` en §AX.3).
+
+**Bug adicional encontrado en el mismo módulo:** `restore_drill.py` importaba `RESTIC_REPO` desde `app.backend.protector` — esa constante **nunca existió** (el nombre real es `RESTIC_REPOSITORY`). Crasheaba con `ImportError` cada vez que el flujo llegaba al paso de `restic check` local. Corregido.
+
+## BA.5 Incidente real — el Drill original tumbó Guardian en producción
+
+Al probar el Drill (versión original, restore de snapshot completo) en Ópera durante horas activas: descargar el snapshot de Zeus completo (3.9 GB) desde B2 saturó CPU/disco/red del servidor lo suficiente para que `/health` no respondiera a tiempo al watchdog → loop de `SIGKILL`/reinicio de `shomer-guardian` cada 30-45s durante varios minutos (mismo síntoma externo que el bug de §AT/§AW, pero causa distinta: contención de recursos real, no un bug de código). Apagó el panel (parecía "todo caído", incluyendo el monitoreo de Zeus) mientras Zeus PMS en sí — servidor físico separado — nunca dejó de funcionar.
+
+**Lección operativa:** una prueba de "verificación de backup" no debería poder competir por los mismos recursos que el monitoreo en vivo del sitio. Motivó el rediseño completo de §BA.6 — no alcanza con "probarlo en una ventana de mantenimiento", el diseño en sí tenía que dejar de necesitar descargar gigas.
+
+## BA.6 Rediseño del Restore Drill — verificación en 3 capas, sin descargar el snapshot completo
+
+**Antes:** `restic restore <snapshot completo> --target ...` — para un backup de Zeus de 3.9 GB, eso es 3.9 GB de descarga real cada vez que se quiere solo *confirmar que es recuperable*. Arriesga tanto al Shomer (CPU/disco) como al WAN real del cliente (un hotel puede tener ancho de banda compartido con huéspedes).
+
+**Ahora** (`app/scripts/restore_drill.py::_run_drill_blocking()`), 3 capas independientes:
+
+| Capa | Qué hace | Costo de red | Qué detecta |
+|---|---|---|---|
+| 1 — Hash de árbol | Compara el hash Merkle (`tree`) del snapshot local de origen (campo `original` que `restic copy` registra) contra el de su copia en B2 | ~0 (solo 2 llamadas `snapshots --json`, JSON de metadatos) | Corrupción de cualquier byte en cualquier archivo del snapshot — cobertura del 100% de los datos, prueba criptográfica |
+| 2 — Restore de muestra | `restic ls` para listar archivos del snapshot, elige el **más pequeño**, `restic restore --include <ese archivo>` | El tamaño de 1 archivo (visto en Zeus: 1.1 MB de un snapshot de 3.9 GB) | Que la cadena cifrado→nube→descifrado→escritura a disco funciona de punta a punta (la Capa 1 no prueba que el restore real funcione, solo que los bytes no cambiaron) |
+| 3 — `restic check` local | Verificación de estructura/índice del repo local (sin `--read-data` — no relee los datos) | 0 (solo disco local) | Corrupción del repo local mismo |
+
+**Si la Capa 1 dice que el árbol NO coincide** → falla inmediatamente como error grave (posible corrupción real), sin gastar tiempo en las capas 2/3.
+
+**Si no hay snapshot local de origen** (ya rotado por retención) → Capa 1 queda en `None` (no aplica, no es error) y el flujo sigue con las capas 2/3 igual.
+
+**Robustez agregada:** si `restic check` local falla por un lock viejo (ej. de un proceso anterior matado con `kill -9`), se reintenta una vez tras `restic unlock` antes de reportar fallo real.
+
+**Resultado nuevo** (`_run_drill_blocking()` retorna además): `total_files_in_snapshot`, `sample_file`, `sample_file_size_mb`, `tree_match` (`True`/`False`/`None`), `tree_check_msg`. Mensaje de Telegram (`_notify()`) actualizado para mostrar las 3 capas.
+
+**Validado real:**
+- `.205` (lab, snapshot SSH viejo): árbol coincidió, muestra de 0.712 MB, 12s totales.
+- **Hotel Ópera (producción, snapshot real de Zeus de 3.9 GB):** árbol coincidió, muestra de 1.1 MB (de 9 archivos), **15 segundos totales**, repo check OK. Confirmado con `journalctl` que Guardian no tuvo ni un reinicio durante la prueba — a diferencia del intento con el diseño viejo.
+
+## BA.7 Origen de la idea — colaboración en vivo
+
+El rediseño salió de dos ideas del usuario en la misma conversación, tras el incidente de §BA.5: (1) restaurar solo un archivo en vez de todo el snapshot, y (2) comparar el archivo que se copia del cliente contra lo que queda en el Shomer/la nube para validar igualdad — esa segunda idea, llevada a su forma más eficiente con el hash de árbol que restic ya calcula internamente, terminó siendo la Capa 1 (verificación de costo ~0 que cubre el 100% de los datos, más fuerte que el muestreo de la Capa 2 sola).
+
+## BA.8 Archivos y despliegue
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/api/backups.py` | `_get_b2_retention_days()`, `_prune_b2()` nuevos; `_run_global_b2_sync()` invoca ambos prunes; `update_backup_device()` SELECT corregido (incluye schedule_*) |
+| `app/scripts/restore_drill.py` | Rediseño completo de `_run_drill_blocking()` (3 capas) + fix `RESTIC_REPO`→`RESTIC_REPOSITORY` + `_notify()` actualizado |
+
+| Servidor | B2 + retención | Fix horario | `/srv/shomer_drill` | Drill v2 |
+|---|---|---|---|---|
+| `.205` | n/a (lab, sin cliente real) | ✅ código | ✅ creado | ✅ probado real |
+| **Hotel Ópera** | ✅ configurado y validado | ✅ Zeus restaurado | ✅ creado | ✅ probado real (15s, 1.1MB) |
+| shomer245 / shomer243 | ⏳ pendiente deploy | ⏳ pendiente deploy | ⏳ pendiente crear | ⏳ pendiente deploy |
+
+---
+
+# Parte BB — Sesión 60 (21 jun 2026) — Causa de fondo de los apagones recurrentes en Ópera
+
+## BB.1 Contexto
+
+Tras §BA, Hotel Ópera siguió presentando rachas de "todo caído" varias veces el mismo día (incluyendo durante esta sesión, en vivo). Instrucción explícita de Juan Pablo: no más parches puntuales — encontrar la causa de fondo, dado el riesgo real de negocio (el cliente/inversionistas podían cancelar el proyecto por inestabilidad). Esta sesión auditó sistemáticamente el patrón completo, no solo la función que falló esa vez.
+
+## BB.2 El defecto estructural común a todos los incidentes (§AT, §AW, y hoy)
+
+Guardian corre con **un solo worker** (`--workers 1`, un solo hilo de event loop). Cualquier escritura SQLite síncrona puesta directamente en un endpoint `async def` (sin `asyncio.to_thread()`) bloquea **el proceso entero** si choca con otro escritor (el poller de Inframonitor cada 30s, Hunter, Protector) — no solo el endpoint que la causó. El watchdog, con un timeout más corto que la espera legítima de SQLite, mata el proceso pensando que está muerto, generando un reinicio en cascada.
+
+**Se evaluó y se descartó pasar a multi-worker** (`--workers 3`): aunque reduciría el radio de explosión por incidente, también multiplica cuántos procesos de Guardian pueden escribir al mismo tiempo (de "Guardian nunca compite contra sí mismo" a "3 Guardians compitiendo entre sí") — una variable nueva e incierta que no se quiso introducir bajo presión. Se optó por cerrar las causas reales en su lugar.
+
+## BB.3 Hallazgo 1 — 5 módulos con `_init_tables()` ejecutado en cada request
+
+Patrón repetido, escrito en sesiones distintas (32 a 58), por el mismo hábito: cada módulo llama su propio guard de creación de tablas **en cada endpoint**, no solo al arrancar. Esas funciones hacen `CREATE TABLE`/`ALTER TABLE` reales — DDL, el tipo de escritura SQLite más propenso a chocar con otro escritor.
+
+| Módulo | Función | Endpoint disparador real (capturado con `py-spy` en vivo) |
+|--------|---------|------------------------------------------------------------|
+| `shomer_inframonitor.py` | `_init_tables()` + `_sync_guardian_aps()` | `GET /infra/devices` — cada carga del panel Inframonitor |
+| `shomer_audit_network.py` | `_init_tables()` | Cualquier endpoint de Auditoría de Red |
+| `shomer_incidents.py` | `_init_table()` | Cualquier endpoint de Incidentes |
+| `shomer_status_events.py` | `_ensure_table()` | `GET /api/network/status-events` (polled ~30s por `/system-status`) |
+| `shomer_topology.py` | `_ensure_tables()` | Cualquier endpoint de Topología |
+
+**Fix:** bandera "ya inicializado" por proceso en cada uno — la migración solo corre una vez al arrancar, nunca más en el resto de la vida del proceso. Cero cambio de comportamiento, solo elimina el trabajo redundante que generaba el choque.
+
+**Captura en vivo del incidente real:** `py-spy dump` durante un colgado real mostró el hilo principal atascado exactamente en `_sync_guardian_aps (shomer_inframonitor.py:174) ← list_devices (shomer_inframonitor.py:949)` — confirmando la teoría con evidencia directa, no especulación.
+
+## BB.4 Hallazgo 2 — el poller de Inframonitor competía contra sí mismo
+
+`record_status_event()` (en `shomer_status_events.py`) abría su **propia conexión nueva** de escritura cada vez que se llamaba — pero el poller de Inframonitor (`_poll_once()`) la llama **dentro** de su propio `with get_db() as conn:` que ya tiene una transacción de escritura abierta y sin comitear (acumula cambios de todos los dispositivos del ciclo antes de comitear al final). Resultado: el propio poller esperaba su propio lock hasta el `busy_timeout` (10s) por cada equipo que cambiaba de estado en el mismo ciclo de 30s — auto-contención, no un choque externo.
+
+**Fix:** `record_status_event()` ahora acepta un parámetro opcional `conn=` — si se pasa, reutiliza esa transacción en vez de abrir una segunda. El único call site con riesgo real (`shomer_inframonitor.py`) ahora pasa su `conn` existente. Los otros 3 call sites (en `shomer_guardian_nodes.py`, el poller principal de Guardian) no tenían este problema — usan Redis para su propio estado, no abren una transacción SQLite abierta alrededor de la llamada.
+
+## BB.5 Hallazgo 3 — el watchdog convertía una espera normal en un apagón
+
+`/usr/local/bin/shomer-health-check.sh` usaba `curl --max-time 5` — pero `get_db()` usa `timeout=10` (el tiempo que SQLite espera legítimamente por un lock antes de fallar). Cualquier escritura que tardara entre 5 y 10 segundos en resolverse sola (situación normal bajo carga, no una falla real) era interpretada por el watchdog como "el servicio está muerto" → `SIGKILL` + reinicio — el disparador que convertía cada choque de lock en un apagón completo en vez de una demora de unos segundos.
+
+**Fix:** `--max-time` subido a 12s (por encima del `busy_timeout` real) + un reintento de 3s antes de declarar el servicio caído. Aplicado en `.205`, Hotel Ópera, shomer245 y shomer243 — cada uno tenía su propia copia del script (no viaja con `deploy.sh`, vive en `/usr/local/bin/` fuera del repo, hubo que tocar cada servidor a mano).
+
+## BB.6 Hallazgo 4 — autobloqueo Hunter, la ruta más sensible
+
+`execute_hunter_block()` (disparada por cada alerta de Suricata que cumple la política de autobloqueo) hacía el `INSERT OR REPLACE INTO blocked_ips` de forma síncrona y directa en el hilo de Guardian, sin `to_thread()`. Durante una ráfaga real de alertas (el momento donde más importa que el panel siga respondiendo) cada autobloqueo podía competir por el lock hasta 10s, bloqueando todo el servidor. Envuelto en `asyncio.to_thread()`; probado real contra el MikroTik de Ópera (bloqueo + desbloqueo de la IP reservada de prueba `198.51.100.77`, nunca una IP operativa del hotel).
+
+## BB.7 Hallazgo 5 — bug de esquema preexistente en shomer245/shomer243 (no causado por los fixes de hoy)
+
+Al desplegar los fixes anteriores a los mini PCs de lab, ambos quedaron en loop de reinicio — pero por una causa **distinta y preexistente**, no por nada de lo hecho hoy: `/health` devolvía `503` real (`no such column: last_heartbeat`) porque la tabla `infra_nodes` se creó alguna vez con el esquema viejo (columna `last_seen`) y `shomer-monitor.service` —el servicio que crea la tabla con el esquema nuevo— **nunca había corrido** en ninguno de los dos equipos. El watchdog (con cualquier timeout) reiniciaba correctamente algo que de verdad estaba roto, sin poder arreglarlo solo.
+
+**Fix inmediato:** migración aplicada vía el conector propio de la app (`app.backend.db.connect()`, no SQL crudo por CLI) — `ALTER TABLE infra_nodes ADD COLUMN last_heartbeat` + backfill desde `last_seen`.
+
+**Fix permanente:** nueva función `ensure_infra_nodes_heartbeat_column()` en `shomer_guardian_nodes.py`, con guard de una sola vez, llamada desde `lifespan()` en `main.py` (no desde `/health` — eso fue justo la causa del incidente original de §AT.1). Cualquier servidor nuevo o viejo con este esquema desactualizado se autorepara al arrancar Guardian, sin depender de que alguien instale `shomer-monitor.service` a mano.
+
+## BB.8 Despliegue y verificación
+
+Todo desplegado vía el mecanismo oficial (`tools/deploy.sh`, con `SHOMER_DEPLOY_AUTHORIZED=1` para Ópera) — no copias manuales sueltas, excepto el watchdog (`/usr/local/bin/`, fuera del repo, no sincronizado por `deploy.sh`) y la migración de esquema (aplicada una vez por servidor, luego cubierta por el fix permanente de código).
+
+| Fix | `.205` | Ópera | shomer245 | shomer243 |
+|---|---|---|---|---|
+| 5 guards `_init_tables()` | ✅ | ✅ | ✅ | ✅ |
+| `record_status_event(conn=)` | ✅ | ✅ | ✅ | ✅ |
+| `execute_hunter_block` → `to_thread` | ✅ | ✅ probado real (MikroTik) | ✅ | ✅ |
+| Watchdog `max-time 12` + reintento | ✅ | ✅ | ✅ | ✅ |
+| Migración `infra_nodes.last_heartbeat` | n/a (esquema ya correcto) | n/a (esquema ya correcto) | ✅ aplicada + permanente | ✅ aplicada + permanente |
+| `/health` 200 OK verificado | ✅ | ✅ | ✅ | ✅ |
+
+**Verificación en producción (Ópera):** sin reinicios nuevos en el watchdog durante 1h14min continuas tras el deploy, cubriendo de sobra la ventana de ~2h en la que recurría el patrón histórico de caídas. `/health` estable en ~12ms durante toda la ventana.
+
+## BB.9 Bucles de fondo auditados y confirmados sin el mismo problema
+
+Como parte de la misma revisión se auditaron los otros 4 bucles de fondo que arrancan en `lifespan()` de Guardian — ninguno requirió cambios, ya estaban bien diseñados:
+
+- `_poller_tick()` (Guardian, cada 10s) — ping/SSH/SNMP ya en `asyncio.to_thread()`.
+- `_server_health_tick()` — métricas del servidor ya en `to_thread()`.
+- `retention_prune_loop()` / `outage_report_loop()` — ya envuelven su trabajo en `to_thread()`.
+- El bloqueo SSH al firewall (`_fw_block`) usa `asyncssh`, async nativo, no bloqueante.
+
+## BB.10 Principio para evitar que esto se repita
+
+Cualquier función nueva que cree/migre tablas debe llevar el guard de una sola vez desde el primer commit (no agregarlo después de que cause un incidente). Cualquier escritura SQLite dentro de una ruta `async def` con tráfico real (no solo acciones puntuales de un técnico) debe envolverse en `asyncio.to_thread()` desde el diseño, no como corrección posterior. El watchdog nunca debe tener un timeout menor al `busy_timeout` real de la conexión que está verificando.

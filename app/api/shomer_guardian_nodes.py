@@ -630,11 +630,68 @@ async def get_logs(limit: int = 50, user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+_infra_heartbeat_col_ready = False
+
+
+def ensure_infra_nodes_heartbeat_column() -> None:
+    """Migración de una sola vez (llamada desde lifespan, no desde /health).
+
+    Instalaciones viejas crearon `infra_nodes` sin `shomer-monitor.service` activo
+    -- esa tabla quedó con el esquema antiguo (`last_seen`, sin `last_heartbeat`).
+    `_health_db_read()` asume que `last_heartbeat` existe; sin esta migración /health
+    devuelve 503 permanente y el watchdog reinicia Guardian en loop sin resolver nada
+    (encontrado en shomer245/shomer243, jun 2026 -- nunca habían corrido monitor.py).
+    """
+    global _infra_heartbeat_col_ready
+    if _infra_heartbeat_col_ready:
+        return
+    try:
+        from app.backend.db import connect as _connect
+        conn = _connect(timeout=10)
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(infra_nodes)").fetchall()}
+            if cols and "last_heartbeat" not in cols:
+                conn.execute("ALTER TABLE infra_nodes ADD COLUMN last_heartbeat TIMESTAMP")
+                if "last_seen" in cols:
+                    conn.execute(
+                        "UPDATE infra_nodes SET last_heartbeat = last_seen WHERE last_heartbeat IS NULL"
+                    )
+                conn.commit()
+                logger.warning("infra_nodes: columna last_heartbeat agregada (esquema viejo detectado)")
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.debug("ensure_infra_nodes_heartbeat_column: %s", e)
+    _infra_heartbeat_col_ready = True
+
+
+def _health_db_read() -> int:
+    """Lectura rápida y aislada — busy_timeout corto para no colgar /health
+    si otro proceso (Guardian/Hunter/Inframonitor) está escribiendo en network_monitor.db.
+    La tabla infra_nodes ya se crea al arrancar (app/scripts/monitor.py) — no se
+    recrea aquí en cada chequeo para mantener esta ruta 100% de solo lectura."""
+    from app.backend.db import connect as _connect
+    conn = _connect(timeout=2)
+    try:
+        cutoff = (datetime.utcnow() - timedelta(seconds=MONITOR_RECENT_SEC)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        row = conn.execute(
+            "SELECT COUNT(*) FROM infra_nodes WHERE last_heartbeat >= ?",
+            (cutoff,),
+        ).fetchone()
+        return row[0] if row else 0
+    finally:
+        conn.close()
+
+
 @router.get("/health")
 async def health():
     """
     Comprueba que el monitor y Redis están respondiendo.
     Redis: ping. Monitor: verifica datos recientes en infra_nodes (últimos 2 min).
+    Corre en thread aparte — si SQLite está ocupado, no congela el event loop
+    ni el resto de la API mientras este chequeo espera.
     """
     r = get_redis()
     if r is None:
@@ -645,20 +702,7 @@ async def health():
         raise HTTPException(status_code=503, detail=f"Redis ping error: {e}")
 
     try:
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "CREATE TABLE IF NOT EXISTS infra_nodes "
-                "(ip_address TEXT PRIMARY KEY, status TEXT, last_heartbeat TIMESTAMP, latency_ms REAL)"
-            )
-            cutoff = (datetime.utcnow() - timedelta(seconds=MONITOR_RECENT_SEC)).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-            cur.execute(
-                "SELECT COUNT(*) FROM infra_nodes WHERE last_heartbeat >= ?",
-                (cutoff,),
-            )
-            row = cur.fetchone()
-        return {"success": True, "redis": "ok", "recent_nodes": row[0] if row else 0}
+        recent = await asyncio.to_thread(_health_db_read)
+        return {"success": True, "redis": "ok", "recent_nodes": recent}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SQLite error: {e}")
+        raise HTTPException(status_code=503, detail=f"SQLite ocupado/error: {e}")

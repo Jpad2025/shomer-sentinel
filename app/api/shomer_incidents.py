@@ -27,7 +27,14 @@ STATUS_CLOSED = "closed"
 # DB init
 # ──────────────────────────────────────────────
 
+_table_ready = False
+
+
 def _init_table():
+    # Guard de una sola vez evita CREATE TABLE repetido en el hilo único de Guardian por request.
+    global _table_ready
+    if _table_ready:
+        return
     with get_db() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS incidents (
@@ -47,6 +54,7 @@ def _init_table():
             );
         """)
         conn.commit()
+    _table_ready = True
 
 
 # ──────────────────────────────────────────────

@@ -63,7 +63,14 @@ def get_topology_config() -> Dict[str, Any]:
     }
 
 
+_tables_ready = False
+
+
 def _ensure_tables() -> None:
+    # Guard de una sola vez evita CREATE TABLE repetido en el hilo único de Guardian por request.
+    global _tables_ready
+    if _tables_ready:
+        return
     with get_db() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS network_links (
@@ -82,6 +89,7 @@ def _ensure_tables() -> None:
             CREATE INDEX IF NOT EXISTS idx_network_links_parent ON network_links (parent_ip);
         """)
         conn.commit()
+    _tables_ready = True
 
 
 class TopologyProvider(ABC):

@@ -163,7 +163,15 @@ def _effective_retention_days(configured: int) -> int:
     return configured
 
 
+_table_ready = False
+
+
 def _ensure_table() -> None:
+    # api_status_events() (polled cada ~30s) llamaba esto en CADA request -- guard de
+    # una sola vez evita CREATE/ALTER repetido en el hilo único de Guardian.
+    global _table_ready
+    if _table_ready:
+        return
     with get_db() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS status_events (
@@ -215,6 +223,7 @@ def _ensure_table() -> None:
                 except Exception:
                     pass
         conn.commit()
+    _table_ready = True
 
 
 def run_data_retention_prune(*, force: bool = False) -> Dict[str, int]:
@@ -316,35 +325,37 @@ def record_status_event(
     latency_ms: Optional[int] = None,
     loss_pct: Optional[float] = None,
     batch_id: str = "",
+    conn=None,
 ) -> None:
-    """Inserta una transición si prev != status."""
+    """Inserta una transición si prev != status.
+
+    Si el caller ya tiene una transacción de escritura abierta (ej. el poller de
+    Inframonitor, que mantiene un `with get_db()` abierto durante todo el ciclo de
+    dispositivos), pasar ese `conn` evita que esta función abra una SEGUNDA conexión
+    de escritura sobre el mismo archivo SQLite -- eso causaba que el propio poller
+    esperara su propio lock hasta busy_timeout (10s) por cada equipo que cambiaba de
+    estado en el mismo ciclo, alargando innecesariamente la ventana de contención
+    contra Guardian/Hunter/Protector.
+    """
     if prev_status == status:
         return
     wan_snap, maint = _context_snapshots()
+    sql = """INSERT INTO status_events
+               (source, ip, name, device_type, prev_status, status, reason,
+                latency_ms, loss_pct, batch_id, wan_snapshot, maintenance)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+    params = (
+        source, ip, name or ip, device_type or "generic", prev_status or "unknown",
+        status, reason or "", latency_ms, loss_pct, batch_id or "", wan_snap, maint,
+    )
     try:
         _ensure_table()
-        with get_db() as conn:
-            conn.execute(
-                """INSERT INTO status_events
-                   (source, ip, name, device_type, prev_status, status, reason,
-                    latency_ms, loss_pct, batch_id, wan_snapshot, maintenance)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    source,
-                    ip,
-                    name or ip,
-                    device_type or "generic",
-                    prev_status or "unknown",
-                    status,
-                    reason or "",
-                    latency_ms,
-                    loss_pct,
-                    batch_id or "",
-                    wan_snap,
-                    maint,
-                ),
-            )
-            conn.commit()
+        if conn is not None:
+            conn.execute(sql, params)
+        else:
+            with get_db() as own_conn:
+                own_conn.execute(sql, params)
+                own_conn.commit()
     except Exception as e:
         logger.debug("record_status_event %s: %s", ip, e)
 

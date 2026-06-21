@@ -5,8 +5,24 @@ Módulos críticos 24/7: Guardian (monitoreo) + Hunter (seguridad).
 Tracker y Protector corren en puerto 8001 (shomer-tools.service) — accesibles
 via proxies /tracker/* y /backups/* definidos en shomer.py.
 """
+import logging
 import os
+import subprocess
 from contextlib import asynccontextmanager
+
+_log = logging.getLogger(__name__)
+
+
+def _systemd_service_active(service: str) -> bool:
+    """True si el servicio systemd está en estado 'active'."""
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", service],
+            capture_output=True, text=True, timeout=2,
+        )
+        return r.stdout.strip() == "active"
+    except Exception:
+        return False
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -39,7 +55,6 @@ from app.api.shomer_technician import router as technician_router
 from app.api.shomer_status_events import (
     router as status_events_router,
     _ensure_table as ensure_status_events_table,
-    run_data_retention_prune,
     start_retention_prune_loop,
     start_outage_report_loop,
 )
@@ -51,7 +66,8 @@ _STATIC_DIR = os.path.join(_APP_DIR, "static")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.api.shomer_guardian_nodes import start_node_poller
+    from app.api.casador_autoblock_poller import start_hunter_autoblock_poller
+    from app.api.shomer_guardian_nodes import start_node_poller, ensure_infra_nodes_heartbeat_column
     from app.api.shomer_inframonitor import start_inframonitor_poller
     from app.api.shomer_poller_leader import try_acquire_poller_leader
 
@@ -59,13 +75,17 @@ async def lifespan(app: FastAPI):
 
     ensure_status_events_table()
     ensure_topology_tables()
+    ensure_infra_nodes_heartbeat_column()
     if try_acquire_poller_leader():
-        run_data_retention_prune(force=True)
         start_retention_prune_loop()
         start_outage_report_loop()
         start_node_poller()
         start_server_health_tasks()
-        start_inframonitor_poller()
+        if _systemd_service_active("shomer-inframonitor-poller"):
+            _log.info("Inframonitor poller externo activo — omitiendo poller embebido")
+        else:
+            start_inframonitor_poller()
+        start_hunter_autoblock_poller()
     yield
 
 
