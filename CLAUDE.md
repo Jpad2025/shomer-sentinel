@@ -4641,3 +4641,15 @@ Como parte de la misma revisión se auditaron los otros 4 bucles de fondo que ar
 ## BB.10 Principio para evitar que esto se repita
 
 Cualquier función nueva que cree/migre tablas debe llevar el guard de una sola vez desde el primer commit (no agregarlo después de que cause un incidente). Cualquier escritura SQLite dentro de una ruta `async def` con tráfico real (no solo acciones puntuales de un técnico) debe envolverse en `asyncio.to_thread()` desde el diseño, no como corrección posterior. El watchdog nunca debe tener un timeout menor al `busy_timeout` real de la conexión que está verificando.
+
+## BB.11 Anexo Sesión 60 (21 jun 2026) — B2 Ópera tenía contraseña incompatible, reinicializado
+
+Durante la verificación del backup de Zeus de las 05:00 (corrió bien, local OK), se descubrió que el repo B2 `hotel-opera` daba `"ciphertext verification failed"` al intentar leerlo — la contraseña configurada como fallback automático (`/home/usb_admin/.restic-local-pass`, sin cambios desde el 21 de mayo) no coincidía con la que cifró ese repo en algún momento anterior. Esto significa que el sync nocturno a B2 (5:30am) venía fallando silenciosamente — el backup **local** de Zeus nunca estuvo en riesgo, pero la copia en la nube no se estaba actualizando.
+
+**Diagnóstico:** descartada caché corrupta de restic (no es la causa). Sin acceso para recuperar la contraseña original ni evidencia de cuál fue.
+
+**Decisión (autorizada explícitamente por Juan Pablo, con confirmación específica del paso irreversible):** borrar el contenido del path `hotel-opera/` en el bucket B2 (797 archivos, datos ilegibles de todas formas) y reinicializar el repo limpio con la contraseña correcta actual.
+
+**Ejecución:** vía API nativa de B2 (`b2_authorize_account` → `b2_list_file_versions` → `b2_delete_file_version` por cada archivo bajo el prefijo) usando las credenciales ya almacenadas en `system_state` — sin mover ni exponer contraseñas entre servidores. `restic init` reinicializó el repo limpio (`4f1d0eb0ac`). Sync inmediato de verificación: ambos snapshots reales de Zeus (19 y 20 jun) subidos correctamente, con `tree` hash y `original` snapshot ID intactos — los mismos campos que usa la Capa 1 del Drill rediseñado (§BA.6).
+
+**No relacionado:** el aviso de Telegram que el propio scheduler de Protector intenta mandar al grupo sigue fallando (`bot was kicked from the group chat`) — mismo problema preexistente de §AU.6, no causado por este fix.
