@@ -24,7 +24,7 @@ Es como darle al Shomer “ojos” para ver los puertos del switch — **solo mi
 
 ---
 
-### ¿Qué tienes que hacer tú, Ricardo? (3 cosas)
+### ¿Qué tienes que hacer tú, Ricardo oun tecnico o lo pudo haceryo con las credeciales ? (3 cosas)
 
 | # | Qué | ¿Difícil? | Tiempo |
 |---|-----|-----------|--------|

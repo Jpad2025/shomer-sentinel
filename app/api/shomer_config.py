@@ -23,6 +23,34 @@ from app.backend.db import NODOS_GL_PATH
 router = APIRouter(tags=["Shomer Guardian"])
 
 
+def _notify_hunter_seguro(enabled: bool) -> None:
+    """Aviso Telegram al chat técnico cuando cambia autobloqueo Hunter."""
+    try:
+        from app.scripts.alerts import send_telegram_alert
+
+        if enabled:
+            msg = (
+                "BLOQUEO AUTOMÁTICO — Seguro Hunter ACTIVADO\n\n"
+                "Las IPs externas con alertas graves se bloquean solas en el firewall.\n"
+                "Las subnets internas del sitio siguen protegidas (lista de exclusión).\n\n"
+                "Para DESACTIVAR si pasa algo:\n"
+                "1. Panel Hunter → botón Seguro ON (arriba a la derecha)\n"
+                "2. Panel Hunter → Config → desmarcar Habilitado → Guardar\n"
+                "3. Telegram: /seguro off\n\n"
+                "Liberar una IP puntual: /liberar o /desbloquear IP"
+            )
+        else:
+            msg = (
+                "BLOQUEO AUTOMÁTICO — Seguro Hunter DESACTIVADO\n\n"
+                "Solo bloqueo manual. Las alertas siguen llegando al panel.\n\n"
+                "Para activar de nuevo:\n"
+                "• Botón Seguro OFF en panel Hunter\n"
+                "• Telegram: /seguro on"
+            )
+        send_telegram_alert(msg)
+    except Exception:
+        pass
+
 @router.get("/config/system")
 async def get_system_config(user=Depends(require_admin)):
     """
@@ -161,6 +189,9 @@ async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(g
             errors.append("tracker.subnets")
 
     hunter = payload.get("hunter", {})
+    autoblock_prev = None
+    if "auto_block_enabled" in hunter:
+        autoblock_prev = bool(get_config("hunter.auto_block_enabled", False))
     for field in [
         "interfaces",
         "subnets",
@@ -186,6 +217,11 @@ async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(g
                 saved.append(f"hunter.{field}")
             else:
                 errors.append(f"hunter.{field}")
+
+    if "auto_block_enabled" in hunter and "hunter.auto_block_enabled" in saved:
+        autoblock_new = bool(get_config("hunter.auto_block_enabled", False))
+        if autoblock_prev is not None and autoblock_prev != autoblock_new:
+            _notify_hunter_seguro(autoblock_new)
 
     protector = payload.get("protector", {})
     for field in ["backup_sources", "retention_days"]:

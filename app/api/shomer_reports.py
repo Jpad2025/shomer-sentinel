@@ -547,8 +547,14 @@ async def _report_scheduler_loop():
 
 
 def start_report_scheduler():
+    """shomer-tools.service corre --workers 2 -- solo el worker líder (`reports`) corre
+    este loop, para no generar el reporte mensual duplicado (ver CLAUDE.md §AZ)."""
     global _report_scheduler_running
     if _report_scheduler_running:
+        return
+    from app.api.shomer_poller_leader import try_acquire_poller_leader
+    if not try_acquire_poller_leader("reports"):
+        logger.info("Report scheduler: worker pid=%s omitido — otro worker es líder", os.getpid())
         return
     _report_scheduler_running = True
     asyncio.create_task(_report_scheduler_loop())

@@ -106,12 +106,19 @@ def _infra_devices() -> tuple:
                 try:
                     sd = json.loads(r["snmp_data"])
                     ifaces = sd.get("interfaces", [])
+                    ports_up    = sum(1 for i in ifaces if i.get("oper", "").lower() == "up")
+                    ports_total = len(ifaces)
+                    ports_errors = sum(
+                        (i.get("in_errors") or 0) + (i.get("out_errors") or 0)
+                        for i in ifaces
+                    )
                     snmp_info = {
-                        "model": (sd.get("model") or "")[:35],
-                        "uptime": sd.get("uptime") or "",
-                        "hostname": sd.get("hostname") or "",
-                        "ports_up": sum(1 for i in ifaces if i.get("oper_status") == "UP"),
-                        "ports_total": len(ifaces),
+                        "model": (sd.get("model") or sd.get("sys_descr") or "")[:40],
+                        "uptime": sd.get("uptime") or sd.get("sys_uptime") or "",
+                        "hostname": sd.get("hostname") or sd.get("sys_name") or "",
+                        "ports_up": ports_up,
+                        "ports_total": ports_total,
+                        "ports_errors": ports_errors,
                         "printer": sd.get("printer"),  # {status, toner_pct, paper_current, paper_max}
                     }
                 except Exception:
@@ -228,7 +235,10 @@ def _risk_findings() -> dict:
 
 def _server_resources() -> dict:
     try:
-        cpu = psutil.cpu_percent(interval=0.5)
+        # interval=None: lectura instantánea vs. la última muestra, sin bloquear
+        # el event loop. Como este endpoint se sondea cada 30s, el delta entre
+        # llamadas ya es representativo — no hace falta el sleep de 0.5s.
+        cpu = psutil.cpu_percent(interval=None)
         vm = psutil.virtual_memory()
         disks = []
         for path, label in [("/", "OS"), ("/srv", "Backups"), ("/var", "Logs")]:
@@ -279,6 +289,24 @@ def _recent_events(limit: int = 5) -> list:
                 (limit,)
             ).fetchall()
         return [{"type": r["event_type"], "details": r["details"], "at": r["created_at"]} for r in rows]
+    except Exception:
+        return []
+
+
+def _ia_log(limit: int = 8) -> list:
+    """Lee las últimas acciones IA desde Redis noc:ia_log."""
+    try:
+        import redis as _redis
+        import json as _json
+        r = _redis.Redis(host="127.0.0.1", port=6379, decode_responses=True, socket_timeout=1)
+        raw = r.lrange("noc:ia_log", 0, limit - 1)
+        result = []
+        for item in raw:
+            try:
+                result.append(_json.loads(item))
+            except Exception:
+                pass
+        return result
     except Exception:
         return []
 
@@ -397,6 +425,7 @@ async def noc_data(token: str = ""):
         "services": _services_status(),
         "events": _recent_events(),
         "agent": _agent_status(),
+        "ia_log": _ia_log(),
     }
 
 

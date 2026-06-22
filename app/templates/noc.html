@@ -12,9 +12,9 @@
     --border: #1e3a5f;
     --text: #e2e8f0;
     --muted: #64748b;
-    --green: #22c55e;
-    --yellow: #f59e0b;
-    --red: #ef4444;
+    --green: #00ff9d;
+    --yellow: #ffd60a;
+    --red: #ff4d6d;
     --blue: #3b82f6;
     --cyan: #06b6d4;
     --purple: #a855f7;
@@ -54,7 +54,9 @@
     color: var(--cyan);
   }
   .header-logo span { color: var(--text); }
+  .header-eyes-logo { height: 50px; width: auto; border-radius: 6px; }
   .header-site-name { font-size: 1.6rem; font-weight: 800; letter-spacing: 0.5px; color: var(--text); line-height: 1.15; }
+  .header-verse { font-size: 0.72rem; letter-spacing: 0.5px; color: var(--cyan); font-weight: 500; opacity: 0.85; margin-top: 2px; }
   .header-brand-logo { height: 46px; width: auto; opacity: 0.92; border-radius: 6px; }
   .header-center { text-align: center; }
   .header-title { font-size: 1.1rem; color: var(--muted); }
@@ -110,16 +112,16 @@
     display: none;
     align-items: center;
     gap: 14px;
-    background: rgba(239,68,68,.1);
-    border: 1px solid rgba(239,68,68,.5);
+    background: rgba(255,77,109,.1);
+    border: 1px solid rgba(255,77,109,.5);
     border-radius: 10px;
     padding: 12px 20px;
     margin-bottom: 14px;
     animation: blink-border 2s ease-in-out infinite;
   }
   @keyframes blink-border {
-    0%,100% { border-color: rgba(239,68,68,.4); }
-    50%      { border-color: rgba(239,68,68,.9); }
+    0%,100% { border-color: rgba(255,77,109,.4); }
+    50%      { border-color: rgba(255,77,109,.9); }
   }
   .alert-band-icon { font-size: 1.4rem; flex-shrink: 0; }
   .alert-band-text { font-weight: 700; color: var(--red); font-size: 1rem; }
@@ -155,8 +157,8 @@
     font-size: 0.82rem;
     font-weight: 600;
   }
-  .svc-ok   { background: rgba(34,197,94,.12);  color: var(--green);  border: 1px solid rgba(34,197,94,.25);  }
-  .svc-fail { background: rgba(239,68,68,.12);  color: var(--red);    border: 1px solid rgba(239,68,68,.25);  }
+  .svc-ok   { background: rgba(0,255,157,.12);  color: var(--green);  border: 1px solid rgba(0,255,157,.25);  }
+  .svc-fail { background: rgba(255,77,109,.12);  color: var(--red);    border: 1px solid rgba(255,77,109,.25);  }
   .svc-dot  { width: 7px; height: 7px; border-radius: 50%; }
   .svc-dot-ok   { background: var(--green); }
   .svc-dot-fail { background: var(--red);   }
@@ -169,7 +171,7 @@
     margin-bottom: 14px;
   }
   /* Tarjeta compacta servidor (Recursos + Agente IA fusionados — secundaria frente al equipo del cliente) */
-  .server-compact-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: center; }
+  .server-compact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: center; }
   .server-compact-grid .gauge-svg { width: 72px; height: 44px; }
   .server-compact-grid .gauge-value { font-size: 1.05rem; }
   .server-compact-grid .gauge-label { font-size: 0.65rem; margin-top: 2px; }
@@ -203,9 +205,9 @@
     border-radius: 20px;
     font-weight: 600;
   }
-  .badge-green  { background: rgba(34,197,94,.15);  color: var(--green);  }
-  .badge-red    { background: rgba(239,68,68,.15);  color: var(--red);    }
-  .badge-yellow { background: rgba(245,158,11,.15); color: var(--yellow); }
+  .badge-green  { background: rgba(0,255,157,.15);  color: var(--green);  }
+  .badge-red    { background: rgba(255,77,109,.15);  color: var(--red);    }
+  .badge-yellow { background: rgba(255,214,10,.15); color: var(--yellow); }
   .badge-blue   { background: rgba(59,130,246,.15); color: var(--blue);   }
 
   /* ── STATUS DOTS ── */
@@ -236,8 +238,8 @@
     transition: border-color 0.2s;
   }
   .ap-box:hover { border-color: var(--cyan); }
-  .ap-box.ap-offline  { border-color: rgba(239,68,68,.45); background: rgba(239,68,68,.06); }
-  .ap-box.ap-degraded { border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.06); }
+  .ap-box.ap-offline  { border-color: rgba(255,77,109,.45); background: rgba(255,77,109,.06); }
+  .ap-box.ap-degraded { border-color: rgba(255,214,10,.45); background: rgba(255,214,10,.06); }
   .ap-box-top  { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
   .ap-box-icon { font-size: 1rem; }
   .ap-box-name { font-size: 0.82rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -276,36 +278,136 @@
   }
 
   /* ── DEVICE LIST (infra sections) ── */
-  .device-list { display: flex; flex-direction: column; gap: 6px; }
+  .device-list { display: flex; flex-direction: column; gap: 10px; }
   .device-row {
+    background: #1e293b;
+    border-radius: 8px;
+    padding: 13px 16px;
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 10px;
-    background: var(--bg3);
-    border-radius: 7px;
-    padding: 8px 12px;
+    gap: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
     font-size: 0.9rem;
   }
-  .device-icon { font-size: 1.1rem; flex-shrink: 0; }
-  .device-info { flex: 1; min-width: 0; }
-  .device-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .device-meta { font-size: 0.72rem; color: var(--muted); }
-  .device-latency {
-    font-size: 0.75rem;
-    color: var(--cyan);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+  .row-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
   }
-  .snmp-badge {
-    font-size: 0.65rem;
-    font-weight: 700;
-    padding: 2px 7px;
-    border-radius: 4px;
-    white-space: nowrap;
+  .row-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex-shrink: 0;
   }
-  .snmp-ok   { background: rgba(34,197,94,.12); color: var(--green); border: 1px solid rgba(34,197,94,.25); }
-  .snmp-fail { background: rgba(239,68,68,.12); color: var(--red);   border: 1px solid rgba(239,68,68,.25); }
+  .device-icon { font-size: 1.15rem; flex-shrink: 0; }
+  .device-info { min-width: 0; }
+  .device-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #f8fafc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .device-meta {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .device-meta-lat { color: #38bdf8; font-variant-numeric: tabular-nums; }
+  .snmp-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+    letter-spacing: 0.4px;
+  }
+  .snmp-ok {
+    background: rgba(16,185,129,0.15);
+    color: #10b981;
+    border: 1px solid rgba(16,185,129,0.3);
+  }
+  .snmp-fail {
+    background: rgba(255,77,109,0.15);
+    color: #ef4444;
+    border: 1px solid rgba(255,77,109,0.3);
+    animation: pulse-border 2s ease-in-out infinite;
+  }
+  @keyframes pulse-border {
+    0%, 100% { border-color: rgba(255,77,109,0.3); }
+    50%       { border-color: rgba(255,77,109,0.8); }
+  }
+  /* ── HARDWARE LEDs ── */
+  .hardware-leds {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .led-lat {
+    color: #38bdf8;
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    margin-right: 4px;
+  }
+  .led {
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+  }
+  .led-ok {
+    background: rgba(16,185,129,0.15);
+    color: #10b981;
+    border: 1px solid rgba(16,185,129,0.3);
+  }
+  .led-warn {
+    background: rgba(255,214,10,0.15);
+    color: #f59e0b;
+    border: 1px solid rgba(255,214,10,0.3);
+  }
+  .led-alert {
+    background: rgba(255,77,109,0.18);
+    color: #ef4444;
+    border: 1px solid rgba(255,77,109,0.4);
+    animation: pulse-led 1.5s ease-in-out infinite;
+  }
+  .led-muted {
+    background: rgba(100,116,139,0.15);
+    color: #64748b;
+    border: 1px solid rgba(100,116,139,0.25);
+  }
+  @keyframes pulse-led {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.5; }
+  }
+  .toner-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 5px;
+  }
+  .toner-bar-bg {
+    width: 90px;
+    height: 5px;
+    background: #334155;
+    border-radius: 3px;
+    overflow: hidden;
+    display: inline-block;
+  }
+  .toner-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
 
   /* ── RECURSOS ── */
   .resources-grid {
@@ -362,30 +464,72 @@
   .agent-stopped { color: var(--red);   }
   .agent-unknown { color: var(--muted); }
 
-  /* ── TICKER ── */
-  .ticker-bar {
-    background: var(--bg2);
-    border: 1px solid var(--border);
+  /* ── IA LOG BAR (reemplaza ticker) ── */
+  .ia-log-bar {
+    background: #020617;
+    border: 1px solid rgba(56,189,248,0.2);
     border-radius: 10px;
-    padding: 10px 20px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    overflow: hidden;
+    padding: 10px 16px;
+    font-family: 'Courier New', Courier, monospace;
   }
-  .ticker-label {
+  .ia-log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 7px;
+  }
+  .ia-log-label {
     font-size: 0.7rem;
     font-weight: 700;
     letter-spacing: 2px;
-    color: var(--cyan);
+    color: #38bdf8;
     text-transform: uppercase;
+  }
+  .ia-log-live {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.67rem;
+    color: var(--green);
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .ia-log-stream {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0 18px;
+    overflow: hidden;
+    align-items: center;
+  }
+  .ia-log-entry {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     white-space: nowrap;
+    font-size: 0.77rem;
     flex-shrink: 0;
   }
-  .ticker-events { display: flex; gap: 24px; flex-wrap: wrap; font-size: 0.78rem; color: var(--muted); }
-  .ticker-event  { white-space: nowrap; }
-  .ticker-event-type { color: var(--text); font-weight: 600; }
-  .ticker-dot  { color: var(--border); margin: 0 4px; }
+  .ia-log-time   { color: #334155; font-size: 0.68rem; }
+  .ia-engine-groq {
+    background: rgba(168,85,247,0.15); color: #a855f7;
+    border: 1px solid rgba(168,85,247,0.3);
+    border-radius: 3px; padding: 0px 5px;
+    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .ia-engine-openai {
+    background: rgba(16,185,129,0.15); color: #10b981;
+    border: 1px solid rgba(16,185,129,0.3);
+    border-radius: 3px; padding: 0px 5px;
+    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .ia-engine-monitor {
+    background: rgba(56,189,248,0.1); color: #38bdf8;
+    border: 1px solid rgba(56,189,248,0.25);
+    border-radius: 3px; padding: 0px 5px;
+    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .ia-log-msg { color: #cbd5e1; }
+  .ia-log-sep { color: #1e3a5f; margin: 0 2px; }
 
   /* ── SUMMARY BAR ── */
   .summary-bar { display: flex; gap: 20px; align-items: center; }
@@ -405,6 +549,94 @@
   /* ── LAST UPDATE ── */
   .last-update { font-size: 0.7rem; color: var(--muted); text-align: right; margin-top: 4px; }
 
+  /* ── AGENTE IA — HEADER PILL ── */
+  .ia-header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(56,189,248,0.08);
+    border: 1px solid rgba(56,189,248,0.22);
+    padding: 8px 16px;
+    border-radius: 8px;
+  }
+  .ia-brain-glow {
+    font-size: 1.5rem;
+    animation: ia-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes ia-pulse {
+    0%,100% { transform: scale(1);    filter: drop-shadow(0 0 3px rgba(56,189,248,0.35)); }
+    50%      { transform: scale(1.12); filter: drop-shadow(0 0 14px rgba(56,189,248,0.85)); }
+  }
+  .ia-title-status {
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #38bdf8;
+    text-transform: uppercase;
+  }
+  .ia-model-badge {
+    font-size: 0.68rem;
+    color: #64748b;
+    font-family: 'Courier New', monospace;
+    margin-top: 1px;
+  }
+  .ia-header-brand.ia-stopped {
+    background: rgba(255,77,109,0.08);
+    border-color: rgba(255,77,109,0.22);
+  }
+  .ia-header-brand.ia-stopped .ia-title-status { color: #ef4444; }
+  .ia-header-brand.ia-stopped .ia-brain-glow {
+    animation: none;
+    filter: grayscale(1) opacity(0.5);
+  }
+
+  /* ── AGENTE IA — TERMINAL CARD ── */
+  .ia-terminal-card {
+    background: #020617;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    font-family: 'Courier New', Courier, monospace;
+    overflow: hidden;
+  }
+  .ia-terminal-top {
+    background: #0f172a;
+    padding: 7px 14px;
+    font-size: 0.72rem;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    border-bottom: 1px solid #1e293b;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .ia-terminal-top strong { color: #94a3b8; }
+  .ia-terminal-body { padding: 12px 14px; }
+  .ia-log-line {
+    display: flex;
+    gap: 8px;
+    font-size: 0.78rem;
+    margin: 5px 0;
+    color: #38bdf8;
+  }
+  .ia-log-line .ia-prompt { color: #334155; flex-shrink: 0; }
+  .ia-log-line .ia-key   { color: #64748b; flex-shrink: 0; }
+  .ia-log-line .ia-val   { color: #f1f5f9; }
+  .ia-log-line .ia-ok    { color: #10b981; font-weight: 700; }
+  .ia-log-line .ia-warn  { color: #f59e0b; font-weight: 700; }
+  .ia-log-line .ia-err   { color: #ef4444; font-weight: 700; }
+  .dot-blink-blue {
+    width: 6px; height: 6px;
+    background: #38bdf8;
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: blink-blue 1s ease-in-out infinite;
+  }
+  @keyframes blink-blue {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.25; }
+  }
+
   /* ── RESPONSIVE ── */
   @media (min-width: 1600px) {
     body { font-size: 17px; }
@@ -421,17 +653,26 @@
 <!-- HEADER -->
 <div class="header">
   <div class="header-logo">
-    🛡️
+    <img src="/static/img/shomer-eyes.png" alt="Shomer" class="header-eyes-logo" onerror="this.style.display='none'">
     <div>
       {% if site_name %}<div class="header-site-name">{{ site_name }}</div>{% endif %}
       <div style="font-size:0.8rem; letter-spacing:1px; color:var(--muted); font-weight:500;">Shomer Sentinel — Centro de Operaciones</div>
+      <div class="header-verse">He Shomer, El Que Te Cuida Nunca Duerme · Salmo 121:4</div>
     </div>
   </div>
   <div class="header-center">
     <div class="header-clock" id="clock">--:--:--</div>
     <div class="header-date" id="date-str"></div>
   </div>
-  <div style="display:flex; align-items:center; gap:18px;">
+  <div style="display:flex; align-items:center; gap:16px;">
+    <!-- IA pill — visible solo cuando activa -->
+    <div id="ia-header-brand" class="ia-header-brand" style="display:none;">
+      <div class="ia-brain-glow">🤖</div>
+      <div>
+        <div class="ia-title-status" id="ia-header-status">AGENTE IA ACTIVO</div>
+        <div class="ia-model-badge" id="ia-header-model">—</div>
+      </div>
+    </div>
     <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
       <div class="live-badge"><div class="live-dot"></div> EN VIVO</div>
       <div id="summary-bar" class="summary-bar"></div>
@@ -539,25 +780,36 @@
           <div class="gauge-value" id="ram-val" style="color:var(--purple);">—%</div>
           <div class="gauge-label">RAM</div>
         </div>
-        <div>
-          <div class="server-mini-label">🤖 Agente IA <span class="card-badge" id="agent-badge" style="background:rgba(148,163,184,.1);color:var(--muted);font-size:0.62rem;padding:1px 6px;">—</span></div>
-          <div class="agent-item-val agent-unknown" id="agent-state" style="font-size:0.92rem;">—</div>
-          <div class="agent-item-sub" id="agent-uptime" style="font-size:0.65rem;">—</div>
-          <div class="agent-item-val" id="agent-llm" style="color:var(--cyan);font-size:0.8rem;margin-top:5px;">—</div>
-          <div class="agent-item-sub" id="agent-model" style="font-size:0.62rem;">—</div>
-        </div>
       </div>
       <div class="disk-list" id="disk-list" style="margin-top:14px;"></div>
+    </div>
+
+    <!-- AGENTE IA — Terminal -->
+    <div class="ia-terminal-card" id="ia-terminal-card">
+      <div class="ia-terminal-top">
+        <div class="dot-blink-blue" id="ia-term-dot"></div>
+        <strong>SHOMER COGNITIVE CORE</strong>
+      </div>
+      <div class="ia-terminal-body">
+        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Estado</span><span class="ia-val ia-ok" id="ia-term-state">INICIANDO…</span></div>
+        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Motor</span><span class="ia-val" id="ia-term-provider">—</span></div>
+        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Modelo</span><span class="ia-val" id="ia-term-model">—</span></div>
+        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Uptime</span><span class="ia-val" id="ia-term-uptime">—</span></div>
+        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Monitor</span><span class="ia-val" id="ia-term-nodes">Conectando…</span></div>
+      </div>
     </div>
 
   </div><!-- /right col -->
 </div><!-- /main-grid -->
 
-<!-- TICKER -->
-<div class="ticker-bar">
-  <span class="ticker-label">📋 Eventos</span>
-  <div class="ticker-events" id="ticker-events">
-    <span style="color:var(--muted);">Sin eventos recientes</span>
+<!-- SHOMER COGNITIVE CORE — LOG DE DECISIONES IA -->
+<div class="ia-log-bar">
+  <div class="ia-log-header">
+    <span class="ia-log-label">🤖 SHOMER COGNITIVE CORE — LOG DE DECISIONES IA</span>
+    <span class="ia-log-live"><span class="dot-blink-blue"></span>EN VIVO</span>
+  </div>
+  <div class="ia-log-stream" id="ia-log-stream">
+    <span style="color:var(--muted);font-size:0.78rem;font-family:monospace;">Esperando primera acción del agente…</span>
   </div>
 </div>
 
@@ -757,58 +1009,130 @@ function renderInfraSections(devices) {
     if (!gdevs.length) continue;
     html += `<div class="section-title">${grp.label}</div><div class="device-list">`;
     html += gdevs.map(dev => {
-      const lat      = dev.latency_ms != null ? `${dev.latency_ms.toFixed(1)} ms` : '';
-      const icon     = ICONS[dev.device_type] || '📡';
-      const snmpBadge = dev.snmp_ok === 1 ? '<span class="snmp-badge snmp-ok">SNMP ✓</span>'
-                      : dev.snmp_ok === 0 ? '<span class="snmp-badge snmp-fail">SNMP ✗</span>' : '';
+      const latMs     = dev.latency_ms != null ? dev.latency_ms.toFixed(1) : null;
+      const icon      = ICONS[dev.device_type] || '📡';
+      const snmp      = dev.snmp || {};
       const isPrinter = dev.device_type === 'printer' || dev.device_type === 'pos';
-      const pr = (isPrinter && dev.snmp && dev.snmp.printer) ? dev.snmp.printer : null;
+      const isSwitch  = dev.device_type === 'switch' || dev.device_type === 'router';
+      const pr        = (isPrinter && snmp.printer) ? snmp.printer : null;
 
-      let printerHtml = '';
+      // ── meta line left-bottom ──
+      const modelTxt = snmp.model || dev.location || '';
+      const sep = '<span style="color:#334155"> • </span>';
+      let metaParts = modelTxt ? `📍 ${modelTxt}` : '';
+      if (isSwitch && snmp.ports_total > 0) {
+        metaParts += sep + `🔌 ${snmp.ports_up}/${snmp.ports_total} ptos`;
+      }
+      if (latMs) metaParts += sep + `<span class="device-meta-lat">⏱ ${latMs} ms</span>`;
+
+      // ── printer toner bar (compact, inside left block) ──
+      let tonerHtml = '';
       if (pr) {
-        const tonerPct = pr.toner_pct != null ? pr.toner_pct : null;
-        const tonerColor = tonerPct == null ? 'var(--muted)' : tonerPct > 30 ? 'var(--green)' : tonerPct > 10 ? 'var(--yellow)' : 'var(--red)';
-        const tonerBar = tonerPct != null
-          ? `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
-               <span style="font-size:0.65rem;color:var(--muted);width:36px;">Tóner</span>
-               <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;">
-                 <div style="width:${tonerPct}%;height:100%;background:${tonerColor};border-radius:3px;"></div>
-               </div>
-               <span style="font-size:0.65rem;color:${tonerColor};width:28px;text-align:right;">${tonerPct}%</span>
-             </div>` : '';
-
-        const paperTxt = (pr.paper_current != null && pr.paper_max != null && pr.paper_max > 0)
-          ? `Papel: ${pr.paper_current}/${pr.paper_max} hj`
-          : pr.paper_current != null ? `Papel: ${pr.paper_current} hj` : '';
-
-        const stMap = {lista:'✅ Lista', imprimiendo:'🖨️ Imprimiendo', calentando:'🔄 Calentando', error:'❌ Error'};
-        const stTxt = pr.status ? (stMap[pr.status] || pr.status) : '';
-
-        printerHtml = `<div style="width:100%;margin-top:2px;">
-          ${tonerBar}
-          ${paperTxt || stTxt ? `<div style="font-size:0.65rem;color:var(--muted);margin-top:3px;">${[stTxt, paperTxt].filter(Boolean).join(' · ')}</div>` : ''}
-        </div>`;
+        const tonerPct   = pr.toner_pct;
+        const tonerColor = tonerPct == null ? '#64748b' : tonerPct > 30 ? '#10b981' : tonerPct > 10 ? '#f59e0b' : '#ef4444';
+        if (tonerPct != null) {
+          tonerHtml = `<div class="toner-bar-wrap">
+            <div class="toner-bar-bg"><div class="toner-bar-fill" style="width:${Math.min(tonerPct,100)}%;background:${tonerColor};"></div></div>
+            <span style="font-size:0.72rem;color:${tonerColor};font-weight:700;">Tóner ${tonerPct}%</span>
+          </div>`;
+        }
       }
 
-      const snmpMeta = dev.snmp && dev.snmp.model ? dev.snmp.model : '';
-      const portMeta = (!isPrinter && dev.snmp && dev.snmp.ports_total > 0)
-        ? `${dev.snmp.ports_up}/${dev.snmp.ports_total} ptos` : '';
-      const meta = [snmpMeta || dev.location, portMeta, lat].filter(Boolean).join(' · ');
+      // ── RIGHT: LEDs por tipo de equipo ──
+      let leds = '';
 
-      return `<div class="device-row" style="${isPrinter && pr ? 'flex-wrap:wrap;' : ''}">
-        ${dot(dev.status)}
-        <span class="device-icon">${icon}</span>
-        <div class="device-info" style="flex:1;">
-          <div class="device-name">${dev.name}</div>
-          <div class="device-meta">${meta}</div>
+      // Latencia siempre primero si hay datos (solo para switch/router con SNMP)
+      if (isSwitch && latMs) {
+        leds += `<span class="led-lat">⏱ ${latMs} ms</span>`;
+      }
+
+      if (isSwitch) {
+        // SNMP LED
+        leds += dev.snmp_ok === 1 ? '<span class="led led-ok">SNMP ✓</span>'
+               : dev.snmp_ok === 0 ? '<span class="led led-alert">SNMP ✗</span>'
+               : '';
+        // Errores de puerto
+        const errs = snmp.ports_errors || 0;
+        leds += errs > 0
+          ? `<span class="led led-alert">⚠ ${errs} ERRORES</span>`
+          : (snmp.ports_total > 0 ? '<span class="led led-ok">PUERTOS OK</span>' : '');
+
+      } else if (isPrinter) {
+        // Tóner LED
+        const tp = pr ? pr.toner_pct : null;
+        if (tp != null) {
+          leds += tp > 30 ? `<span class="led led-ok">TÓNER ${tp}%</span>`
+                : tp > 10 ? `<span class="led led-warn">TÓNER ${tp}%</span>`
+                :           `<span class="led led-alert">⚠ TÓNER ${tp}%</span>`;
+        }
+        // Papel LED
+        if (pr) {
+          const noPaper = pr.paper_current === 0;
+          const lowPaper = pr.paper_current != null && pr.paper_max != null && pr.paper_max > 0
+                           && (pr.paper_current / pr.paper_max) < 0.15;
+          leds += noPaper  ? '<span class="led led-alert">⚠ SIN PAPEL</span>'
+               : lowPaper  ? `<span class="led led-warn">PAPEL BAJO</span>`
+               : pr.paper_current != null ? '<span class="led led-ok">PAPEL OK</span>' : '';
+        }
+        // SNMP LED (última)
+        leds += dev.snmp_ok === 1 ? '<span class="led led-ok">SNMP ✓</span>'
+               : dev.snmp_ok === 0 ? '<span class="led led-alert">SNMP ✗</span>' : '';
+
+      } else {
+        // Otros: solo SNMP y latencia
+        if (latMs) leds += `<span class="led-lat">⏱ ${latMs} ms</span>`;
+        leds += dev.snmp_ok === 1 ? '<span class="led led-ok">SNMP ✓</span>'
+               : dev.snmp_ok === 0 ? '<span class="led led-alert">SNMP ✗</span>' : '';
+      }
+
+      // OFFLINE/DEGRADED siempre al final si aplica
+      if (dev.status === 'offline') {
+        leds += '<span class="led led-alert">OFFLINE</span>';
+      } else if (dev.status === 'degraded') {
+        leds += '<span class="led led-warn">DEGRADED</span>';
+      }
+
+      return `<div class="device-row">
+        <div class="row-left">
+          ${dot(dev.status)}
+          <span class="device-icon">${icon}</span>
+          <div class="device-info">
+            <div class="device-name">${dev.name}</div>
+            <div class="device-meta">${metaParts}</div>
+            ${tonerHtml}
+          </div>
         </div>
-        ${snmpBadge}
-        ${printerHtml}
+        <div class="hardware-leds">${leds}</div>
       </div>`;
     }).join('');
     html += '</div>';
   }
   return html;
+}
+
+// ── IA Log render ──
+function renderIaLog(entries) {
+  const el = document.getElementById('ia-log-stream');
+  if (!el) return;
+  if (!entries || entries.length === 0) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:0.78rem;font-family:monospace;">Esperando primera acción del agente…</span>';
+    return;
+  }
+  const engCls = e => e === 'OpenAI' ? 'ia-engine-openai' : e === 'Groq' ? 'ia-engine-groq' : 'ia-engine-monitor';
+  let html = '';
+  const show = Math.min(entries.length, 5);
+  for (let i = 0; i < show; i++) {
+    const e = entries[i];
+    const cls = engCls(e.engine || 'IA');
+    const msg = (e.msg || '').substring(0, 88);
+    if (i > 0) html += '<span class="ia-log-sep">·</span>';
+    html += `<span class="ia-log-entry">`;
+    html += `<span class="ia-log-time">[${e.at || '--:--:--'}]</span>`;
+    html += `<span class="${cls}">${e.engine || 'IA'}</span>`;
+    html += `<span class="ia-log-msg">${msg}</span>`;
+    html += `</span>`;
+  }
+  el.innerHTML = html;
 }
 
 // ── Main render ──
@@ -878,36 +1202,53 @@ function render(d) {
       <div class="disk-free">${disk.free_gb} GB libres</div>
     </div>`).join('');
 
-  // Events ticker
-  const events = d.events || [];
-  document.getElementById('ticker-events').innerHTML = events.length === 0
-    ? '<span style="color:var(--muted)">Sin eventos recientes</span>'
-    : events.map(e =>
-        `<span class="ticker-event"><span class="ticker-event-type">${e.type}</span>` +
-        (e.details ? `<span class="ticker-dot">·</span>${e.details.substring(0,40)}` : '') +
-        `<span class="ticker-dot">·</span><span style="color:var(--muted)">${relTime(e.at)}</span></span>`
-      ).join('<span style="color:var(--border);margin:0 8px;">|</span>');
+  // IA Log — SHOMER COGNITIVE CORE
+  renderIaLog(d.ia_log || []);
 
-  // Agent IA
-  const ag = d.agent || {};
-  const agStateEl  = document.getElementById('agent-state');
-  const agBadgeEl  = document.getElementById('agent-badge');
-  const agUptimeEl = document.getElementById('agent-uptime');
-  const agLlmEl    = document.getElementById('agent-llm');
-  const agModelEl  = document.getElementById('agent-model');
-  if (agStateEl) {
-    const cls = ag.state === 'running' ? 'agent-running' : ag.state === 'unknown' ? 'agent-unknown' : 'agent-stopped';
-    agStateEl.className   = 'agent-item-val ' + cls;
-    agStateEl.textContent = ag.state || '—';
+  // ── Agent IA ──
+  const ag      = d.agent || {};
+  const isOk    = ag.ok === true || ag.state === 'running';
+  const provider = (ag.llm_provider || 'groq').toUpperCase();
+  const model    = ag.llm_model || (ag.llm_provider === 'openai' ? 'gpt-4o-mini' : 'llama-3.3-70b');
+  const nodesCount = (d.guardian && d.guardian.devices ? d.guardian.devices.length : 0)
+                   + (d.inframonitor && d.inframonitor.devices ? d.inframonitor.devices.length : 0);
+
+  // Header pill
+  const pill = document.getElementById('ia-header-brand');
+  if (pill) {
+    pill.style.display = 'flex';
+    if (isOk) {
+      pill.classList.remove('ia-stopped');
+      document.getElementById('ia-header-status').textContent = 'AGENTE IA ACTIVO';
+    } else {
+      pill.classList.add('ia-stopped');
+      document.getElementById('ia-header-status').textContent = 'AGENTE IA DETENIDO';
+    }
+    document.getElementById('ia-header-model').textContent = provider + ' · ' + model;
   }
-  if (agBadgeEl) {
-    agBadgeEl.textContent       = ag.ok ? 'activo' : 'detenido';
-    agBadgeEl.style.background  = ag.ok ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)';
-    agBadgeEl.style.color       = ag.ok ? 'var(--green)' : 'var(--red)';
+
+  // Terminal card
+  const termState    = document.getElementById('ia-term-state');
+  const termProvider = document.getElementById('ia-term-provider');
+  const termModel    = document.getElementById('ia-term-model');
+  const termUptime   = document.getElementById('ia-term-uptime');
+  const termNodes    = document.getElementById('ia-term-nodes');
+  const termDot      = document.getElementById('ia-term-dot');
+  if (termState) {
+    if (isOk) {
+      termState.className = 'ia-val ia-ok';
+      termState.textContent = 'RUNNING';
+      if (termDot) termDot.style.background = '#10b981';
+    } else {
+      termState.className = 'ia-val ia-err';
+      termState.textContent = 'STOPPED';
+      if (termDot) { termDot.style.background = '#ef4444'; termDot.style.animation = 'none'; }
+    }
   }
-  if (agUptimeEl) agUptimeEl.textContent = ag.uptime ? 'uptime ' + ag.uptime : '—';
-  if (agLlmEl)   agLlmEl.textContent    = (ag.llm_provider || 'groq').toUpperCase();
-  if (agModelEl) agModelEl.textContent  = ag.llm_model || (ag.llm_provider === 'openai' ? 'gpt-4o-mini' : 'llama-3.3-70b');
+  if (termProvider) termProvider.textContent = provider;
+  if (termModel)    termModel.textContent    = model;
+  if (termUptime)   termUptime.textContent   = ag.uptime ? ag.uptime : '—';
+  if (termNodes)    termNodes.textContent    = nodesCount > 0 ? `Vigilando ${nodesCount} nodos` : 'Sin nodos';
 
   // Last update
   document.getElementById('last-update').textContent = 'Act. ' + new Date().toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit',second:'2-digit'});

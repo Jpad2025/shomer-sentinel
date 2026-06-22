@@ -101,3 +101,4 @@ Werkzeug==3.1.6
 xlsxwriter==3.2.9
 yarl==1.22.0
 zopfli==0.4.1
+pyserial>=3.5

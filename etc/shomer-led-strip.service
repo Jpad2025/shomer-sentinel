@@ -1,0 +1,24 @@
+[Unit]
+Description=Shomer Sentinel — tira RGB frontal S1 (arcoíris)
+After=snap.s1panel.s1panel.service network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/network_monitor
+Environment=PYTHONPATH=/opt/network_monitor
+Environment=SHOMER_LED_DEVICE=/dev/ttyUSB0
+Environment=SHOMER_LED_THEME=1
+Environment=SHOMER_LED_INTENSITY=3
+Environment=SHOMER_LED_SPEED=3
+Environment=SHOMER_LED_RETRY_SEC=5
+Environment=SHOMER_LED_REFRESH_SEC=120
+ExecStart=/opt/network_monitor/venv/bin/python3 /opt/network_monitor/tools/frontpanel/led_strip.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=shomer-led-strip
+
+[Install]
+WantedBy=multi-user.target

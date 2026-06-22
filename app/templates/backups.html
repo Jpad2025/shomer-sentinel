@@ -180,6 +180,58 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
         </div>
       </div>
 
+      <!-- Verificación de Backups (Drill) -- movida aquí (junto a B2) desde Configuración:
+           conceptualmente es "otra forma de comprobar que la nube sirve", no un ajuste. -->
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:#639922;">Verificación de Backups</div>
+          <span style="font-size:10px;color:var(--muted);margin-left:auto;">prueba mensual automática</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">Restaura un snapshot y verifica que el backup sea recuperable. Se ejecuta automáticamente el primer día de cada mes.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
+          <div>
+            <div style="font-size:18px;font-weight:700;color:#639922;" id="drill-total">—</div>
+            <div style="font-size:10px;color:var(--muted);">Ejecutados</div>
+          </div>
+          <div>
+            <div style="font-size:18px;font-weight:700;color:var(--online);" id="drill-ok">—</div>
+            <div style="font-size:10px;color:var(--muted);">Exitosos</div>
+          </div>
+          <div>
+            <div style="font-size:18px;font-weight:700;color:var(--offline);" id="drill-fail">—</div>
+            <div style="font-size:10px;color:var(--muted);">Fallidos</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);">Último: <span id="drill-last">—</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button id="btn-drill-run" onclick="runDrillNow()"
+            style="display:flex;align-items:center;gap:6px;background:#639922;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;"><polygon points="5 3 19 12 5 21 5 3"/></svg>Ejecutar ahora
+          </button>
+          <button onclick="toggleDrillHistory()"
+            style="display:flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
+            Historial
+          </button>
+          <button onclick="window.location='/drill/history/csv'"
+            style="display:flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;font-family:'Inter',sans-serif;">CSV</button>
+        </div>
+        <div id="drill-history-wrap" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px;">
+          <div style="overflow-x:auto;max-height:200px;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead><tr style="background:var(--sidebar);">
+                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Fecha</th>
+                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Estado</th>
+                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Duración</th>
+                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Error</th>
+              </tr></thead>
+              <tbody id="drill-tbody">
+                <tr><td colspan="4" style="padding:10px;text-align:center;color:var(--muted);">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <div class="logs-panel collapsed" id="logs-panel-wrap">
@@ -220,7 +272,11 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
       </div>
 
 
-      <!-- Object Lock B2 -->
+      <!--
+        Object Lock B2 -- OCULTO del panel a pedido de Juan Pablo (20 jun 2026).
+        Backend intacto y documentado en CLAUDE.md §AY -- reactivar quitando este
+        comentario y la línea `loadObjectLockStatus();` más abajo si se necesita.
+
       <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:#f59e0b;">Object Lock B2 <span style="font-size:10px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">anti-ransomware</span></div>
         <div style="font-size:11px;color:var(--muted);">Estado: <span id="obj-lock-status" style="font-weight:600;color:var(--muted);">Consultando...</span></div>
@@ -236,6 +292,7 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
         </div>
         <div style="font-size:10px;color:#f59e0b;line-height:1.5;">⚠ Irreversible — los backups no podrán borrarse por el período configurado.</div>
       </div>
+      -->
 
       <!-- Equipos a respaldar -->
       <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:12px;">
@@ -295,6 +352,14 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
               style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:100%;"
               oninput="document.getElementById('eq-ruta-hint').textContent='';">
             <div id="eq-ruta-hint" style="font-size:11px;color:#60a5fa;margin-top:3px;line-height:1.4;"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:11px;color:var(--muted);font-weight:600;">Filtro archivos <span style="color:var(--muted);font-weight:400;">(opcional — SMB)</span></label>
+            <input type="text" id="eq-include" placeholder="*_{today}_*  o  *{today_compact}*"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:100%;">
+            <div id="eq-include-hint" style="font-size:11px;color:#60a5fa;margin-top:3px;line-height:1.4;">
+              Solo respaldar archivos que coincidan. <b>{today}</b> = 2026_06_19 · <b>{today_compact}</b> = 20260619 (hora del sitio). Varios patrones separados por coma.
+            </div>
           </div>
           <!-- Horario automático -->
           <div style="display:flex;align-items:center;gap:16px;background:rgba(13,110,110,0.04);border:1px solid rgba(13,110,110,0.15);border-radius:8px;padding:10px 14px;flex-wrap:wrap;">
@@ -392,56 +457,6 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
           </button>
           <span id="b2-status" style="font-size:12px;color:var(--muted);"></span>
         </div>
-        <!-- Verificación de Backups (Drill) -->
-      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;color:#639922;">Verificación de Backups</div>
-          <span style="font-size:10px;color:var(--muted);margin-left:auto;">prueba mensual automática</span>
-        </div>
-        <div style="font-size:11px;color:var(--muted);line-height:1.5;">Restaura un snapshot y verifica que el backup sea recuperable. Se ejecuta automáticamente el primer día de cada mes.</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
-          <div>
-            <div style="font-size:18px;font-weight:700;color:#639922;" id="drill-total">—</div>
-            <div style="font-size:10px;color:var(--muted);">Ejecutados</div>
-          </div>
-          <div>
-            <div style="font-size:18px;font-weight:700;color:var(--online);" id="drill-ok">—</div>
-            <div style="font-size:10px;color:var(--muted);">Exitosos</div>
-          </div>
-          <div>
-            <div style="font-size:18px;font-weight:700;color:var(--offline);" id="drill-fail">—</div>
-            <div style="font-size:10px;color:var(--muted);">Fallidos</div>
-          </div>
-        </div>
-        <div style="font-size:11px;color:var(--muted);">Último: <span id="drill-last">—</span></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button id="btn-drill-run" onclick="runDrillNow()"
-            style="display:flex;align-items:center;gap:6px;background:#639922;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
-            <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;"><polygon points="5 3 19 12 5 21 5 3"/></svg>Ejecutar ahora
-          </button>
-          <button onclick="toggleDrillHistory()"
-            style="display:flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;">
-            Historial
-          </button>
-          <button onclick="window.location='/drill/history/csv'"
-            style="display:flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;font-family:'Inter',sans-serif;">CSV</button>
-        </div>
-        <div id="drill-history-wrap" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-top:2px;">
-          <div style="overflow-x:auto;max-height:200px;overflow-y:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:11px;">
-              <thead><tr style="background:var(--sidebar);">
-                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Fecha</th>
-                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Estado</th>
-                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Duración</th>
-                <th style="padding:5px 6px;text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;">Error</th>
-              </tr></thead>
-              <tbody id="drill-tbody">
-                <tr><td colspan="4" style="padding:10px;text-align:center;color:var(--muted);">Cargando...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
 
       <!-- Reportes PDF -->
       <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
@@ -702,43 +717,16 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
   }
 
   function _utcToLocal(hhmm) {
-    // Convierte "HH:MM" UTC a hora local del sitio usando la API Intl
-    if (!hhmm) return hhmm;
-    try {
-      const [h, m] = hhmm.split(':').map(Number);
-      const d = new Date();
-      d.setUTCHours(h, m, 0, 0);
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: _siteTZ, hour: '2-digit', minute: '2-digit', hour12: false
-      }).formatToParts(d);
-      const hr = parts.find(p => p.type === 'hour')?.value.padStart(2,'0') || '00';
-      const mn = parts.find(p => p.type === 'minute')?.value.padStart(2,'0') || '00';
-      return `${hr}:${mn}`;
-    } catch { return hhmm; }
+    // El backend (desde Sesión 21) guarda y compara schedule_time directo como
+    // hora local del sitio (base.timezone) -- ya NO es UTC. Pass-through: el
+    // valor en BD es exactamente lo que el técnico escribió en el panel.
+    return hhmm;
   }
 
   function _localToUtc(hhmm) {
-    // Convierte "HH:MM" hora local del sitio a UTC
-    if (!hhmm) return hhmm;
-    try {
-      const [h, m] = hhmm.split(':').map(Number);
-      // Construye una fecha con esa hora en la zona del sitio
-      const dateStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
-      const localIso = `${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`;
-      // Usamos Intl para obtener el offset
-      const refDate = new Date(localIso);
-      const utcStr = new Intl.DateTimeFormat('en-US', {
-        timeZone: _siteTZ, hour: '2-digit', minute: '2-digit', hour12: false, year:'numeric', month:'2-digit', day:'2-digit'
-      }).format(refDate);
-      // Diferencia: hora local configurada - hora que Intl dice que sería en esa zona
-      const localDisplayed = _utcToLocal(
-        `${String(refDate.getUTCHours()).padStart(2,'0')}:${String(refDate.getUTCMinutes()).padStart(2,'0')}`
-      );
-      const [lh, lm] = localDisplayed.split(':').map(Number);
-      const diffMin = (h * 60 + m) - (lh * 60 + lm);
-      const totalUtcMin = ((refDate.getUTCHours() * 60 + refDate.getUTCMinutes()) + diffMin + 1440) % 1440;
-      return `${String(Math.floor(totalUtcMin/60)).padStart(2,'0')}:${String(totalUtcMin%60).padStart(2,'0')}`;
-    } catch { return hhmm; }
+    // Ídem -- ver _utcToLocal. Se mantienen ambos nombres de función para no
+    // tocar cada call site, pero ninguna convierte zona horaria.
+    return hhmm;
   }
 
   function _updateScheduleLabels() {
@@ -783,7 +771,7 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
 
 
   const _PATH_HINTS = {
-    windows: 'Nombre del share SMB (ej: <b>backups</b> o <b>Documentos</b>). Créalo en Windows: clic derecho carpeta → Compartir → nombre del share.',
+    windows: '<b>Share/subcarpeta</b> (ej: <b>backups</b>, <b>C$/back_bases/Copias Diarias</b>). Share dedicado o admin C$/F$ si el usuario tiene permiso.',
     linux:   'Ruta absoluta SSH (ej: <b>/home/shomer/backups</b> o <b>/home/shomer/Documentos</b>).',
     macos:   'Ruta absoluta SSH (ej: <b>/Users/shomer/backups</b> o <b>/Users/shomer/Documents</b>).',
   };
@@ -837,7 +825,7 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
     const t = document.getElementById('edit-equipo-title');
     if (t) t.textContent = 'Nuevo equipo';
     document.getElementById('add-equipo-form').style.display = 'none';
-    ['eq-nombre','eq-ip','eq-user','eq-pass','eq-ruta'].forEach(id => {
+    ['eq-nombre','eq-ip','eq-user','eq-pass','eq-ruta','eq-include'].forEach(id => {
       document.getElementById(id).value = '';
     });
     const rh = document.getElementById('eq-ruta-hint');
@@ -864,6 +852,7 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
         document.getElementById('eq-user').value = e.username || '';
         document.getElementById('eq-pass').value = e.has_password ? '***' : '';
         document.getElementById('eq-ruta').value = e.source_path || '';
+        document.getElementById('eq-include').value = e.include_pattern || '';
         document.getElementById('eq-schedule-enabled').checked = !!e.schedule_enabled;
         document.getElementById('eq-schedule-time').value = e.schedule_time ? _utcToLocal(e.schedule_time) : '02:00';
         document.getElementById('eq-sync-b2').checked = !!e.schedule_b2_enabled;
@@ -881,11 +870,12 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
     const pass = document.getElementById('eq-pass').value;
     const tipo = document.getElementById('eq-tipo').value;
     const ruta = document.getElementById('eq-ruta').value.trim();
+    const includePat = (document.getElementById('eq-include') || {}).value ? document.getElementById('eq-include').value.trim() : '';
     if (!ip || !user) { showToast('Ingresa IP y usuario primero', 'warning'); return; }
     addLog('info', 'PROTECTOR', 'Probando conexión ' + ip + ' (' + tipo + ')...');
     shomerFetch('/backups/devices/test', {
       method: 'POST',
-      body: JSON.stringify({ ip, username: user, password: pass, device_type: tipo, source_path: ruta })
+      body: JSON.stringify({ device_id: _editingDeviceId || null, ip, username: user, password: pass, device_type: tipo, source_path: ruta, include_pattern: includePat || null })
     })
     .then(r => r.json())
     .then(d => {
@@ -902,12 +892,14 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
     const user   = document.getElementById('eq-user').value.trim();
     const pass   = document.getElementById('eq-pass').value;
     const ruta            = document.getElementById('eq-ruta').value.trim();
+    const includePat      = document.getElementById('eq-include').value.trim();
     const scheduleEnabled   = document.getElementById('eq-schedule-enabled').checked;
     const scheduleTime      = document.getElementById('eq-schedule-time').value.trim();
     const syncB2Enabled     = document.getElementById('eq-sync-b2').checked;
     if (!nombre || !ip || !ruta) { showToast('Nombre, IP y ruta son obligatorios', 'warning'); return; }
     const scheduleTimeUtc = scheduleEnabled ? _localToUtc(scheduleTime) : null;
     const payload = { name: nombre, ip, device_type: tipo, username: user, password: pass, source_path: ruta,
+                      include_pattern: includePat || null,
                       schedule_enabled: scheduleEnabled, schedule_time: scheduleTimeUtc,
                       schedule_b2_enabled: syncB2Enabled };
     const url = _editingDeviceId ? ('/backups/devices/' + _editingDeviceId) : '/backups/devices';
@@ -953,6 +945,7 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
             <span style="font-size:11px;font-family:monospace;color:#06b6d4;">${e.ip}</span>
             <span style="font-size:11px;background:rgba(13,110,110,0.15);color:var(--teal);border-radius:4px;padding:2px 7px;">${e.device_type}</span>
             <span style="font-size:11px;color:var(--muted);">${e.source_path || '—'}</span>
+            ${e.include_pattern ? `<span style="font-size:11px;background:rgba(245,158,11,0.12);color:#fbbf24;border-radius:4px;padding:2px 7px;" title="Filtro diario">🔍 ${e.include_pattern}</span>` : ''}
             ${e.schedule_time ? (e.schedule_enabled
               ? `<span style="font-size:11px;background:rgba(139,92,246,0.15);color:#a78bfa;border-radius:4px;padding:2px 7px;">⏰ ${_utcToLocal(e.schedule_time)} (${_tzLabel()})</span>`
               : `<span style="font-size:11px;background:rgba(100,116,139,0.15);color:#94a3b8;border-radius:4px;padding:2px 7px;">⏸ Pausado — ${_utcToLocal(e.schedule_time)}</span>`)
@@ -1350,7 +1343,11 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
   initReportDates();
   loadReports();
 
-  /* ── Object Lock B2 (R4) ─────────────────────────── */
+  /* ── Object Lock B2 (R4) ─────────────────────────────────────────────
+     OCULTO del panel a pedido de Juan Pablo (20 jun 2026) -- ver tarjeta HTML
+     comentada arriba. Funciones y endpoints backend (/backups/b2/object-lock/*
+     en app/api/backups.py) intactos sin cambios -- documentado en CLAUDE.md §AY
+     para reactivar fácilmente si hace falta más adelante. */
   function loadObjectLockStatus() {
     shomerFetch('/backups/b2/object-lock/status')
       .then(r => r.json())
@@ -1403,7 +1400,7 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
     });
   }
 
-  loadObjectLockStatus();
+  // loadObjectLockStatus(); -- deshabilitado junto con la tarjeta del panel (ver arriba)
 
   async function handleB2Restore(fullId, shortId) {
     const btn = document.getElementById('btn-b2restore-' + shortId);

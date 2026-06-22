@@ -256,10 +256,21 @@ tr:last-child td { border-bottom:none; }
     return Math.floor(diff/3600) + 'h ' + Math.floor((diff%3600)/60) + 'm';
   }
 
-  function uptimeBadge(pct) {
-    if (pct == null) return '<span style="color:var(--muted);font-size:11px;">—</span>';
-    const cls = pct >= 95 ? 'uptime-hi' : pct >= 80 ? 'uptime-mid' : 'uptime-lo';
-    return `<span class="${cls}">${pct}%</span>`;
+  function uptimeBadge(pct, outages) {
+    let out = '';
+    if (pct == null) {
+      out = '<span style="color:var(--muted);font-size:11px;">—</span>';
+    } else {
+      const cls   = pct >= 99 ? 'uptime-hi' : pct >= 98 ? 'uptime-mid' : 'uptime-lo';
+      const color = pct >= 99 ? 'var(--online)' : pct >= 98 ? 'var(--warning)' : 'var(--offline)';
+      const bar   = `<div style="margin-top:3px;height:3px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden;">` +
+                    `<div style="height:100%;width:${Math.min(pct,100)}%;background:${color};border-radius:2px;transition:width 0.4s;"></div></div>`;
+      out = `<span class="${cls}">${pct}%</span>${bar}`;
+    }
+    if (outages && outages > 0) {
+      out += `<div style="margin-top:3px;"><span style="font-size:10px;color:var(--warning);font-weight:700;" title="${outages} caída${outages>1?'s':''} en últimas 24h">⚠️ ${outages} caída${outages>1?'s':''}</span></div>`;
+    }
+    return out;
   }
 
   function tcpCell(tcp_ok, tcp_port) {
@@ -373,7 +384,7 @@ tr:last-child td { border-bottom:none; }
           <span style="font-family:monospace;">${latStr}</span>
           <br><span id="tcp-${dev.ip}">${tcpCell(dev.tcp_ok, dev.tcp_port)}</span>
         </td>
-        <td id="uptime-${dev.ip}">${uptimeBadge(dev.uptime_24h)}</td>
+        <td id="uptime-${dev.ip}">${uptimeBadge(dev.uptime_24h, dev.outages_today)}</td>
         <td style="text-align:right;white-space:nowrap;">
           <button class="btn btn-outline btn-sm" onclick="pingDevice('${dev.ip}')" title="Ping manual">
             <svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2;vertical-align:middle;margin-right:3px;"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Ping
@@ -447,7 +458,7 @@ tr:last-child td { border-bottom:none; }
 
           // Uptime
           const up = document.getElementById('uptime-' + st.ip);
-          if (up) up.innerHTML = uptimeBadge(st.uptime_24h);
+          if (up) up.innerHTML = uptimeBadge(st.uptime_24h, st.outages_today);
         });
         updateStats(statuses);
         document.getElementById('last-poll').textContent = 'Último ping: ' + new Date().toLocaleTimeString('es-ES');

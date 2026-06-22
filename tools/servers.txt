@@ -5,7 +5,13 @@
 # REGLA CRÍTICA (docs/REGLAS_DEPLOY.md):
 #   PRODUCCIÓN → deploy SOLO con autorización de Juan Pablo:
 #   SHOMER_DEPLOY_AUTHORIZED=1 bash tools/deploy.sh 100.103.148.119
-#   Deploy = solo código app/ — NUNCA BD, SITE.md, credenciales ni config de sitio.
+#
+# Deploy — dos modos (16 jun 2026):
+#   bash tools/deploy.sh              → lab 243+245+205 (sin Ópera)
+#   bash tools/deploy.sh <IP>         → un solo servidor
+#   SHOMER_DEPLOY_AUTHORIZED=1 bash tools/deploy.sh  → incluye Ópera
+#
+# Deploy = solo código app/ — NUNCA BD, SITE.md, credenciales ni config de sitio.
 # Líneas con # son comentarios
 
 100.103.148.119  shomer-hotelopera   "PRODUCCIÓN — Hotel Ópera — deploy bloqueado sin autorización JP"

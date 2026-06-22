@@ -19,6 +19,7 @@
 #   SERVICE_USER        Usuario del sistema para los servicios  (default: usb_admin)
 #   INSTALL_WAZUH       Instalar Wazuh manager/indexer/dashboard (default: no)
 #   SKIP_DOCKER         No instalar Docker ni shomer-agent      (default: no)
+#   SKIP_FRONTPANEL     No instalar s1panel / pantalla S1       (default: no)
 #   MGMT_IFACE          NIC de gestión                         (default: auto-detect)
 #   MIRROR_IFACE        NIC espejo para Hunter                  (default: enp4s0)
 # =============================================================================
@@ -36,6 +37,7 @@ die()  { echo -e "${RED}[✗] ERROR: $*${NC}" >&2; exit 1; }
 SERVICE_USER="${SERVICE_USER:-usb_admin}"
 INSTALL_WAZUH="${INSTALL_WAZUH:-no}"
 SKIP_DOCKER="${SKIP_DOCKER:-no}"
+SKIP_FRONTPANEL="${SKIP_FRONTPANEL:-no}"
 MIRROR_IFACE="${MIRROR_IFACE:-enp4s0}"
 
 INSTALL_DIR="/opt/network_monitor"
@@ -74,6 +76,7 @@ info "Paquete fuente : $PKG_DIR"
 info "Usuario servicio: $SERVICE_USER"
 info "Wazuh          : $INSTALL_WAZUH"
 info "Docker/Agente  : $([ "$SKIP_DOCKER" = "yes" ] && echo "omitido" || echo "sí")"
+info "Pantalla S1    : $([ "$SKIP_FRONTPANEL" = "yes" ] && echo "omitida" || echo "auto (Holtek 04d9:fd01)")"
 echo ""
 
 # ─── 1. Usuario del sistema ───────────────────────────────────────────────────
@@ -455,7 +458,27 @@ fi
 
 sudo -u "$SERVICE_USER" "$INSTALL_DIR/venv/bin/pip" install --quiet --upgrade pip
 sudo -u "$SERVICE_USER" "$INSTALL_DIR/venv/bin/pip" install --quiet -r "$REQS"
+sudo -u "$SERVICE_USER" "$INSTALL_DIR/venv/bin/pip" install --quiet pyserial 2>/dev/null || true
 log "Python deps instalados ($(wc -l < "$REQS") paquetes)"
+
+# ─── 7b. Pantalla frontal AceMagic S1 (s1panel + LED) ────────────────────────
+if [[ "$SKIP_FRONTPANEL" != "yes" ]] && lsusb -d 04d9:fd01 &>/dev/null; then
+    info "Mini PC AceMagic S1 detectado — instalando pantalla frontal..."
+    if ! command -v snap &>/dev/null; then
+        apt-get install -y -qq snapd
+        systemctl enable --now snapd.socket snapd.seeded.service 2>/dev/null || true
+    fi
+    HOST_LABEL="$(hostname -s)"
+    if bash "$INSTALL_DIR/tools/frontpanel/install_shomer_frontpanel.sh" "$HOST_LABEL"; then
+        log "Pantalla frontal S1 configurada ($HOST_LABEL)"
+    else
+        warn "Pantalla frontal — revisar: bash $INSTALL_DIR/tools/frontpanel/install_shomer_frontpanel.sh"
+    fi
+elif [[ "$SKIP_FRONTPANEL" == "yes" ]]; then
+    info "Pantalla S1 omitida (SKIP_FRONTPANEL=yes)"
+else
+    info "Sin Holtek 04d9:fd01 — pantalla S1 no instalada (servidor genérico)"
+fi
 
 # ─── 8. OUI database (para Tracker) ──────────────────────────────────────────
 if [[ ! -f "$STORAGE_DIR/db/oui.txt" ]]; then
@@ -748,6 +771,14 @@ fi
 ufw deny 8000/tcp comment "API Guardian — solo loopback" >/dev/null
 ufw deny 8001/tcp comment "API Tools — solo loopback"    >/dev/null
 
+# Pantalla S1 — GUI s1panel (HTTP, puerto 8686)
+if lsusb -d 04d9:fd01 &>/dev/null; then
+    ufw allow from 100.64.0.0/10 to any port 8686 comment "s1panel GUI Tailscale" >/dev/null
+    if [[ -n "$_MGMT_SUBNET" ]]; then
+        ufw allow from "$_MGMT_SUBNET" to any port 8686 comment "s1panel GUI LAN" >/dev/null
+    fi
+fi
+
 ufw --force enable >/dev/null 2>&1
 log "UFW configurado ($(ufw status | grep -c ALLOW) reglas ALLOW activas)"
 
@@ -822,6 +853,14 @@ echo "  2. Cambiar contraseña admin desde el panel"
 echo "  3. Configurar IPs definitivas con:"
 echo "     sudo bash $INSTALL_DIR/tools/factory_reset_network.sh"
 echo ""
+
+if [[ "$SKIP_FRONTPANEL" != "yes" ]] && lsusb -d 04d9:fd01 &>/dev/null 2>&1; then
+    echo "  Pantalla S1 (AceMagic):"
+    echo "  • s1panel — logo Shomer + sensores"
+    echo "  • shomer-frontpanel — WAN/AP en pantalla"
+    echo "  • shomer-led-strip — tira RGB arcoíris"
+    echo ""
+fi
 
 if [[ "$SKIP_DOCKER" != "yes" ]]; then
     echo "  Bot Telegram (shomer-agent):"

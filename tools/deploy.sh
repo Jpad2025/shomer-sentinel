@@ -71,7 +71,19 @@ deploy_server() {
         "$REPO_DIR/app/" \
         "$REMOTE_USER@$ip:$REMOTE_DIR/app/"
 
-    # 2. Sincronizar código agente (sin data/ ni .env)
+    # 2. Sincronizar pantalla frontal S1 (tools + units systemd)
+    rsync -az \
+        --exclude='__pycache__' --exclude='*.pyc' \
+        -e "ssh $opts" \
+        "$REPO_DIR/tools/frontpanel/" \
+        "$REMOTE_USER@$ip:$REMOTE_DIR/tools/frontpanel/"
+    rsync -az \
+        -e "ssh $opts" \
+        "$REPO_DIR/etc/shomer-frontpanel.service" \
+        "$REPO_DIR/etc/shomer-led-strip.service" \
+        "$REMOTE_USER@$ip:$REMOTE_DIR/etc/"
+
+    # 3. Sincronizar código agente (sin data/ ni .env)
     rsync -az --delete \
         --exclude='data/' --exclude='.env' \
         --exclude='__pycache__' --exclude='*.pyc' \
@@ -79,7 +91,7 @@ deploy_server() {
         "$AGENT_DIR/" \
         "$REMOTE_USER@$ip:$AGENT_DIR/"
 
-    # 3. Actualizar TRUSTED_HOSTS y CORS con IP Tailscale del servidor remoto
+    # 4. Actualizar TRUSTED_HOSTS y CORS con IP Tailscale del servidor remoto
     ssh $opts -n "$REMOTE_USER@$ip" "
         TS_IP=\$(sudo tailscale ip -4 2>/dev/null || echo '')
         LAN_IP=\$(hostname -I | awk '{print \$1}')
@@ -90,7 +102,36 @@ deploy_server() {
         fi
     "
 
-    # 4. Reiniciar servicios remotos
+    # 5. Mini PC AceMagic S1 — pyserial + servicios frontpanel
+    ssh $opts -n "$REMOTE_USER@$ip" "
+        if lsusb -d 04d9:fd01 &>/dev/null; then
+            if [[ -x $REMOTE_DIR/venv/bin/pip ]]; then
+                sudo $REMOTE_DIR/venv/bin/pip install -q pyserial 2>/dev/null || true
+            fi
+            sudo ufw allow from 100.64.0.0/10 to any port 8686 comment 's1panel GUI Tailscale' 2>/dev/null || true
+            LAN_SUB=\$(ip -4 route show dev \$(ip -4 route show default | awk '{print \$5}' | head -1) 2>/dev/null | awk '/proto kernel/ {print \$1; exit}')
+            if [[ -n \"\$LAN_SUB\" ]]; then
+                sudo ufw allow from \"\$LAN_SUB\" to any port 8686 comment 's1panel GUI LAN' 2>/dev/null || true
+            else
+                sudo ufw allow from 192.168.1.0/24 to any port 8686 comment 's1panel GUI LAN' 2>/dev/null || true
+            fi
+            NEED=0
+            sudo test -f /root/snap/s1panel/current/themes/shomer/shomer.json || NEED=1
+            systemctl is-enabled shomer-led-strip &>/dev/null || NEED=1
+            if [[ \"\$NEED\" -eq 1 ]]; then
+                echo 'Instalando / actualizando tema Shomer s1panel...'
+                sudo bash $REMOTE_DIR/tools/frontpanel/install_shomer_frontpanel.sh $name
+            else
+                sudo cp $REMOTE_DIR/etc/shomer-frontpanel.service /etc/systemd/system/
+                sudo cp $REMOTE_DIR/etc/shomer-led-strip.service /etc/systemd/system/
+                sudo systemctl daemon-reload
+                sudo systemctl enable shomer-frontpanel shomer-led-strip 2>/dev/null || true
+                sudo systemctl restart shomer-frontpanel shomer-led-strip 2>/dev/null || true
+            fi
+        fi
+    "
+
+    # 6. Reiniciar servicios remotos
     ssh $opts -n \
         "$REMOTE_USER@$ip" \
         "sudo systemctl restart shomer-guardian shomer-tools && \
@@ -104,7 +145,16 @@ deploy_server() {
 TARGET_IP="${1:-}"
 
 if [[ -n "$TARGET_IP" ]]; then
-    deploy_server "$TARGET_IP" "$TARGET_IP"
+    TARGET_NAME="$TARGET_IP"
+    while IFS= read -r line; do
+        [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+        ip=$(echo "$line" | awk '{print $1}')
+        if [[ "$ip" == "$TARGET_IP" ]]; then
+            TARGET_NAME=$(echo "$line" | awk '{print $2}')
+            break
+        fi
+    done < "$SERVERS_FILE"
+    deploy_server "$TARGET_IP" "$TARGET_NAME"
 else
     # Leer servers.txt y desplegar a todos
     while IFS= read -r line; do

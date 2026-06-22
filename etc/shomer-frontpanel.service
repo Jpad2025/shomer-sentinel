@@ -1,0 +1,21 @@
+[Unit]
+Description=Shomer Sentinel — pantalla frontal S1 (estado WAN/APs)
+After=snap.s1panel.s1panel.service shomer-guardian.service redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/network_monitor
+Environment=PYTHONPATH=/opt/network_monitor
+Environment=FRONTPANEL_POLL_SEC=30
+Environment=FRONTPANEL_ROTATE_SEC=45
+ExecStart=/opt/network_monitor/venv/bin/python3 /opt/network_monitor/tools/frontpanel/shomer_frontpanel.py
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=shomer-frontpanel
+
+[Install]
+WantedBy=multi-user.target

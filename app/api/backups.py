@@ -261,6 +261,7 @@ def _ensure_backup_devices_table():
             ("last_size_mb",        "REAL DEFAULT NULL"),
             ("last_duration_sec",   "INTEGER DEFAULT NULL"),
             ("last_snapshot_id",    "TEXT DEFAULT NULL"),
+            ("include_pattern",     "TEXT DEFAULT NULL"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE backup_devices ADD COLUMN {col} {definition}")
@@ -294,7 +295,7 @@ async def list_backup_devices(_admin: Dict[str, Any] = Depends(require_admin)):
     """Lista equipos configurados para backup."""
     with _get_db() as conn:
         rows = conn.execute(
-            "SELECT id, name, ip, device_type, username, source_path, is_active, "
+            "SELECT id, name, ip, device_type, username, source_path, include_pattern, is_active, "
             "schedule_enabled, schedule_time, schedule_b2_enabled, "
             "last_backup_at, last_status, last_files_count, last_size_mb, last_duration_sec, last_snapshot_id "
             "FROM backup_devices ORDER BY name"
@@ -307,7 +308,7 @@ async def get_backup_device(device_id: int, _admin: Dict[str, Any] = Depends(req
     """Detalle de un equipo (sin contraseña en claro)."""
     with _get_db() as conn:
         row = conn.execute(
-            "SELECT id, name, ip, device_type, username, password, source_path, is_active, "
+            "SELECT id, name, ip, device_type, username, password, source_path, include_pattern, is_active, "
             "schedule_enabled, schedule_time, schedule_b2_enabled, "
             "last_backup_at, last_status, last_files_count, last_size_mb, last_duration_sec, last_snapshot_id "
             "FROM backup_devices WHERE id = ?",
@@ -346,6 +347,7 @@ async def save_backup_device(
     username         = (body.get("username") or "").strip()
     password         = (body.get("password") or "").strip()
     source_path      = (body.get("source_path") or "").strip()
+    include_pattern  = (body.get("include_pattern") or "").strip() or None
     schedule_enabled    = 1 if body.get("schedule_enabled") else 0
     schedule_time       = _parse_schedule_time(body.get("schedule_time"))
     schedule_b2_enabled = 1 if body.get("schedule_b2_enabled") else 0
@@ -354,9 +356,10 @@ async def save_backup_device(
     with _get_db() as conn:
         conn.execute(
             "INSERT INTO backup_devices (name, ip, device_type, username, password, source_path, "
-            "schedule_enabled, schedule_time, schedule_b2_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "include_pattern, schedule_enabled, schedule_time, schedule_b2_enabled) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (name, ip, device_type, username, _encrypt_device_password(password), source_path,
-             schedule_enabled, schedule_time, schedule_b2_enabled)
+             include_pattern, schedule_enabled, schedule_time, schedule_b2_enabled)
         )
         conn.commit()
     return {"success": True, "message": f"Equipo {name} guardado"}
@@ -368,10 +371,15 @@ async def update_backup_device(
     body: Dict[str, Any] = Body(default={}),
     _admin: Dict[str, Any] = Depends(require_admin),
 ):
-    """Actualiza equipo (ruta, credenciales, etc.). Contraseña vacía o '***' conserva la guardada."""
+    """Actualiza equipo (ruta, credenciales, etc.). Contraseña vacía o '***' conserva la guardada.
+
+    El SELECT debe traer schedule_enabled/schedule_time/schedule_b2_enabled -- si faltan,
+    cualquier PATCH parcial (ej. el botón Activar/Pausar auto, que solo envía
+    schedule_enabled) los resetea a 0/NULL porque cur.get(...) cae al default."""
     with _get_db() as conn:
         row = conn.execute(
-            "SELECT id, name, ip, device_type, username, password, source_path FROM backup_devices WHERE id = ?",
+            "SELECT id, name, ip, device_type, username, password, source_path, include_pattern, "
+            "schedule_enabled, schedule_time, schedule_b2_enabled FROM backup_devices WHERE id = ?",
             (device_id,),
         ).fetchone()
     if not row:
@@ -386,6 +394,10 @@ async def update_backup_device(
     username    = username.strip()
     source_path = (body.get("source_path") if body.get("source_path") is not None else cur["source_path"]) or ""
     source_path = source_path.strip()
+    if "include_pattern" in body:
+        include_pattern = (body.get("include_pattern") or "").strip() or None
+    else:
+        include_pattern = cur.get("include_pattern")
     pwd_in      = body.get("password")
     if pwd_in is None or (isinstance(pwd_in, str) and (not pwd_in.strip() or pwd_in.strip() == "***")):
         password_val = cur["password"]
@@ -407,8 +419,8 @@ async def update_backup_device(
     with _get_db() as conn:
         conn.execute(
             "UPDATE backup_devices SET name=?, ip=?, device_type=?, username=?, password=?, source_path=?, "
-            "schedule_enabled=?, schedule_time=?, schedule_b2_enabled=? WHERE id=?",
-            (name, ip, device_type, username, password_val, source_path,
+            "include_pattern=?, schedule_enabled=?, schedule_time=?, schedule_b2_enabled=? WHERE id=?",
+            (name, ip, device_type, username, password_val, source_path, include_pattern,
              schedule_enabled, schedule_time, schedule_b2_enabled, device_id),
         )
         conn.commit()
@@ -420,12 +432,32 @@ async def test_backup_device(
     body: Dict[str, Any] = Body(default={}),
     _admin: Dict[str, Any] = Depends(require_admin),
 ):
-    """Prueba conexión a un equipo (SMB o SSH)."""
+    """Prueba conexión a un equipo (SMB o SSH).
+
+    Si la contraseña viene vacía o '***' (el panel no vuelve a mostrarla en
+    claro tras guardarla) y se pasa device_id, se usa la contraseña cifrada
+    ya guardada en BD para ese equipo en vez de probar con el literal '***'.
+    """
+    device_id   = body.get("device_id")
     ip          = (body.get("ip") or "").strip()
     device_type = body.get("device_type", "windows")
     username    = (body.get("username") or "").strip()
     password    = (body.get("password") or "").strip()
     source_path = (body.get("source_path") or "").strip()
+    if (not password or password == "***") and device_id:
+        with _get_db() as conn:
+            row = conn.execute(
+                "SELECT password FROM backup_devices WHERE id = ?", (device_id,)
+            ).fetchone()
+        if row and row["password"]:
+            try:
+                password = _decrypt_device_password(row["password"])
+            except ValueError as e:
+                return {
+                    "success": False,
+                    "message": f"No se pudo leer la contraseña guardada ({e}) — "
+                                f"vuelve a escribirla, guarda el equipo y prueba de nuevo.",
+                }
     if not ip:
         raise HTTPException(status_code=400, detail="IP requerida")
     try:
@@ -439,26 +471,36 @@ async def test_backup_device(
                 result = await conn.run(f'ls "{source_path}"' if source_path else 'echo ok')
             return {"success": True, "message": f"SSH OK — {ip} accesible"}
         else:
-            import subprocess
-            # Sin --no-pass: si no, smbclient puede ignorar la contraseña de -U user%pass
-            cmd = [
-                "smbclient",
-                "-L",
-                f"//{ip}",
-                "-U",
-                f"{username}%{password}",
-                "-m",
-                "SMB3",
-            ]
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            ok = r.returncode == 0
-            err_tail = (r.stderr or r.stdout or "").strip()
-            if not ok and not err_tail:
-                err_tail = f"exit {r.returncode}"
-            return {
-                "success": ok,
-                "message": (f"SMB {'OK' if ok else 'FALLO'} — {ip}" + (f": {err_tail[:220]}" if not ok else "")),
-            }
+            share, subpath = _parse_smb_source_path(source_path)
+            if not share:
+                return {"success": False, "message": "source_path requerido (share o share/subcarpeta)"}
+            include_pattern = (body.get("include_pattern") or "").strip() or None
+            mount_point = tempfile.mkdtemp(prefix="shomer_smb_test_")
+            try:
+                _smb_mount_readonly(ip, share, username, password, mount_point)
+                if subpath:
+                    target = _smb_resolve_backup_target(mount_point, subpath)
+                    msg = f"SMB OK — {ip} — subcarpeta accesible: {subpath}"
+                    if include_pattern:
+                        import glob as _glob
+                        total = 0
+                        for raw in include_pattern.split(","):
+                            pat = _expand_include_pattern(raw.strip())
+                            if pat:
+                                total += len(_glob.glob(os.path.join(target, pat)))
+                        msg += f" — {total} archivo(s) coinciden con filtro hoy"
+                else:
+                    msg = f"SMB OK — {ip} — share {share} montado"
+                return {"success": True, "message": msg}
+            except Exception as e:
+                return {"success": False, "message": f"SMB FALLO — {ip}: {str(e)[:200]}"}
+            finally:
+                subprocess.run(["sudo", "/usr/bin/umount", "-l", mount_point],
+                               capture_output=True, timeout=15)
+                try:
+                    os.rmdir(mount_point)
+                except OSError:
+                    pass
     except Exception as e:
         return {"success": False, "message": f"Error: {str(e)[:150]}"}
 
@@ -502,6 +544,103 @@ def _telegram(msg: str) -> None:
             print(f"[protector][telegram] mensaje bloqueado o falló: {msg[:80]}")
     except Exception as e:
         print(f"[protector][telegram] error: {e}")
+
+
+def _parse_smb_source_path(source_path: str) -> tuple[str, str]:
+    """
+    Parsea source_path SMB: 'share' o 'share/sub/carpeta'.
+    Acepta barras Windows o Unix. Ej: C$/back_bases/Copias Diarias
+
+    Corrige el error común de escribir la letra de unidad con ':' (C:) en vez
+    de '$' (C$) -- "C:" no existe como nombre de share administrativo SMB,
+    solo "C$" -- de lo contrario el mount falla como si fuera credencial mala.
+    """
+    import re as _re_local
+    normalized = (source_path or "").strip().replace("\\", "/").strip("/")
+    if not normalized:
+        return "", ""
+    if "/" not in normalized:
+        share, sub = normalized, ""
+    else:
+        share, _, sub = normalized.partition("/")
+    if _re_local.match(r"^[A-Za-z]:$", share):
+        share = share[0].upper() + "$"
+    return share, sub
+
+
+def _expand_include_pattern(pattern: str) -> str:
+    """Reemplaza {today} y {today_compact} según hora local del sitio (base.timezone)."""
+    try:
+        from zoneinfo import ZoneInfo
+        tz_name = (
+            _get_system_state("base.timezone")
+            or _get_system_state("protector.timezone")
+            or "America/Denver"
+        )
+        today = _dt.now(ZoneInfo(tz_name)).date()
+    except Exception:
+        today = _dt.utcnow().date()
+    return (
+        pattern.replace("{today}", today.strftime("%Y_%m_%d"))
+        .replace("{today_compact}", today.strftime("%Y%m%d"))
+    )
+
+
+def _cifs_credentials_content(username: str, password: str) -> str:
+    """
+    Genera el contenido del archivo de credenciales para mount.cifs.
+
+    Si username viene como 'DOMINIO\\usuario' o '.\\usuario' (convención de
+    Windows para indicar cuenta local), separa domain= y username= --
+    mount.cifs no interpreta el backslash embebido como lo hace Windows, lo
+    toma como parte literal del username y la autenticación falla con
+    "Permission denied" aunque la contraseña sea correcta.
+    """
+    user = username or ""
+    domain = None
+    if "\\" in user:
+        dom, _, rest = user.partition("\\")
+        user = rest
+        if dom and dom != ".":
+            domain = dom
+        # dom == "." o vacío => cuenta local, sin domain= (mount.cifs usa default)
+    content = f"username={user}\npassword={password}\n"
+    if domain:
+        content += f"domain={domain}\n"
+    return content
+
+
+def _smb_mount_readonly(ip: str, share: str, username: str, password: str, mount_point: str) -> None:
+    """Monta share CIFS solo lectura. Lanza RuntimeError si falla."""
+    fd, cred_file = tempfile.mkstemp(prefix="shomer_cifs_test_", text=True)
+    try:
+        os.write(fd, _cifs_credentials_content(username, password).encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(cred_file, 0o600)
+    try:
+        r = subprocess.run(
+            ["sudo", "/usr/sbin/mount.cifs", f"//{ip}/{share}", mount_point,
+             "-o", f"credentials={cred_file},ro,vers=3.0,uid=1000"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"mount CIFS falló: {(r.stderr or r.stdout or '')[:200]}")
+    finally:
+        try:
+            os.remove(cred_file)
+        except OSError:
+            pass
+
+
+def _smb_resolve_backup_target(mount_point: str, subpath: str) -> str:
+    """Ruta local montada del origen a respaldar."""
+    if not subpath:
+        return mount_point
+    target = os.path.join(mount_point, *subpath.split("/"))
+    if not os.path.isdir(target):
+        raise RuntimeError(f"Subcarpeta no encontrada en share: {subpath}")
+    return target
 
 
 import re as _re
@@ -578,6 +717,50 @@ def _prune_local() -> bool:
     return r.returncode == 0
 
 
+def _get_b2_retention_days() -> int:
+    """Retención en B2 (nube) -- independiente de la retención local. Default 30 días."""
+    with _get_db() as conn:
+        row = conn.execute(
+            "SELECT value FROM system_state WHERE key='protector.b2_retention_days'"
+        ).fetchone()
+    try:
+        return max(1, int(row["value"])) if row and row["value"] else 30
+    except Exception:
+        return 30
+
+
+def _prune_b2() -> bool:
+    """Elimina snapshots viejos del repo B2 según b2_retention_days. Solo llamar después de sync exitoso.
+
+    Sin esto, B2 nunca borra nada por sí solo (restic copy solo agrega) -- crecería sin
+    límite indefinidamente. Ver CLAUDE.md §AY/discusión retención Hotel Ópera (20 jun 2026)."""
+    cfg = _get_b2_config()
+    account_id = cfg.get("b2_account_id", "")
+    app_key = cfg.get("b2_app_key", "")
+    bucket = cfg.get("b2_bucket", "")
+    if not (account_id and app_key and bucket):
+        return False
+    b2_password = cfg.get("b2_password") or get_restic_password()
+    local_pass = get_restic_password().strip()
+    remote_pass = (b2_password or local_pass or "").strip()
+    if not remote_pass:
+        return False
+    b2_path = _effective_b2_path()
+    b2_repo = f"b2:{bucket}:{b2_path}" if b2_path else f"b2:{bucket}"
+    days = _get_b2_retention_days()
+    env = {
+        **os.environ,
+        "RESTIC_PASSWORD": remote_pass,
+        "B2_ACCOUNT_ID": account_id,
+        "B2_ACCOUNT_KEY": app_key,
+    }
+    r = subprocess.run(
+        [RESTIC_BIN, "-r", b2_repo, "forget", f"--keep-daily={days}", "--prune"],
+        env=env, capture_output=True, text=True, timeout=1800,
+    )
+    return r.returncode == 0
+
+
 async def _backup_linux(device: dict) -> dict:
     """SCP recursivo desde el equipo remoto → directorio staging → Restic."""
     ip          = device["ip"]
@@ -639,7 +822,8 @@ async def _backup_linux(device: dict) -> dict:
 
 
 async def _backup_windows(device: dict) -> dict:
-    """Monta share CIFS del equipo → Restic sobre el mount point."""
+    """Monta share CIFS → Restic sobre subcarpeta (opcional), filtrando por
+    include_pattern via glob (restic backup no soporta --include, ver §AX.4)."""
     ip          = device["ip"]
     username    = device["username"]
     try:
@@ -648,18 +832,21 @@ async def _backup_windows(device: dict) -> dict:
         msg = f"Credencial inválida: {e}"
         _update_device_status(device["id"], f"error: {msg[:100]}")
         return {"success": False, "message": msg[:200]}
-    source_path = (device["source_path"] or "").strip("\\/")
+    source_path = (device["source_path"] or "").strip()
+    include_pattern = device.get("include_pattern")
+    share, subpath = _parse_smb_source_path(source_path)
+    if not share:
+        msg = "source_path debe indicar share SMB (ej: backups o C$/back_bases/Copias Diarias)"
+        _update_device_status(device["id"], f"error: {msg[:100]}")
+        return {"success": False, "message": msg[:200]}
     device_id   = device["id"]
     mount_point = f"{SMB_MOUNT_BASE}/{device_id}"
     os.makedirs(mount_point, exist_ok=True)
     cred_file: str = ""
     try:
-        share = source_path.split("/")[0] if "/" in source_path else source_path
-        if not share:
-            raise ValueError("source_path debe indicar el share SMB (ej: Archivos o Archivos/datos)")
         fd, cred_file = tempfile.mkstemp(prefix=f"shomer_cifs_{device_id}_", text=True)
         try:
-            os.write(fd, f"username={username}\npassword={password}\n".encode("utf-8"))
+            os.write(fd, _cifs_credentials_content(username, password).encode("utf-8"))
         finally:
             os.close(fd)
         os.chmod(cred_file, 0o600)
@@ -670,15 +857,31 @@ async def _backup_windows(device: dict) -> dict:
         )
         if r.returncode != 0:
             raise RuntimeError(f"mount CIFS falló: {r.stderr[:200]}")
+        backup_target = _smb_resolve_backup_target(mount_point, subpath)
+        if include_pattern:
+            # restic backup no tiene bandera --include (solo restore/dump/ls) -- hay
+            # que resolver el patrón a archivos reales y pasarlos como targets directos.
+            import glob as _glob
+            targets: list[str] = []
+            for raw in str(include_pattern).split(","):
+                pat = _expand_include_pattern(raw.strip())
+                if pat:
+                    targets.extend(_glob.glob(os.path.join(backup_target, pat)))
+            targets = sorted(set(targets))
+            if not targets:
+                raise RuntimeError(f"include_pattern no encontró archivos: {include_pattern}")
+        else:
+            targets = [backup_target]
         env = {**os.environ, "RESTIC_PASSWORD": get_restic_password()}
         t0 = _time.monotonic()
         dev_name_tag = (device.get("name") or "").strip().replace(" ", "_")[:40]
         tags = ["--tag", f"device_{device_id}", "--tag", "smb"]
         if dev_name_tag:
             tags += ["--tag", dev_name_tag]
+        restic_timeout = 3600 if include_pattern else 600
         r = subprocess.run(
-            [RESTIC_BIN, "-r", RESTIC_REPO, "backup", mount_point] + tags,
-            capture_output=True, text=True, env=env, timeout=600,
+            [RESTIC_BIN, "-r", RESTIC_REPO, "backup"] + targets + tags,
+            capture_output=True, text=True, env=env, timeout=restic_timeout,
         )
         duration_sec = int(_time.monotonic() - t0)
         if r.returncode != 0:
@@ -731,7 +934,7 @@ async def backup_device_now(
         raise HTTPException(status_code=503, detail="RESTIC_PASSWORD no configurado — verifica variable de entorno o system_state")
     with _get_db() as conn:
         row = conn.execute(
-            "SELECT id, name, ip, device_type, username, password, source_path, schedule_b2_enabled "
+            "SELECT id, name, ip, device_type, username, password, source_path, include_pattern, schedule_b2_enabled "
             "FROM backup_devices WHERE id=?",
             (device_id,),
         ).fetchone()
@@ -751,7 +954,7 @@ async def backup_all_devices(_admin: Dict[str, Any] = Depends(require_admin)):
         raise HTTPException(status_code=503, detail="RESTIC_PASSWORD no configurado")
     with _get_db() as conn:
         rows = conn.execute(
-            "SELECT id, name, ip, device_type, username, password, source_path, schedule_b2_enabled "
+            "SELECT id, name, ip, device_type, username, password, source_path, include_pattern, schedule_b2_enabled "
             "FROM backup_devices WHERE is_active=1"
         ).fetchall()
     devices = [dict(r) for r in rows]
@@ -793,11 +996,17 @@ async def _run_global_b2_sync() -> None:
         _b2_sync_blocking, account_id, app_key, bucket, _effective_b2_path(), b2_password
     )
     if result.get("success"):
-        pruned    = await _asyncio.to_thread(_prune_local)
-        retention = _get_retention_days()
-        detail    = f"Retención local: {retention} días." if pruned else "Prune local pendiente."
+        pruned     = await _asyncio.to_thread(_prune_local)
+        pruned_b2  = await _asyncio.to_thread(_prune_b2)
+        retention    = _get_retention_days()
+        retention_b2 = _get_b2_retention_days()
+        detail = (
+            f"Retención local: {retention} días." if pruned else "Prune local pendiente."
+        ) + " " + (
+            f"Retención B2: {retention_b2} días." if pruned_b2 else "Prune B2 pendiente."
+        )
         _telegram(f"🔄 <b>Protector — sync B2 OK</b>\nSync global completado. {detail}")
-        print(f"[protector][b2-global] OK — prune: {pruned}")
+        print(f"[protector][b2-global] OK — prune local: {pruned}, prune B2: {pruned_b2}")
     else:
         print(f"[protector][b2-global] Falló: {result.get('message', '')[:200]}")
 
@@ -846,7 +1055,7 @@ async def _scheduler_loop() -> None:
             today = now_local.strftime("%Y-%m-%d")
             with _get_db() as conn:
                 rows = conn.execute(
-                    "SELECT id, name, ip, device_type, username, password, source_path, schedule_b2_enabled "
+                    "SELECT id, name, ip, device_type, username, password, source_path, include_pattern, schedule_b2_enabled "
                     "FROM backup_devices WHERE is_active=1 AND schedule_enabled=1 AND schedule_time=?",
                     (current_hhmm,),
                 ).fetchall()
@@ -889,9 +1098,19 @@ async def _run_scheduled_backup(device: dict) -> None:
 
 
 def start_backup_scheduler() -> None:
-    """Inicia el loop del scheduler en el event loop de FastAPI. Llamar desde lifespan."""
+    """Inicia el loop del scheduler en el event loop de FastAPI. Llamar desde lifespan.
+
+    shomer-tools.service corre --workers 2 -- sin esto, ambos workers detectan el mismo
+    schedule_time y disparan el mismo backup dos veces a la vez, compitiendo por el mismo
+    mount_point SMB y el mismo repo Restic (ver CLAUDE.md §AZ). Solo el worker que adquiere
+    el lock de líder (`protector-backup`) lo ejecuta.
+    """
     global _scheduler_running
     if _scheduler_running:
+        return
+    from app.api.shomer_poller_leader import try_acquire_poller_leader
+    if not try_acquire_poller_leader("protector-backup"):
+        print(f"[protector][scheduler] worker pid={os.getpid()} omitido — otro worker es líder")
         return
     _scheduler_running = True
     _asyncio.create_task(_scheduler_loop())
@@ -1272,6 +1491,11 @@ async def enable_b2_object_lock(
     R4 — Activa Object Lock (File Lock) en el bucket B2 configurado.
     Requiere application key con capacidad 'writeBucketRetentions'.
     Operación irreversible: una vez activado no se puede desactivar.
+
+    NOTA (20 jun 2026): la tarjeta de panel que llamaba este endpoint se ocultó a
+    pedido de Juan Pablo (ver app/templates/backups.html, sección comentada
+    "Object Lock B2" + CLAUDE.md §AY). Este endpoint y el de abajo quedan intactos
+    y funcionales por API directa -- solo no son alcanzables desde la UI por ahora.
     """
     import requests as _req
 
