@@ -226,6 +226,11 @@ tbody td { padding:6px 8px; font-size:11px; color:var(--text); }
       } else {
         actions = `<span class="status-grey">Cerrado</span>`;
       }
+      // Desbloquear disponible siempre que la IP siga bloqueada (open/acknowledged) --
+      // permite revertir un falso positivo sin tener que ir al panel Hunter aparte.
+      if (inc.status !== 'closed' && inc.ip) {
+        actions += ` <button class="btn btn-red btn-sm" onclick="unblockIncidentIp('${inc.ip}', ${inc.id})">Desbloquear</button>`;
+      }
 
       return `<tr>
         <td style="font-family:monospace;color:var(--hunter);font-weight:600;">#${inc.id}</td>
@@ -249,6 +254,20 @@ tbody td { padding:6px 8px; font-size:11px; color:var(--text); }
         if (d.success) { loadStats(); loadIncidents(); }
       })
       .catch(() => showToast('Error al reconocer incidente', 'error'));
+  }
+
+  function unblockIncidentIp(ip, id) {
+    if (!confirm('¿Desbloquear ' + ip + ' del firewall? Úsalo solo si es un falso positivo.')) return;
+    shomerFetch('/remedies/unblock', {
+      method: 'POST',
+      body: JSON.stringify({ ip })
+    })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || (d.success ? ip + ' desbloqueada' : 'Error al desbloquear'), d.success ? 'success' : 'error');
+        if (d.success) { loadStats(); loadIncidents(); }
+      })
+      .catch(() => showToast('Error al desbloquear ' + ip, 'error'));
   }
 
   function closeIncident(id) {

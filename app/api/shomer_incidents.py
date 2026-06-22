@@ -163,6 +163,12 @@ async def list_incidents(
 ):
     """Lista incidentes, opcionalmente filtrado por estado."""
     _init_table()
+    # El frontend manda status=all para "sin filtro" -- sin este guard, "all" se
+    # trataba como valor literal (WHERE status='all') y nunca coincidía con ninguna
+    # fila real (open/acknowledged/closed), dejando la tabla vacía aunque /stats
+    # (sin este filtro) sí contaba bien.
+    if status in ("all", ""):
+        status = None
     with get_db() as conn:
         if status:
             rows = conn.execute(
