@@ -2,9 +2,17 @@
 
 Documento maestro: qué tiene cada appliance y qué configuración es **específica del sitio** (no copiar entre clientes).
 
-**Última actualización:** 16 jun 2026 (Sesión 56 — Seguro Hunter panel+Telegram, deploy lab, guía Telegram)
+**Última actualización:** 23 jun 2026 (Sesión 61 — auditoría EN VIVO de los 4 servidores vía SSH directo, no desde notas de sesiones pasadas).
 
 > **REGLA CRÍTICA:** Deploy o cambios remotos en **producción** (Ópera) **solo con autorización de Juan Pablo**. Deploy = **solo código** de la aplicación; **nunca** BD, `SITE.md`, credenciales ni config del sitio. Ver **`docs/REGLAS_DEPLOY.md`**.
+
+> **REGLA DE VERIFICACIÓN (nueva, 23 jun 2026 — causa de fondo de errores recientes):** Las tablas "Por equipo" de abajo describen el estado la última vez que alguien lo comprobó **en vivo por SSH**, no un estado permanente. Antes de afirmarle a Juan Pablo que algo "falta", "está pendiente" o "necesita instalarse" en cualquier servidor, **volver a comprobar primero** — este documento puede estar desactualizado. Verificación rápida (servicios + si el contenedor del bot existe/corre):
+> ```bash
+> ssh -i ~/.ssh/id_rsa_shomer     usb_admin@100.103.148.119 "systemctl is-active shomer-guardian shomer-tools nginx; sudo docker ps -a --filter name=shomer-agent --format '{{.Status}}'"  # Ópera
+> ssh -i ~/.ssh/id_ed25519_shomer usb_admin@100.75.182.116  "systemctl is-active shomer-guardian shomer-tools nginx; sudo docker ps -a --filter name=shomer-agent --format '{{.Status}}'"  # 245
+> ssh -i ~/.ssh/id_ed25519_shomer usb_admin@100.108.17.50   "systemctl is-active shomer-guardian shomer-tools nginx; sudo docker ps -a --filter name=shomer-agent --format '{{.Status}}'"  # 243
+> ```
+> **Cómo se detectó la falla:** este archivo decía "Bot — Código sync 16/jun; `.env` pendiente si se usa" para los mini PCs. Eso ya era falso desde el 10 jun (el `.env` estaba configurado). Se repitió como hecho actual el 23 jun sin verificar primero — corregido en esta sesión con SSH directo.
 
 ---
 
@@ -64,8 +72,8 @@ Registro deploy: `tools/servers.txt`
 | **Inframonitor** | ~2 equipos prueba |
 | **Guardian** | 3 APs (`.210`, `.253`, `.254`) |
 | **Pantalla S1** | Ver sección en `/opt/network_monitor/SITE.md` — etiqueta `shomer205`, GUI `http://192.168.1.205:8686`, LED ❌ hardware |
-| **Bot Telegram** | `/storage/shomer-agent/` — desarrollo activo; `/seguro`, `/liberar` |
-| **Último deploy** | 16 jun 2026 — restart local (código origen aquí) |
+| **Bot Telegram** | `/storage/shomer-agent/` — contenedor **corriendo** (`docker ps` ✅, "Up 2 days" verificado 23/jun), aunque sin hardware físico conectado ahora |
+| **Último deploy** | 23 jun 2026 — commits locales (origen del código; no rsync a sí mismo) |
 | **Historial incidentes** | `status_events` + retención — ver `/system-status` (jun 2026) |
 | **Mantenimiento global** | Telegram al activar/desactivar (panel o bot) — `shomer_guardian_events.py` |
 | **NO copiar a clientes** | IPs lab, `SHOMER_LAB_NO_SPAN`, credenciales `.206` |
@@ -90,7 +98,7 @@ Registro deploy: `tools/servers.txt`
 | **Tracker** | **76** activos; credencial AD `administrador` / dominio `HOTELOPERA` |
 | **Inframonitor** | **23** equipos (switches, POS, impresoras, cámaras…) |
 | **Guardian** | **30** APs `192.168.0.x` — estado vivo en Redis; BD puede mostrar `unknown` |
-| **Bot** | Agente Docker activo; `/seguro` autobloqueo; anti-spam Hunter desplegado 11/jun |
+| **Bot** | Contenedor **corriendo** (verificado 23/jun: "Up 3h", reiniciado automáticamente por `deploy.sh` justo después de sincronizar código nuevo); `/seguro` autobloqueo; anti-spam Hunter desplegado 11/jun. **Sigue fuera del grupo de Telegram del hotel — decisión permanente de Juan Pablo (ruido/credibilidad con socios), no se debe re-agregar.** El bot sí envía a `AGENT_DEVELOPER_CHAT_ID` desde el fix del 23/jun (antes solo intentaba el grupo y se perdía todo) |
 | **Historial incidentes** | Deploy 13/jun — `status_events`, oleadas en `/system-status`, retención BD automática |
 | **Incidente 12/jun** | ~22:53 Bogotá — ~52 equipos offline ~38 s (microcorte red admin probable); pre-deploy solo Telegram/`infra_events` |
 | **Mantenimiento global** | Panel Guardian o bot `/modo` — **Telegram al activar/desactivar** (fix 13/jun). Activar **antes de deploy** en producción |
@@ -109,13 +117,13 @@ Registro deploy: `tools/servers.txt`
 | **Pantalla S1** | Ver `docs/SITE-shomer245.md` (copia en servidor: `/opt/network_monitor/SITE.md`) — GUI `http://192.168.1.245:8686`, LED ✅ |
 | **Tracker / Infra** | Vacío — listo para pruebas |
 | **Wazuh** | No instalado (opcional en lab) |
-| **Bot** | Código sync 16/jun; `.env` pendiente si se usa |
-| **Último deploy** | 16 jun 2026 — `deploy.sh 100.75.182.116` |
+| **Bot** | Código sincronizado 23/jun (igual que .205/Ópera, mismos bytes verificados). **`.env` SÍ está configurado** (3450 bytes, desde 10/jun — token, chat ID, Groq/OpenAI reales) — esto NO está "pendiente", quedó documentado mal antes. Imagen Docker construida (`shomer-agent:latest`, 391MB, hace 13 días) pero **el contenedor nunca se ha creado/iniciado** (`docker ps -a` no muestra ni siquiera uno detenido) — falta solo `cd /storage/shomer-agent && sudo docker compose up -d`, no hay que "instalar" nada más |
+| **Último deploy** | 23 jun 2026 — `deploy.sh 100.75.182.116` (verificado por tamaño/fecha de archivo idéntico a `.205`) |
 | **Historial incidentes** | Deploy 16/jun — Seguro Hunter panel+Telegram |
 
 ### 4. shomer243 — Mini PC lab (N95)
 
-Igual que shomer245 salvo IP `192.168.1.243`, hostname `usbadmin3`, etiqueta pantalla `shomer243`, GUI `http://192.168.1.243:8686`. **Último deploy:** 16 jun 2026 — `deploy.sh 100.108.17.50`. Detalle: `docs/SITE-shomer243.md` → `/opt/network_monitor/SITE.md` en el servidor.
+Igual que shomer245 salvo IP `192.168.1.243`, hostname `usbadmin3`, etiqueta pantalla `shomer243`, GUI `http://192.168.1.243:8686`. **Último deploy:** 23 jun 2026 — `deploy.sh 100.108.17.50` (verificado). **Bot:** mismo estado que shomer245 — `.env` configurado desde 10/jun, imagen construida, contenedor sin iniciar. Detalle: `docs/SITE-shomer243.md` → `/opt/network_monitor/SITE.md` en el servidor.
 
 ---
 
