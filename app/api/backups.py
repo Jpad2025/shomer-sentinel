@@ -711,7 +711,11 @@ def _prune_local() -> bool:
         return False
     env = {**os.environ, "RESTIC_PASSWORD": local_pass}
     r = subprocess.run(
-        [RESTIC_BIN, "-r", RESTIC_REPO, "forget", f"--keep-daily={days}", "--prune"],
+        # --group-by host,tags (sin "paths"): si el nombre de archivo trae la fecha
+        # embebida (ej. equipos PMS tipo Zeus), cada día tiene rutas distintas y el
+        # agrupado default de restic (host,paths) deja cada snapshot en su propio
+        # grupo de 1 -- keep-daily nunca tiene nada que recortar.
+        [RESTIC_BIN, "-r", RESTIC_REPO, "forget", f"--keep-daily={days}", "--group-by", "host,tags", "--prune"],
         env=env, capture_output=True, text=True, timeout=600,
     )
     return r.returncode == 0
@@ -755,7 +759,8 @@ def _prune_b2() -> bool:
         "B2_ACCOUNT_KEY": app_key,
     }
     r = subprocess.run(
-        [RESTIC_BIN, "-r", b2_repo, "forget", f"--keep-daily={days}", "--prune"],
+        # Mismo fix de --group-by que _prune_local() -- ver comentario ahí.
+        [RESTIC_BIN, "-r", b2_repo, "forget", f"--keep-daily={days}", "--group-by", "host,tags", "--prune"],
         env=env, capture_output=True, text=True, timeout=1800,
     )
     return r.returncode == 0
