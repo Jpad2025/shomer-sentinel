@@ -214,9 +214,16 @@ tbody td { padding:6px 8px; font-size:11px; color:var(--text); }
       else                               statusBadge = `<span class="status-closed">Cerrado</span>`;
 
       const sig = (inc.alert_signature || '—').slice(0, 40);
-      const fecha = inc.created_at ? new Date(inc.created_at).toLocaleString('es-ES') : '—';
-      const mtta = inc.mtta_formatted || '—';
-      const mttr = inc.mttr_formatted || '—';
+      // Backend devuelve "opened_at"/"mtta"/"mttr" -- no "created_at"/"mtta_formatted"/"mttr_formatted".
+      // Ese desajuste dejaba Fecha/MTTA/MTTR siempre en blanco.
+      const fecha = inc.opened_at ? new Date(inc.opened_at).toLocaleString('es-ES') : '—';
+      let diasInfo = '';
+      if (inc.status !== 'closed' && inc.opened_at) {
+        const dias = Math.floor((Date.now() - new Date(inc.opened_at).getTime()) / 86400000);
+        diasInfo = ` <span style="color:var(--muted);font-size:11px;">(${dias}d bloqueada)</span>`;
+      }
+      const mtta = inc.mtta || '—';
+      const mttr = inc.mttr || '—';
 
       let actions = '';
       if (inc.status === 'open') {
@@ -234,7 +241,7 @@ tbody td { padding:6px 8px; font-size:11px; color:var(--text); }
 
       return `<tr>
         <td style="font-family:monospace;color:var(--hunter);font-weight:600;">#${inc.id}</td>
-        <td style="color:var(--muted);">${fecha}</td>
+        <td style="color:var(--muted);">${fecha}${diasInfo}</td>
         <td style="font-family:monospace;color:#06b6d4;">${inc.ip || '—'}</td>
         <td title="${inc.alert_signature || ''}">${sig}</td>
         <td>${sevBadge}</td>
