@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 21 jun 2026 (Sesión 60 — Causa de fondo de los apagones recurrentes en Ópera: 6 escrituras SQLite síncronas distintas en el hilo único de Guardian (5 módulos con `_init_tables()` en cada request + autobloqueo Hunter) ✅ §BB; auto-contención del poller de Inframonitor (`record_status_event` abría una segunda conexión dentro de su propia transacción) ✅ §BB.3; watchdog mataba Guardian durante una espera normal de SQLite por timeout demasiado corto (5s < busy_timeout 10s) ✅ §BB.4; bug de esquema preexistente en shomer245/shomer243 — `infra_nodes` sin columna `last_heartbeat`, nunca corrió `shomer-monitor.service`, causaba 503 permanente y loop de reinicio ✅ §BB.6; los 7 fixes desplegados y verificados en los 4 servidores (.205, Ópera, shomer245, shomer243) ✅ §BB.7) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
+**Última unificación:** 24 jun 2026 (Sesión 61 — Causa raíz real del flapping de Inframonitor en Ópera: `_ping()` con 1 solo paquete ICMP trataba cualquier pérdida transitoria como caída total ✅ §BC; fix a 3 paquetes + nuevo estado `degraded` sin alerta Telegram para pérdida parcial ✅ §BC.3; desplegado .205 + Ópera, validación en curso ✅ §BC.4; pendiente sin relación — revisión física switches dañados `.168`/`.216` §BC.6. Sesión 60 previa: causa de fondo de los apagones recurrentes — 6 escrituras SQLite síncronas en el hilo único de Guardian ✅ §BB, auto-contención del poller Inframonitor ✅ §BB.3, watchdog con timeout corto ✅ §BB.4, bug de esquema en shomer245/shomer243 ✅ §BB.6) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
 
 ---
 
@@ -4653,3 +4653,56 @@ Durante la verificación del backup de Zeus de las 05:00 (corrió bien, local OK
 **Ejecución:** vía API nativa de B2 (`b2_authorize_account` → `b2_list_file_versions` → `b2_delete_file_version` por cada archivo bajo el prefijo) usando las credenciales ya almacenadas en `system_state` — sin mover ni exponer contraseñas entre servidores. `restic init` reinicializó el repo limpio (`4f1d0eb0ac`). Sync inmediato de verificación: ambos snapshots reales de Zeus (19 y 20 jun) subidos correctamente, con `tree` hash y `original` snapshot ID intactos — los mismos campos que usa la Capa 1 del Drill rediseñado (§BA.6).
 
 **No relacionado:** el aviso de Telegram que el propio scheduler de Protector intenta mandar al grupo sigue fallando (`bot was kicked from the group chat`) — mismo problema preexistente de §AU.6, no causado por este fix.
+
+---
+
+# Parte BC — Sesión 61 (24 jun 2026) — Causa raíz real del flapping de Inframonitor (ping 1 paquete)
+
+## BC.1 Contexto
+
+Tras §AU (Sesión 58 — fix del pool de hilos del poller), Juan Pablo seguía viendo flapping falso en Ópera y concluyó que "el bot no sirve" — iba a escribir un documento para rediseñarlo desde cero. Antes de invertir en eso, se confirmó con datos reales que el problema seguía activo: 10+ equipos (`192.168.0.146, .111, .133, .240, .58, .136, .143, .1, .118, .129, .152, .168, .187, .212, .216`) con **30-36 transiciones offline↔online en 24h** (cada ~40-48 min), contenido únicamente por el debounce del bot (`_INFRA_OFFLINE_CONFIRM=2`) — no por una corrección real. El fix de §AU.2 (pool de hilos) era real y necesario, pero no era la única causa.
+
+## BC.2 Causa raíz — `_ping()` con 1 solo paquete ICMP
+
+`_ping()` en `app/api/shomer_inframonitor.py` mandaba **un solo** paquete (`ping -c 1 -W 2`). Cualquier pérdida transitoria de ese único paquete — normal en WiFi, PoE, switches reales bajo carga momentánea — se registraba como `offline` (caída total), sin distinguir "no respondió nada" de "perdió un paquete aislado". Con 50+ equipos monitoreados cada 30s, la probabilidad de que *alguno* pierda su único paquete en cualquier ciclo dado es alta — de ahí el patrón de flapping constante y repartido entre muchos equipos distintos, sin relación con fallas reales de hardware (confirmado: switches sanos con 0 errores SNMP flapeaban igual que los dañados `.168`/`.216`).
+
+## BC.3 Fix — 3 paquetes + estado `degraded`
+
+**Archivo:** `app/api/shomer_inframonitor.py::_ping()`
+
+```python
+PING_COUNT = int(os.environ.get("INFRA_PING_COUNT", "3"))
+PING_LOSS_DEGRADED_PCT = int(os.environ.get("INFRA_PING_LOSS_DEGRADED_PCT", "60"))
+
+def _ping(ip: str) -> tuple[str, Optional[float], float]:
+    # 3 paquetes (igual criterio que Guardian, shomer_guardian_health_checks.py::_ping_metrics)
+    # offline solo si se pierden TODOS; degraded si la pérdida sostenida supera el umbral
+    ...
+```
+
+| Resultado del ping | Antes | Ahora |
+|---|---|---|
+| 0% pérdida | `online` | `online` |
+| Pérdida parcial (1-2 de 3) | `offline` (falso positivo) | `degraded` |
+| 100% pérdida | `offline` | `offline` (sin cambio — caída real) |
+
+**Comportamiento de `degraded`:**
+- Visible en panel (`inframonitor.html` — dot/badge ámbar, `% pérdida` mostrado) y en NOC
+- **No dispara alerta Telegram** — solo los cruces reales hacia/desde `offline` generan aviso (`is_real_outage_edge = status == "offline" or prev_status == "offline"`)
+- Nueva columna `loss_pct` en `infra_status`, expuesta en `/infra/status` y `/infra/devices`
+
+**Archivos modificados:** `app/api/shomer_inframonitor.py` (lógica + columna `loss_pct`), `app/templates/inframonitor.html` (UI estado `degraded`). Commit `01873f6`.
+
+## BC.4 Validación
+
+- `.205`: poller reiniciado, sin errores, columna `loss_pct` poblándose correctamente (lab solo tiene 2 equipos activos — no reproduce el escenario de pérdida parcial real).
+- **Hotel Ópera** (autorizado por Juan Pablo): `deploy.sh` + reinicio manual de `shomer-inframonitor-poller.service` (recordatorio: `deploy.sh` no reinicia este servicio, hay que hacerlo a mano — ver §AU.2/§AZ.5). Primer ciclo post-deploy: 52/53 equipos `online` con `loss_pct=0.0`, 1 `offline` real — sin falsos positivos en el primer ciclo.
+- Pendiente confirmar con el tiempo (ventana ≥1h, dado que el patrón histórico era de transiciones cada ~40-48 min) que el conteo de transiciones bajó de forma sostenida frente al baseline de 30-36/24h por equipo.
+
+## BC.5 Implicación para el rediseño del bot
+
+La queja de Juan Pablo ("el bot no sirve") tenía como causa real el ruido de falsos positivos de Inframonitor — no el diseño del bot en sí (ver `feedback_validar_dolor_real_antes_de_features` en memoria). Si la validación de §BC.4 confirma que el flapping bajó de forma sostenida, vale la pena revisar con él si el documento de rediseño completo del bot sigue siendo necesario, o si el problema raíz ya quedó resuelto aquí.
+
+## BC.6 Pendiente sin relación — switches dañados `.168`/`.216`
+
+Sigue pendiente la revisión física en sitio de estos dos switches (errores SNMP acumulados reales: 95,534 y 50,587/2,860 respectivamente, según §AU.5) — **no** es el bug de flapping corregido en esta sesión, es daño de hardware real (cable, transceiver, o equipo conectado al puerto). Confirmado que switches sanos (`.118`, `.129`, `.133`, 0 errores SNMP) flapeaban igual que estos dos antes del fix de §BC.3 — la correlación temporal del flapping no tenía relación con el daño físico.
