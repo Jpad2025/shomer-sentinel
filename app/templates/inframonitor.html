@@ -44,6 +44,7 @@ tr:last-child td { border-bottom:none; }
 .status-dot { display:inline-block; width:9px; height:9px; border-radius:50%; flex-shrink:0; vertical-align:middle; margin-right:5px; }
 .dot-online  { background:var(--online);  box-shadow:0 0 5px rgba(34,197,94,0.6); }
 .dot-offline { background:var(--offline); box-shadow:0 0 5px rgba(220,38,38,0.5); }
+.dot-degraded { background:var(--warning); box-shadow:0 0 5px rgba(245,158,11,0.6); }
 .dot-unknown { background:var(--muted); animation:pulse 2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
@@ -52,6 +53,7 @@ tr:last-child td { border-bottom:none; }
 .status-badge-on  { background:rgba(34,197,94,0.15);  color:var(--online);  border-radius:4px; padding:2px 8px; font-size:10px; font-weight:600; }
 .status-badge-off { background:rgba(220,38,38,0.15);  color:var(--offline); border-radius:4px; padding:2px 8px; font-size:10px; font-weight:600; }
 .status-badge-unk { background:rgba(148,163,184,0.12); color:var(--muted);  border-radius:4px; padding:2px 8px; font-size:10px; font-weight:600; }
+.status-badge-deg { background:rgba(245,158,11,0.15);  color:var(--warning); border-radius:4px; padding:2px 8px; font-size:10px; font-weight:600; }
 .uptime-hi  { background:rgba(34,197,94,0.12);  color:var(--online);  border-radius:4px; padding:1px 6px; font-size:10px; font-weight:700; }
 .uptime-mid { background:rgba(245,158,11,0.12); color:var(--warning); border-radius:4px; padding:1px 6px; font-size:10px; font-weight:700; }
 .uptime-lo  { background:rgba(220,38,38,0.12);  color:var(--offline); border-radius:4px; padding:1px 6px; font-size:10px; font-weight:700; }
@@ -321,6 +323,10 @@ tr:last-child td { border-bottom:none; }
         dotCls = 'dot-offline';
         const dur = dev.state_duration ? `<br><span style="font-size:10px;color:var(--offline);opacity:0.7;">caído ${dev.state_duration}</span>` : '';
         badgeHtml = `<span class="status-badge-off">✕ Sin respuesta</span>${dur}`;
+      } else if (status === 'degraded') {
+        dotCls = 'dot-degraded';
+        const lossStr = dev.loss_pct != null ? ` (${Math.round(dev.loss_pct)}% pérdida)` : '';
+        badgeHtml = `<span class="status-badge-deg" title="Responde, pero con pérdida de paquetes sostenida">⚠ Pérdida parcial${lossStr}</span>`;
       } else {
         dotCls = 'dot-unknown';
         badgeHtml = '<span class="status-badge-unk">○ Verificando</span>';
@@ -433,7 +439,7 @@ tr:last-child td { border-bottom:none; }
         statuses.forEach(st => {
           // Dot
           const dot = document.getElementById('dot-' + st.ip);
-          if (dot) dot.className = 'status-dot ' + (st.status === 'online' ? 'dot-online' : st.status === 'offline' ? 'dot-offline' : 'dot-unknown');
+          if (dot) dot.className = 'status-dot ' + (st.status === 'online' ? 'dot-online' : st.status === 'offline' ? 'dot-offline' : st.status === 'degraded' ? 'dot-degraded' : 'dot-unknown');
 
           // Badge + duration
           const badge = document.getElementById('badge-' + st.ip);
@@ -444,6 +450,9 @@ tr:last-child td { border-bottom:none; }
             } else if (st.status === 'offline') {
               const dur = st.state_duration ? `<br><span style="font-size:10px;color:var(--offline);opacity:0.7;">caído ${st.state_duration}</span>` : '';
               badge.innerHTML = `<span class="status-badge-off">✕ Sin respuesta</span>${dur}`;
+            } else if (st.status === 'degraded') {
+              const lossStr = st.loss_pct != null ? ` (${Math.round(st.loss_pct)}% pérdida)` : '';
+              badge.innerHTML = `<span class="status-badge-deg" title="Responde, pero con pérdida de paquetes sostenida">⚠ Pérdida parcial${lossStr}</span>`;
             }
           }
 

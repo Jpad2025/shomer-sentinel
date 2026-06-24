@@ -144,6 +144,7 @@ def _init_tables():
             ("snmp_community_write",   "infra_devices", "TEXT DEFAULT ''"),
             ("pc_server_ip",     "infra_devices", "TEXT DEFAULT NULL"),
             ("tcp_ok",           "infra_status",  "INTEGER DEFAULT NULL"),
+            ("loss_pct",         "infra_status",  "REAL DEFAULT NULL"),
             ("mac",              "infra_status",  "TEXT DEFAULT NULL"),
             ("last_state_change","infra_status",  "TEXT"),
             ("snmp_data",        "infra_status",  "TEXT"),
@@ -212,24 +213,39 @@ def _sync_guardian_aps() -> int:
 # Network helpers (blocking, run in thread)
 # ──────────────────────────────────────────────
 
-def _ping(ip: str) -> tuple[str, Optional[float]]:
+_LOSS_RE = re.compile(r"(\d+(?:\.\d+)?)%\s*packet loss", re.IGNORECASE)
+PING_COUNT = int(os.environ.get("INFRA_PING_COUNT", "3"))
+PING_LOSS_DEGRADED_PCT = int(os.environ.get("INFRA_PING_LOSS_DEGRADED_PCT", "60"))
+
+
+def _ping(ip: str) -> tuple[str, Optional[float], float]:
+    """3 paquetes (igual que Guardian, shomer_guardian_health_checks.py::_ping_metrics) --
+    offline solo si se pierden TODOS; degraded si la pérdida sostenida supera el umbral;
+    online si no. Antes: 1 solo paquete -- cualquier pérdida transitoria (normal en
+    WiFi/PoE/switches reales) se registraba como caída real, generando flapping falso."""
     try:
         result = subprocess.run(
-            ["ping", "-c", "1", "-W", "2", ip],
-            capture_output=True, text=True, timeout=5
+            ["ping", "-c", str(PING_COUNT), "-W", "2", "-i", "0.3", ip],
+            capture_output=True, text=True, timeout=PING_COUNT * 2 + 3,
         )
-        if result.returncode == 0:
-            for line in result.stdout.splitlines():
-                if "time=" in line:
-                    try:
-                        ms = float(line.split("time=")[1].split()[0])
-                        return "online", ms
-                    except Exception:
-                        pass
-            return "online", None
-        return "offline", None
+        out = result.stdout or ""
+        m_loss = _LOSS_RE.search(out)
+        loss = float(m_loss.group(1)) if m_loss else 100.0
+        latency = None
+        for line in out.splitlines():
+            if "time=" in line:
+                try:
+                    latency = float(line.split("time=")[1].split()[0])
+                    break
+                except Exception:
+                    pass
+        if loss >= 100.0:
+            return "offline", None, loss
+        if loss >= PING_LOSS_DEGRADED_PCT:
+            return "degraded", latency, loss
+        return "online", latency, loss
     except Exception:
-        return "offline", None
+        return "offline", None, 100.0
 
 
 def _tcp_check(ip: str, port: int) -> bool:
@@ -682,7 +698,7 @@ async def _poll_once():
 
     # MAC lookups only for online devices (ARP cache populated right after ping)
     mac_ips = [r["ip"] for r, pr in zip(rows, ping_results)
-               if not isinstance(pr, Exception) and pr[0] == "online"]
+               if not isinstance(pr, Exception) and pr[0] in ("online", "degraded")]
     mac_res = {}
     if mac_ips:
         mac_vals = await asyncio.gather(
@@ -719,7 +735,10 @@ async def _poll_once():
             ip = row["ip"]
             name = row["name"]
 
-            status, latency = ("offline", None) if isinstance(ping_r, Exception) else ping_r
+            if isinstance(ping_r, Exception):
+                status, latency, loss_pct = "offline", None, 100.0
+            else:
+                status, latency, loss_pct = ping_r
             tcp_ok = None if (isinstance(tcp_r, Exception) or tcp_r is None) else (1 if tcp_r else 0)
             mac = mac_res.get(ip)
 
@@ -742,11 +761,12 @@ async def _poll_once():
                 device_type = row["device_type"] or "generic"
                 if device_type != "ap":
                     lat_int = int(round(latency)) if latency is not None else None
-                    infra_reason = (
-                        "sin respuesta ping"
-                        if status == "offline"
-                        else "ping OK"
-                    )
+                    if status == "offline":
+                        infra_reason = "sin respuesta ping (100% pérdida)"
+                    elif status == "degraded":
+                        infra_reason = f"pérdida de paquetes {loss_pct:.0f}%"
+                    else:
+                        infra_reason = "ping OK"
                     record_status_event(
                         source="infra",
                         ip=ip,
@@ -756,13 +776,16 @@ async def _poll_once():
                         status=status,
                         reason=infra_reason,
                         latency_ms=lat_int,
-                        loss_pct=None,
+                        loss_pct=loss_pct,
                         batch_id=batch_id,
                         conn=conn,  # reusa la transacción del poller -- evita auto-contención
                     )
 
                 # Telegram vía agente (watch_infra). Panel solo si INFRA_TELEGRAM_PANEL=1.
-                if os.environ.get("INFRA_TELEGRAM_PANEL", "0").strip() == "1":
+                # Solo en cruces reales offline<->no-offline -- "degraded" queda visible en
+                # panel/NOC pero no genera alerta propia (evita spam por pérdida parcial).
+                is_real_outage_edge = status == "offline" or prev_status == "offline"
+                if is_real_outage_edge and os.environ.get("INFRA_TELEGRAM_PANEL", "0").strip() == "1":
                     asyncio.create_task(
                         _send_infra_alert(name, ip, status, prev_status, duration_sec,
                                           device_type=(row["device_type"] or "generic"))
@@ -786,18 +809,19 @@ async def _poll_once():
 
             conn.execute("""
                 INSERT INTO infra_status
-                    (ip, status, latency_ms, tcp_ok, mac, last_state_change, snmp_data, snmp_ok, checked_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    (ip, status, latency_ms, loss_pct, tcp_ok, mac, last_state_change, snmp_data, snmp_ok, checked_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(ip) DO UPDATE SET
                     status=excluded.status,
                     latency_ms=excluded.latency_ms,
+                    loss_pct=excluded.loss_pct,
                     tcp_ok=excluded.tcp_ok,
                     mac=COALESCE(excluded.mac, infra_status.mac),
                     last_state_change=excluded.last_state_change,
                     snmp_data=COALESCE(excluded.snmp_data, infra_status.snmp_data),
                     snmp_ok=COALESCE(excluded.snmp_ok, infra_status.snmp_ok),
                     checked_at=excluded.checked_at
-            """, (ip, status, latency, tcp_ok, mac, last_change, snmp_data_json, snmp_ok_val))
+            """, (ip, status, latency, loss_pct, tcp_ok, mac, last_change, snmp_data_json, snmp_ok_val))
 
             if redis:
                 ttl = POLL_INTERVAL_SEC * 4
@@ -807,7 +831,7 @@ async def _poll_once():
                 redis.setex(
                     f"infra:{ip}:data", ttl,
                     json.dumps({
-                        "status": status, "latency_ms": latency,
+                        "status": status, "latency_ms": latency, "loss_pct": loss_pct,
                         "tcp_ok": tcp_ok, "mac": mac, "snmp_ok": snmp_ok_val,
                         "checked_at": datetime.now(timezone.utc).isoformat(),
                     }),
@@ -922,6 +946,7 @@ def _build_device_row(d, s, uptime: Optional[float], outages_today: int = 0) -> 
         "pc_server_ip": d["pc_server_ip"] if "pc_server_ip" in d.keys() else None,
         "status": s["status"] if s else "unknown",
         "latency_ms": s["latency_ms"] if s else None,
+        "loss_pct": s["loss_pct"] if (s and "loss_pct" in s.keys()) else None,
         "tcp_ok": s["tcp_ok"] if s else None,
         "mac": s["mac"] if s else None,
         "snmp_ok": s["snmp_ok"] if s else None,
@@ -1048,7 +1073,7 @@ async def get_status(
     _init_tables()
     with get_db() as conn:
         devices = conn.execute(
-            "SELECT d.*, s.status, s.latency_ms, s.tcp_ok, s.mac, s.last_state_change, s.checked_at "
+            "SELECT d.*, s.status, s.latency_ms, s.loss_pct, s.tcp_ok, s.mac, s.last_state_change, s.checked_at "
             "FROM infra_devices d LEFT JOIN infra_status s ON d.ip = s.ip "
             "WHERE d.active = 1 ORDER BY d.name"
         ).fetchall()
@@ -1067,12 +1092,14 @@ async def get_status(
             if live:
                 st         = live.get("status", "unknown")
                 latency_ms = live.get("latency_ms")
+                loss_pct   = live.get("loss_pct")
                 tcp_ok     = live.get("tcp_ok")
                 mac        = live.get("mac")
                 checked_at = live.get("checked_at")
             else:
                 st         = d["status"] or "unknown"
                 latency_ms = d["latency_ms"]
+                loss_pct   = d["loss_pct"] if "loss_pct" in d.keys() else None
                 tcp_ok     = d["tcp_ok"]
                 mac        = d["mac"]
                 checked_at = d["checked_at"]
@@ -1085,6 +1112,7 @@ async def get_status(
                 "tcp_port": d["tcp_port"],
                 "status": st,
                 "latency_ms": latency_ms,
+                "loss_pct": loss_pct,
                 "tcp_ok": tcp_ok,
                 "mac": mac,
                 "state_duration": _fmt_duration(d["last_state_change"]),
@@ -1108,8 +1136,8 @@ async def manual_ping(ip: str, user=Depends(get_current_user)):
     except ValueError:
         raise HTTPException(status_code=400, detail="IP inválida")
 
-    status, latency = await asyncio.to_thread(_ping, ip)
-    return {"ip": ip, "status": status, "latency_ms": latency}
+    status, latency, loss_pct = await asyncio.to_thread(_ping, ip)
+    return {"ip": ip, "status": status, "latency_ms": latency, "loss_pct": loss_pct}
 
 
 @router.get("/infra/snmp/{ip}")
