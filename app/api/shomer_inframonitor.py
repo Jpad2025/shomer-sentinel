@@ -22,7 +22,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from app.api.auth_api import get_current_user
-from app.api.shomer_common import get_db, get_redis
+from app.api.shomer_common import get_db, get_redis, get_config
 from app.api.shomer_status_events import record_status_event
 
 _security = HTTPBearer(auto_error=False)
@@ -216,6 +216,7 @@ def _sync_guardian_aps() -> int:
 _LOSS_RE = re.compile(r"(\d+(?:\.\d+)?)%\s*packet loss", re.IGNORECASE)
 PING_COUNT = int(os.environ.get("INFRA_PING_COUNT", "3"))
 PING_LOSS_DEGRADED_PCT = int(os.environ.get("INFRA_PING_LOSS_DEGRADED_PCT", "60"))
+INFRA_BLIP_MIN_DEVICES = int(os.environ.get("INFRA_BLIP_MIN_DEVICES", "8"))
 
 
 def _ping(ip: str) -> tuple[str, Optional[float], float]:
@@ -696,6 +697,41 @@ async def _poll_once():
         asyncio.gather(*tcp_tasks, return_exceptions=True),
     )
 
+    # Auto-chequeo de corte propio del host (Sesion 61, 24 jun 2026 -- CLAUDE.md SS BD.4/BC).
+    # Evidencia real en Hotel Opera: ping al propio gateway (192.168.0.1) Y a 8.8.8.8 fallaron
+    # los dos a la vez por ~30s, sin ningun error de NIC/kernel en el host -- es decir, los
+    # "52 equipos offline" no eran 52 fallas reales, era el propio Shomer sin poder mandar
+    # ningun paquete por su NIC de gestion durante ese ciclo (causa probable: STP/flap en algun
+    # switch de la red, confirmado activo en al menos 2 switches Cisco del sitio). Si el gateway
+    # configurado Y un numero grande de equipos caen "offline" en el MISMO ciclo, se asume que es
+    # este tipo de corte transitorio del host -- no se actualiza su estado ni se generan eventos
+    # ni alertas Telegram para esos equipos en este ciclo (evita marcarlos offline para luego
+    # mandar una "recuperacion" huerfana sin alerta de caida -- mismo principio que Guardian
+    # aplico para APs, ver SS AN.2). El proximo ciclo, con la red ya normal, vuelven a verse
+    # online sin que nadie se haya enterado de un problema que no era real en esos equipos.
+    cycle_status = {
+        row["ip"]: ("offline" if isinstance(pr, Exception) else pr[0])
+        for row, pr in zip(rows, ping_results)
+    }
+    gateway_ip = (get_config("base.gateway") or "").strip()
+    newly_offline_ips = {
+        ip for ip, st in cycle_status.items()
+        if st == "offline" and (existing.get(ip) or {}).get("status") != "offline"
+    }
+    host_network_blip = (
+        bool(gateway_ip)
+        and cycle_status.get(gateway_ip) == "offline"
+        and len(newly_offline_ips) >= INFRA_BLIP_MIN_DEVICES
+    )
+    if host_network_blip:
+        logger.warning(
+            "infra poll: corte de red propio del host (no de los equipos) -- gateway %s y "
+            "%d equipos mas cayeron 'offline' en el mismo ciclo. Se omite su actualizacion de "
+            "estado y cualquier evento/alerta de este ciclo para esos IPs (ver CLAUDE.md "
+            "Inframonitor -- host_network_blip).",
+            gateway_ip, len(newly_offline_ips),
+        )
+
     # MAC lookups only for online devices (ARP cache populated right after ping)
     mac_ips = [r["ip"] for r, pr in zip(rows, ping_results)
                if not isinstance(pr, Exception) and pr[0] in ("online", "degraded")]
@@ -734,6 +770,11 @@ async def _poll_once():
         for row, ping_r, tcp_r in zip(rows, ping_results, tcp_results):
             ip = row["ip"]
             name = row["name"]
+
+            if host_network_blip and ip in newly_offline_ips:
+                # Corte del host, no del equipo -- no tocar su estado ni generar evento/alerta
+                # para este ciclo (ver bloque host_network_blip mas arriba).
+                continue
 
             if isinstance(ping_r, Exception):
                 status, latency, loss_pct = "offline", None, 100.0

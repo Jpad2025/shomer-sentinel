@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 24 jun 2026 (Sesión 61 — Causa raíz real del flapping de Inframonitor en Ópera: `_ping()` con 1 solo paquete ICMP trataba cualquier pérdida transitoria como caída total ✅ §BC; fix a 3 paquetes + nuevo estado `degraded` sin alerta Telegram para pérdida parcial ✅ §BC.3; desplegado .205 + Ópera, validación en curso ✅ §BC.4; pendiente sin relación — revisión física switches dañados `.168`/`.216` §BC.6. Sesión 60 previa: causa de fondo de los apagones recurrentes — 6 escrituras SQLite síncronas en el hilo único de Guardian ✅ §BB, auto-contención del poller Inframonitor ✅ §BB.3, watchdog con timeout corto ✅ §BB.4, bug de esquema en shomer245/shomer243 ✅ §BB.6) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
+**Última unificación:** 25 jun 2026 (Sesión 61 cont. 3 — **Visión de producto del bot guardada en §BE**: Juan Pablo definió qué quiere que `shomer-agent` sea (alertas inteligentes + sistema predictivo + aprendizaje real del inventario Tracker) y diagnosticó por qué hoy no sirve ("sirena ruidosa", chat de pago que solo reenvía datos crudos sin razonar). Auditoría de código completa del bot (2 rondas, ~13.250 líneas + sistema de aprendizaje/TASK-*) encontró que la infraestructura predictiva/de aprendizaje **ya existe y funciona** (`incident_knowledge`, `agente_skills`, `pattern_analysis.py`) — el problema es que no está conectada al chat real. Bugs reales confirmados y pendientes de aplicar: llamadas SSH/HTTP bloqueantes sin `asyncio.to_thread()` en `bot.py` y en todo `auto_tasks.py` (congelan el bot completo mientras corren), inconsistencia de presupuesto de tokens entre OpenAI/Groq. Próximo paso acordado: diagnosticar el system prompt y el flujo `msg_natural`/`llm_router.chat()` real antes de rediseñar nada — ver §BE.5. Sesión 61 cont. 2 previa — **Causa real de la caída sincronizada de Inframonitor (§BD.4) encontrada con instrumentación en vivo**: durante el corte, el ping del propio Shomer a SU gateway local Y a 8.8.8.8 fallan los dos a la vez por ~30s, con el contador `rx_drop` de la NIC congelado y sin ningún error de kernel/firewall/DHCP — no son 52 equipos cayendo, es el propio host sin poder mandar paquetes por su NIC de gestión durante ese instante (causa más probable: STP/flap en algún switch de la red — confirmado STP activo y con cambios de topología frecuentes en al menos 2 switches Cisco del sitio, sin poder aún correlacionar el instante exacto). Fix aplicado: `host_network_blip` en `shomer_inframonitor.py` — si el gateway configurado (`base.gateway`) y ≥8 equipos caen "offline" en el mismo ciclo del poller, se asume corte del host y se omite su actualización de estado/evento/alerta Telegram para ese ciclo (evita la "recuperación huérfana" sin alerta de caída) ✅ desplegado y verificado en Ópera §BD.10. Instrumentación STP en paralelo sigue corriendo para confirmar el mecanismo exacto en el próximo evento. Sesión 61 cont. previa: **primera auditoría end-to-end en vivo de Ópera** (Guardian→Hunter→Tracker→Protector→Inframonitor→Bot), solo lectura, sin parches a ciegas ✅ §BD — corrige memoria desactualizada y expone discrepancias ya resueltas (retención Protector, regla DROP MikroTik) §BD.5, halla y corrige ruido real de Suricata (67% de alertas, laptop con software de impresoras mal configurado) ✅ §BD.8. Sesión 61 previa: causa raíz real del flapping individual de Inframonitor: `_ping()` con 1 solo paquete ICMP ✅ §BC; fix a 3 paquetes + estado `degraded` ✅ §BC.3. Sesión 60 previa: causa de fondo de los apagones recurrentes — 6 escrituras SQLite síncronas en el hilo único de Guardian ✅ §BB) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
 
 ---
 
@@ -314,6 +314,7 @@ echo '{“data”:{“src_ip”:”5.5.5.5”,”alert”:{“signature”:”ET
 | P10 | ~~Vista de bloqueos históricos~~ — ✅ `GET /remedies/history`, sección colapsable con tabla + CSV en panel Hunter | ✅ Sesión 24 |
 | P11 | **Clave Wazuh con HMAC** — ~~prioridad media~~ → **DESCARTADO**: Wazuh y Shomer corren en el mismo servidor; la llamada va a `http://127.0.0.1:8000` (loopback, nunca sale al exterior). El riesgo real es exposición del puerto 8000 en UFW — ya está cubierto (solo localhost). No aplicar HMAC si no hay justificación arquitectural. | ✅ No aplica (mismo servidor) |
 | P12 | **Flashear 2 MikroTik hEX S (RB760iGS) a OpenWrt** — para conectarlos como firewalls Hunter igual que el `.206`. Ver procedimiento completo abajo §E.5. | 🔴 **PRÓXIMA SESIÓN** |
+| P13 | **Checklist permanente — revisar firmas más ruidosas en los primeros días de Hunter en cualquier sitio nuevo.** Encontrado en Ópera (24 jun 2026): un equipo cliente con software de impresoras (KYOCERA Net Viewer/MPS Monitor/etc.) generaba 67% de las alertas diarias por IPs de otra red cacheadas en su config. Procedimiento completo de diagnóstico (incl. cómo encontrar la IP LAN real pese al NAT) y supresión en `CLAUDE.md` §BD.8/§BD.9. | ✅ Resuelto en Ópera — aplicar checklist en cada sitio nuevo |
 
 ## E.5 Pendiente — Flashear 2 MikroTik RB760iGS a OpenWrt (próxima sesión)
 
@@ -4000,7 +4001,7 @@ menor: libera un hilo que antes se gastaba 4s completos cada ciclo esperando un 
 
 | Hallazgo | Detalle | Estado |
 |---|---|---|
-| Hardware dañado real en `.168` (`SW1-P50-OFC-SISTEMAS`) y `.216` (`SW-POE-OFC-SISTEMAS`) | Errores SNMP acumulados reales: 95,534 + 50,587 en `.168`; 2,860 en `.216` — cable/transceiver/equipo conectado | Diferido — requiere revisión física en sitio |
+| Hardware dañado real en `.168` (`SW1-P50-OFC-SISTEMAS`) y `.216` (`SW-POE-OFC-SISTEMAS`) | Errores SNMP acumulados reales: 95,534 + 50,587 en `.168`; 2,860 en `.216` — cable/transceiver/equipo conectado. **Precisado 24-25 jun 2026 (§BD.11): no es el switch completo — son 2 puertos de enlace específicos (Gi49/Gi50) de `.168`, el resto del switch (46/48 puertos) está limpio. `.216` no respondió SNMP al reverificar, sin dato actualizado.** | Diferido — requiere revisión física en sitio, ahora acotada a Gi49/Gi50 de `.168` |
 | Scheduler de Protector duplicado | `shomer-tools.service` corre `--workers 2`; `start_backup_scheduler()` se dispara en el `lifespan` de **cada** worker → 2 schedulers paralelos capaces de lanzar el mismo backup programado a la vez | Diferido — no hay `backup_devices` configurados aún en Ópera, no es urgente todavía |
 | Protector sin configurar en Ópera | Juan Pablo tiene la ubicación de un equipo (SMB/Windows) lista para dar de alta | Pendiente — pausado a pedido propio, retomar en sesión dedicada |
 
@@ -4479,25 +4480,25 @@ Bucket compartido de la empresa (`shomer-backups`, mismo account_id que `.205`),
 
 **Validado real:** sync manual del snapshot de Zeus (9 archivos `.bak`, 3.9 GB) → confirmado en B2 con `restic snapshots` contra `b2:shomer-backups:hotel-opera`. `schedule_b2_enabled=1` en el equipo Zeus — cada backup de las 5am sube su delta a B2 automáticamente.
 
-## BA.2 Política de retención — decidida con Juan Pablo (20 jun 2026)
+## BA.2 Política de retención — corregida con Juan Pablo (24 jun 2026)
 
 **Antes de esta sesión no existía ningún borrado automático en B2** — `restic copy` solo agrega snapshots, nunca los quita. Sin intervención, B2 crece sin límite (~4GB/día → ~1.4TB/año por equipo).
 
-**Decisión:** 30 días de retención, tanto local como en B2.
+**Decisión real (confirmada por Juan Pablo el 24 jun 2026 — corrige la nota original del 20 jun que decía 30/30):** **10 días de retención local, 3 días en B2.** La configuración real en BD (`protector.retention_days=10`, `protector.b2_retention_days=3`) **es la correcta** — el "30/30" escrito originalmente en esta sección no refleja la decisión real y quedaba como discrepancia sin explicar hasta que se confirmó directamente con Juan Pablo (ver auditoría §BD.5).
 
-| Config (`system_state`) | Valor | Efecto |
+| Config (`system_state`) | Valor real | Efecto |
 |---|---|---|
-| `protector.retention_days` | `30` | `_prune_local()` — sin cambios, ya existía |
-| `protector.b2_retention_days` | `30` | **Nuevo** — `_prune_b2()`, no existía nada similar antes |
+| `protector.retention_days` | `10` | `_prune_local()` — sin cambios, ya existía |
+| `protector.b2_retention_days` | `3` | `_prune_b2()` |
 | `protector.b2_sync_enabled` | `1` | Activa el sync global nocturno (antes solo corría el sync por equipo) |
 | `protector.b2_sync_time` | `05:30` | Media hora después del backup de Zeus (05:00) |
 
 **Implementación** (`app/api/backups.py`):
-- `_get_b2_retention_days()` — espejo de `_get_retention_days()`, default 30 si no está configurado.
+- `_get_b2_retention_days()` — espejo de `_get_retention_days()`.
 - `_prune_b2()` — `restic forget --keep-daily=N --prune` contra el repo B2 (no el local). Usa las mismas credenciales B2 que el resto del módulo.
-- `_run_global_b2_sync()` ahora llama a `_prune_local()` **y** `_prune_b2()` tras el sync exitoso — antes solo podaba local.
+- `_run_global_b2_sync()` llama a `_prune_local()` **y** `_prune_b2()` tras el sync exitoso.
 
-**Por qué no se fijó antes un número exacto:** restic es incremental por bloques (deduplicado) — un snapshot diario de una BD que cambia poco NO pesa lo mismo que el snapshot completo. Con solo 1 backup real (el de hoy) no había datos para estimar el costo real de 30 días; se decidió fijar el límite igual (sin riesgo, porque hoy nada se borraba solo) y medir el crecimiento real en los próximos días.
+**Nota:** Juan Pablo confirmó los números (10 local / 3 B2) directamente el 24 jun 2026 — el motivo de diseño detrás de esa diferencia específica no se preguntó ni se documentó, solo se confirmó que son los valores correctos vigentes hoy.
 
 ## BA.3 Bug real — `update_backup_device()` borraba el horario en cualquier edición parcial
 
@@ -4706,3 +4707,225 @@ La queja de Juan Pablo ("el bot no sirve") tenía como causa real el ruido de fa
 ## BC.6 Pendiente sin relación — switches dañados `.168`/`.216`
 
 Sigue pendiente la revisión física en sitio de estos dos switches (errores SNMP acumulados reales: 95,534 y 50,587/2,860 respectivamente, según §AU.5) — **no** es el bug de flapping corregido en esta sesión, es daño de hardware real (cable, transceiver, o equipo conectado al puerto). Confirmado que switches sanos (`.118`, `.129`, `.133`, 0 errores SNMP) flapeaban igual que estos dos antes del fix de §BC.3 — la correlación temporal del flapping no tenía relación con el daño físico.
+
+---
+
+# Parte BD — Sesión 61 cont. (24 jun 2026) — Auditoría completa de Hotel Ópera (Guardian → Bot)
+
+## BD.1 Por qué se hizo esta auditoría
+
+Patrón identificado con Juan Pablo: sesión tras sesión se declara "✅ resuelto" un síntoma puntual, pero nadie había hecho nunca **una sola pasada completa, en vivo, de toda la cadena** (Guardian → Hunter → Tracker → Protector → Inframonitor → Bot) antes de afirmar que Ópera está estable. Esta sección es esa pasada — solo lectura, sin tocar producción, todo verificado por SSH directo el 24 jun 2026 entre las 15:30–20:45 UTC (10:30–15:45 hora local Bogotá).
+
+**Principio para sesiones futuras:** antes de afirmarle a Juan Pablo que algo "está resuelto" o "sigue pendiente", repetir esta auditoría (o la parte relevante) — no asumir desde memoria de sesiones anteriores. Ver también la regla ya existente en `docs/EQUIPOS.md` (verificación en vivo antes de afirmar estado).
+
+## BD.2 Resultado por módulo
+
+| Módulo | Estado verificado en vivo |
+|---|---|
+| **Servicios base** | `shomer-guardian`, `shomer-tools`, `nginx`, `redis-server`, `suricata`, `wazuh-manager`, `shomer-health-watchdog.timer`, `shomer-inframonitor-poller` — todos `active`, 0 unidades fallidas. Disco sano (`/` 21%, `/var` 36%, `/storage` 1%, `/srv` 19%). |
+| **Guardian** | 30/30 APs `online` en Redis (BD muestra `unknown` — normal, ver §EQUIPOS.md). `/health` responde en 5.7ms. Sin mantenimiento activo, sin fallos acumulados en Redis. |
+| **Hunter** | Suricata: **50,210 reglas cargadas, 0 fallidas**, corriendo 17 días sin caerse, capturando en `enx9c69d33bc55f` (interfaz correcta). Generando alertas reales ahora (`GPL SNMP public access udp` — probable ruido de nuestro propio polling SNMP, revisar si excluir). `hunter.auto_block_enabled=true`, `firewall_type=routeros`. **10 IPs bloqueadas activas, todas `firewall_blocked=1`**, incluida una bloqueada el mismo día de la auditoría (`30.30.1.20`, 12:16) — la cadena Suricata→Wazuh→API→firewall está viva end-to-end. |
+| **Tracker** | 72 activos, **último escaneo real: 23 jun 2026** (la nota de memoria que decía "sin escanear desde el 10 jun" estaba obsoleta). 0/72 marcados `reviewed` (pendiente manual, no bug). Riesgos de red activos: 0 críticos, 0 altos, 13 bajos, 70 info — sano. |
+| **Protector** | Zeus PMS: `schedule_enabled=1`, `schedule_time=05:00`, `last_status=ok`, corrió hoy a las 05:01 (9 archivos). 6 snapshots Restic locales, sync a B2 activo. |
+| **Bot/Agente** | Contenedor `Up 4h`, sin errores propios. `Forbidden: bot was kicked from the group chat` sigue ocurriendo (esperado, decisión permanente de Juan Pablo). `memoria_sync` procesando eventos reales (`guardian:30, infra:52`) — el puente bot↔paneles funciona. |
+
+## BD.3 Reinicios de Guardian (4 en 24h) — explicado, no es un bug
+
+`shomer-guardian.service` es el proceso completo de 8000 (panel + auth + Guardian + Hunter, todos en el mismo proceso). Se reinició 4 veces en 24h (23:55, 10:03, 11:18, 11:50 — todos jun 24). Verificado en `auth.log`: **los 4 fueron `sudo systemctl restart shomer-guardian shomer-tools` manuales** (redeploys del fix de §BC), no crashes. El log del watchdog está vacío — cero intervenciones suyas. Los fixes de §AT/§AW/§BB siguen sosteniendo.
+
+## BD.4 🔴 Hallazgo nuevo — caída sincronizada de toda la flota Inframonitor (sin causa confirmada)
+
+**Síntoma:** 3 eventos de **52/52 equipos offline simultáneamente** durante ~20-33 segundos cada uno, en las 4h posteriores al deploy de hoy (13:09, 14:01, 15:34 hora local Bogotá). **No es el mismo bug que corrigió §BC** (ping de 1 paquete → 3 paquetes): ese fix es por-equipo y a juzgar por los datos sí funcionó — las transiciones medidas tras el restart se explican el 100% por estos 3 eventos sincronizados, no por ruido aleatorio individual. Lo que queda es un problema distinto: algo hace caer **todo el inventario a la vez**, recurrente cada 50-90 min.
+
+**Descartado con evidencia real:**
+- NIC/kernel: sin eventos de flap en `journalctl -k` en las ventanas exactas.
+- NetworkManager/systemd-networkd: sin entradas.
+- Watchdog: log vacío, no intervino.
+- `py-spy`: se intentó vía un script vigilante reactivo (`/tmp/infra_watch.py`, creado por una sesión de hoy) pero **falló por permisos** (`Permission Denied`) y de todas formas se disparó *después* del evento (reactivo, no causante) — descartado como causa.
+
+**Pista real, sin confirmar:** en uno de los 3 eventos (20:34:07 UTC), el propio bot registró `httpx.ConnectError: Temporary failure in name resolution` — un fallo de **DNS saliente en el propio Shomer**, en el mismo segundo. Sugiere que el problema podría estar en la pila de red del host (pierde conectividad de salida unos segundos), no en los 52 equipos remotos fallando todos a la vez por coincidencia — pero es una sola coincidencia, no prueba.
+
+**Decisión tomada con Juan Pablo (24 jun):** no parchear a ciegas ni rediseñar el poller sin evidencia. Plan acordado:
+1. Reemplazar el watcher reactivo por una captura **continua** (cada 1-2s, no solo tras detectar el evento en BD) de contadores de la NIC de gestión, salud del proceso del poller, y ping de control a un destino externo fijo — para diferenciar entre: (a) la red del propio Shomer colgándose un instante, (b) el event loop del poller congelándose (mismo patrón que §BB), o (c) algo externo real.
+2. Solo con esa evidencia, decidir si es un fix puntual o si justifica replantear cómo el poller separa medición de escritura. Inframonitor es bajo riesgo (solo NOC + insumo del bot, no toca Guardian/Hunter) — hay margen para ser más agresivos en el rediseño, pero **después** de tener causa confirmada, no antes.
+
+## BD.5 Otras discrepancias encontradas — documentación/memoria desactualizada
+
+| # | Documentado | Real (verificado en vivo) |
+|---|---|---|
+| 1 | ~~§BA.2: retención Protector decidida en 30 días (local **y** B2)~~ | ✅ **Resuelto 24 jun 2026** — Juan Pablo confirmó directamente: los valores reales (`protector.retention_days=10`, `protector.b2_retention_days=3`) son los correctos. §BA.2 corregido para reflejarlo. |
+| 2 | Memoria: "3 PCs con credenciales pendientes: `.41`, `.142`, `.170`" | BD real: 9 equipos con error WMI/RPC — `.34`, `.110`, `.112`, `.119`, `.139`, `.155`, `.200` (sin hostname siquiera) + AD `.4` + Zeus `.5` (`rpc_s_access_denied`, distinto del problema SMB ya resuelto en Protector). **IPs completamente distintas** a las documentadas. |
+| 3 | ~~Regla DROP en MikroTik — no verificable sin credenciales~~ | ✅ **Resuelto 24 jun 2026** — Juan Pablo dio las credenciales correctas, verificado en vivo (solo lectura). Ver BD.6 ítem 3. |
+| 4 | `shomer-monitor.service` (script `monitor.py`, opcional, §A.1) | **No está instalado** en Ópera (`Unit shomer-monitor.service could not be found`). No es un bug — nunca se decidió si hace falta en este sitio. |
+
+## BD.6 Pendientes puntuales (acción concreta, no vagos)
+
+| # | Pendiente | Quién puede resolverlo | Bloqueante |
+|---|---|---|---|
+| 1 | ✅ **Resuelto 24 jun 2026 (misma noche)** — causa confirmada con instrumentación real, fix `host_network_blip` desplegado y verificado en Ópera. Ver §BD.10. Queda abierta solo la confirmación fina de si la causa ascendente es STP (watcher `/tmp/stp_watch.py` corriendo en paralelo, pendiente de revisar próximo evento) — no bloqueante, el síntoma (52 alertas) ya está cortado. | — | No |
+| 2 | ~~Confirmar con Juan Pablo retención Protector~~ | ✅ Resuelto — ver BD.5 ítem 1 y §BA.2 | No |
+| 3 | ~~Verificar regla DROP MikroTik~~ | ✅ **Resuelto 24 jun 2026** — verificado en vivo (Juan Pablo dio credenciales correctas, `Opera*2023*`, coincide con BD). Regla #3 confirmada activa en `chain=forward action=drop src-address-list=shomer-blocked`, sin deshabilitar. Las 10 IPs de la `address-list` coinciden exactamente (IP, fecha, hora) con la tabla `blocked_ips` de la BD. Hunter confirmado end-to-end sin huecos. | No |
+| 4 | 🟡 **Baja prioridad — diferido a pedido de Juan Pablo (24 jun).** Tracker: 9 IPs reales con error (`.34/.110/.112/.119/.139/.155/.200` timeout 90s + `.4` AD `WBEM_E_INVALID_QUERY` + `.5` Zeus `rpc_s_access_denied`). **No son credenciales** en la mayoría de los casos — solo hay un set de credenciales en todo el sistema (`hotelopera\administrador`, `network_credentials` id=1) y la mayoría de los errores (6 timeouts + `.200`) son más consistentes con equipo apagado/RPC bloqueado por firewall que con password incorrecto; `.4` es un bug de la consulta WQL del escáner contra controladores de dominio (no de credenciales); `.5` (Zeus) sí podría ser permisos reales pero Juan Pablo decidió **no abrir más WMI/RPC en el AD ni en el PMS** por ser objetivos de alto valor — el inventario completo de esos dos no es crítico. **Confirmado `.41`/`.170` (de la lista vieja en memoria) ya están `OK` — no están pendientes.** `.142` ya no existe en el inventario actual. Un técnico en sitio puede revisar y re-escanear cuando convenga — no requiere intervención remota. | Técnico en sitio, sin apuro | No |
+| 5 | Decidir si `shomer-monitor.service` hace falta en Ópera (hoy no está instalado). **Nota 24 jun:** revisado el código (`app/scripts/monitor.py`) — parece predecesor/legacy del failsafe actual de Guardian (comparte patrón de clave Redis `status:{ip}` y tabla `failsafe_state`). Confirmado que su ausencia **no** es causa del hallazgo BD.4 (tablas y namespaces separados de Inframonitor) — descartado como pieza del problema actual, pero queda sin decidir si debe seguir descartado permanentemente o si es deuda técnica a limpiar. | Juan Pablo decide | No |
+| 6 | Corregir la memoria persistente (`project_*.md`) con las IPs reales de Tracker y la fecha real del último escaneo | Próxima sesión (limpieza de memoria) | No |
+| 7 | **Después de resolver lo prioritario (BD.4):** crear `tools/verify_install.sh` — script único que defina en un solo lugar qué debe existir por servidor (unidades systemd, archivos/directorios críticos, env vars, tablas BD) y lo verifique en vivo por SSH contra cualquier servidor de `tools/servers.txt`, devolviendo un reporte ✅/⚠️/❌. Hoy esa verificación se hace 100% a mano cada vez (como en esta misma auditoría) — no existe nada repetible. No crear todavía; queda en cola. | Próxima sesión (después de BD.4) | No |
+| 8 | ~~Ruido SNMP — 67% de alertas Suricata~~ | ✅ **Resuelto 24 jun 2026** — ver BD.8 | No |
+
+## BD.8 Ruido real identificado y suprimido — laptop con software de impresoras mal limpiado
+
+**Síntoma:** 9,986 de 14,882 alertas de Suricata en un día (67%) eran la firma `GPL SNMP public access udp` (sig_id `2101411`, severidad Informational, CVE de 1999) — ahogando la señal real de Hunter.
+
+**Causa real (no era nuestro propio polling, como se asumió al principio):** el origen aparecía como `190.60.195.10` (la IP pública real de Ópera, confirmada con `curl ifconfig.me` desde el propio Shomer) por el NAT del MikroTik. Rastreado el origen real en la tabla de conexiones del router (`/ip firewall connection print where dst-port=161`, flag `s`=SRCNAT): **`192.168.0.174` — laptop "HDO-RECLLAVES" (HP, Windows 11)**, registrado en Tracker.
+
+El software instalado en ese equipo incluye varias herramientas de monitoreo de impresoras que usan SNMP por diseño (**KYOCERA Net Viewer, MPS Monitor, Status Monitor 5, EpsonNet Print**) — hipótesis más probable: alguna tiene una lista de IPs de impresoras cacheada de otra red (común tras mover el equipo de sitio o restaurar de plantilla) y sigue intentando contactarlas sin recibir respuesta nunca (0 paquetes de vuelta en el flow, confirmado). Los 9 destinos repetidos (`10.5.50.194`, `192.168.2.175`, `192.168.49.200`, `10.0.0.100`, `10.1.1.96`, `192.168.2.171`, `192.168.60.37`, `192.168.2.71`, `192.168.1.239`) no son de la red de Ópera. **No se investigó más a fondo (sin conexión remota al laptop) — esto es la hipótesis más probable, no confirmada al 100%.**
+
+**Verificado que no es nuestro propio polling legítimo:** Inframonitor sí usa esta misma firma al consultar SNMP de equipos reales (`.240`, `.58`, `.5`, etc., comunidad `public`) — pero solo generó **1 alerta en todo el día**, así que la supresión no afecta esa señal.
+
+**Fix aplicado** (`/etc/suricata/threshold.config`, backup en `.bak_24jun`):
+```
+suppress gen_id 1, sig_id 2101411, track by_dst, ip <cada uno de los 9 destinos muertos>
+```
+**Deliberadamente NO se suprimió** para `.240` (impresora real) ni para ningún destino nuevo que aparezca a futuro con esta firma — solo para los 9 confirmados sin respuesta.
+
+**Lección operativa importante:** `suricatasc -c reload-rules` (recarga en caliente) **no aplica cambios de `threshold.config`** — Suricata solo lo lee al arrancar el proceso. Hace falta `systemctl restart suricata` completo. Confirmado con alertas reales: el reload no tuvo efecto, el restart sí (0 alertas nuevas de esta firma en los primeros minutos post-restart, vs. una cada 40-50s antes).
+
+## BD.9 Nuevo ítem permanente — checklist Hunter en cualquier sitio nuevo
+
+**Agregado a §E.4 (Pendientes Hunter campo) y aplica a cualquier instalación, no solo Ópera:** en los primeros días de Hunter activo en un sitio, revisar las firmas que más alertas generan (`grep -o '"signature":"[^"]*"' eve-alerts.json | sort | uniq -c | sort -rn`) — es común encontrar un equipo cliente con software de impresión/monitoreo (KYOCERA Net Viewer, MPS Monitor, EpsonNet, HP Status Monitor, etc.) generando volumen alto de ruido SNMP/discovery hacia IPs que no existen en la red (configuración heredada de otro sitio o plantilla). Para identificar el equipo real pese al NAT: revisar `/ip firewall connection print where dst-port=<puerto>` en el firewall (busca el flag `s`=SRCNAT, ahí está la IP LAN real, no la IP pública que ve Suricata). Suprimir solo por destino específico confirmado sin respuesta — nunca suprimir la firma completa ni por la IP pública del sitio (afectaría detección real futura).
+
+## BD.7 Próximo paso acordado — consolidación de documentación
+
+Esta sección es el primer paso de un esfuerzo más amplio: dejar `CLAUDE.md` como único archivo de arquitectura/decisiones (reemplazando gradualmente lo que ya está duplicado o disperso en `docs/EQUIPOS.md`, `docs/AUDITORIA_ASYNC_BLOQUEANTE.md`, etc.), `SITE.md` por servidor para config local, y la memoria de Claude solo para continuidad entre sesiones — no como sustituto de este documento. Pendiente: decidir qué de los documentos satélite se absorbe aquí y qué se elimina por obsoleto (no se ha hecho todavía — solo se acordó el orden: auditar primero, consolidar después).
+
+## BD.10 Causa real de la caída sincronizada de Inframonitor (§BD.4) — confirmada con instrumentación en vivo (24 jun 2026, misma noche)
+
+**Instrumentación desplegada:** tras acordar con Juan Pablo no parchear a ciegas, se corrió en Ópera durante ~4h un script de captura continua (1 muestra/seg, sin tocar el poller) midiendo en paralelo: ping de control al gateway propio y a 8.8.8.8, contadores de la NIC de gestión (`/proc/net/dev`), tabla conntrack, y salud del proceso del poller (hilos, ticks de CPU). El watcher capturó un evento real de la caída sincronizada (22:52:43-44 UTC, 20→32 equipos offline en `infra_events`).
+
+**Hallazgo en la ventana exacta del evento (22:51:53 → 22:52:26 UTC, 33 segundos):**
+- El ping de control del propio Shomer **a su propio gateway local (192.168.0.1) Y a 8.8.8.8 fallaron los dos al mismo tiempo** — no son 52 equipos remotos fallando por separado, es el host sin poder mandar/recibir ningún paquete por su NIC de gestión (`eno1`) durante esos 33s.
+- El contador `rx_drop` de `eno1` (que sube ~5/seg constantemente en operación normal) **se congeló por completo** durante exactamente esa ventana — no es que la NIC esté descartando paquetes activamente, es que no le llegó nada que contar.
+- El poller de Inframonitor no estaba "atorado" — su consumo de CPU se mantiene plano durante el evento, descartando que sea el poller compitiendo por hilos/recursos (el fix de pool de 48 hilos de §AU.2 sigue siendo válido, simplemente no es la causa de *este* patrón).
+- **Cero evidencia de causa en el propio Shomer**: sin errores de kernel (`journalctl -k`), sin caída de enlace (`ethtool eno1` sin carrier errors), sin reload de UFW, sin renovación DHCP, sin nada en ningún log del sistema en esa ventana exacta. El watchdog de salud (que solo usa loopback local, no toca la red física) siguió corriendo normal sin ningún problema durante todo el evento — confirma que no es un freeze del host completo (mismo patrón que §AT/§AW), es específico al tráfico que sale/entra por `eno1`.
+
+**Hipótesis principal (no confirmada al 100%, pero con evidencia real de soporte):** corte de origen ascendente (switch/STP), no del Shomer ni de Inframonitor. Verificado vía SNMP (Bridge-MIB) contra los 9 switches/router con SNMP de Ópera:
+- **`.146`** (SW3-OFC-VENTAS) y **`.168`** (SW1-P50-OFC-SISTEMAS, con 2 puertos de enlace dañados — ver detalle preciso en §BD.11) — ambos Cisco Sx220, **con STP/RSTP activo y cambiando topología constantemente** (`.168` acumula 326,550 cambios de topología desde su último reset de contador; `.146` acumula 29,576). Los últimos cambios de ambos al momento de la consulta ocurrieron a ~39 segundos uno del otro — consistente con que un cambio en un switch se propaga al árbol STP de otros.
+- **`.187`** también tiene STP activo pero estable (última cambio hace 5 días).
+- `.118`, `.129`, `.133`, `.1` (gateway), `.212`, `.216` — Bridge-MIB no expone OIDs de STP (protocolo no soportado por ese agente SNMP, o estos puertos no participan en el árbol STP visible).
+- **No se pudo correlacionar el instante exacto** de un cambio de topología con el evento de las 22:52 — el Bridge-MIB solo da "tiempo desde el último cambio" como foto instantánea, no un historial. Se desplegó un segundo watcher (`/tmp/stp_watch.py` en Ópera, sondeando el contador de cambios de `.146`/`.168` cada 2s, en paralelo al watcher principal) para capturar el próximo evento con el contador STP en el mismo instante — pendiente de revisar.
+
+**Fix aplicado — `host_network_blip` en `app/api/shomer_inframonitor.py::_poll_once()`:** si el equipo configurado en `base.gateway` Y al menos `INFRA_BLIP_MIN_DEVICES` (default 8) equipos más caen "offline" en el **mismo ciclo** del poller, se asume que es un corte transitorio del host (no de los equipos) — para esos IPs en ese ciclo:
+- No se actualiza `infra_status` (el panel sigue mostrando el último estado real conocido, sin parpadear a rojo por 30s).
+- No se inserta en `infra_events` ni se llama `record_status_event()`.
+- No se dispara alerta Telegram.
+- Solo se deja un `logger.warning()` con el detalle (gateway + cantidad de equipos), para poder seguir auditando sin generar ruido al técnico.
+
+Esto evita además el patrón de "recuperación huérfana" (alerta de "✅ recuperado" sin haber mandado nunca la alerta de caída) — mismo principio que Guardian ya aplica para APs (§AN.2): si nunca se marcó offline, el siguiente ciclo normal no encuentra transición que reportar.
+
+**Desplegado y verificado en Ópera (24 jun 2026, autorizado por Juan Pablo):** `tools/deploy.sh` dirigido solo a Ópera + reinicio manual de `shomer-inframonitor-poller.service` (recordatorio permanente: `deploy.sh` no reinicia este servicio). `/health` 200 OK, poller arrancó limpio con el pool de 48 hilos, sin errores en journal. `base.gateway=192.168.0.1` confirmado configurado y presente en `infra_devices` activo — el chequeo va a disparar correctamente en el próximo evento real.
+
+**Pendiente:** confirmar con el watcher STP en paralelo si el próximo evento coincide con un incremento del contador de cambios de topología en `.146`/`.168` — eso cerraría la causa al 100%. Mientras tanto, el fix de `host_network_blip` ya corta el síntoma visible (52 alertas Telegram) independientemente de cuál sea la causa exacta del corte ascendente.
+
+## BD.11 Corrección importante — `.168` no está "dañado" como switch completo, son 2 puertos de enlace específicos
+
+Juan Pablo cuestionó correctamente la afirmación de §AU.5/§BD.10 ("el switch `.168` ya documentado como dañado") — pidió no asumir y verificar puerto por puerto antes de seguir repitiendo esa caracterización. Verificado vía SNMP (`ifInErrors` del IF-MIB, por puerto, no el agregado del equipo):
+
+| Switch | Puertos limpios (1-19 errores, ruido normal) | Puertos con error concentrado |
+|---|---|---|
+| `.146` (SW3-OFC-VENTAS) | 26/26 | ninguno |
+| `.168` (SW1-P50-OFC-SISTEMAS) | 46/48 | **Gi49: 95,534 · Gi50: 50,587** |
+
+**Conclusión corregida:** el switch `.168` en sí está sano — el problema está concentrado en **2 puertos de enlace específicos** (Gi49/Gi50, casi con certeza los uplinks del switch hacia el resto de la red — los de mayor tráfico). Un error de trama concentrado en exactamente 2 puertos de alto tráfico, con los otros 46 limpios, es la firma típica de un cable o transceptor (SFP) defectuoso en esos 2 enlaces puntuales — no de una mala configuración (un problema de configuración STP no genera errores de trama concentrados en un puerto) ni de daño generalizado del equipo. **Acción física recomendada cuando se visite el sitio: revisar/cambiar el cable o transceptor de Gi49 y Gi50 específicamente — no hace falta revisar los otros 46 puertos ni considerar cambiar el switch completo.**
+
+`192.168.0.216` (SW-POE-OFC-SISTEMAS, el otro switch mencionado en hallazgos previos) no respondió a ninguna consulta SNMP durante esta verificación (ni siquiera `sysDescr`) — no se pudo confirmar si su número de errores histórico (50,587 / 2,860, visto en sesiones distintas) sigue vigente o si el equipo está simplemente apagado/inalcanzable en este momento. Queda sin verificar, no hay dato nuevo que reportar sobre `.216`.
+
+Detalle completo en memoria: `project_switches_danados_opera.md`.
+
+---
+
+# Parte BE — Visión de producto del bot — pendiente de diagnóstico (Sesión 61 cont. 3, 25 jun 2026)
+
+## BE.1 Por qué existe esta sección
+
+Tras la auditoría de código del bot (§BD.10/§BD.11 fueron Inframonitor; esta es la auditoría del propio `shomer-agent`, dos rondas completas — ver `project_*` en memoria para el detalle técnico de los hallazgos), Juan Pablo se detuvo y dijo explícitamente lo que **quiere que el bot sea**, no solo qué bugs corregir. Esto se guarda aquí tal cual para no perderlo entre sesiones — es la base del rediseño, antes de que se pierda el hilo.
+
+## BE.2 La visión — en palabras de Juan Pablo (25 jun 2026)
+
+> "Lo que pienso que debería ser el bot: una herramienta que ayuda en el soporte IT del cliente."
+
+1. **Alertas de fallos** — hoy "ya lo hace a medias o demasiado" (o sobra ruido, o falta lo importante — sin término medio inteligente).
+2. **Sistema predictivo** — que guarde fallas y logs en una base de datos, las **agrupe**, las **investigue**, y entregue **una posible falla documentada con sus logs y revisiones en tiempo real** — antes de que el problema ocurra, no solo después.
+3. **Que aprenda de sus propios fallos y de su base de datos** — para llegar a conocer la red del cliente y sus equipos. Tracker **ya tiene el inventario detallado de cada equipo** — "tiene toda la información pero no sirve de nada" porque el bot no la usa para razonar.
+
+## BE.3 El diagnóstico de Juan Pablo sobre el estado actual — textual
+
+> "Hoy es una sirena ruidosa. Hay tenemos 2 IAs que no sirven para nada, incluso una que se paga y no funciona — no puede responder una pregunta sin devolver la información de algún monitor."
+>
+> "Lo que necesito es hacer de esta herramienta algo muy bueno que realmente sea complemento de lo que hay — para mí lo que hay es basura pura, no tiene fundamento, y está tan parchada y parchada que no sirve."
+
+Queja más concreta y verificable: **el chat con OpenAI (de pago) no razona — solo reenvía el dato crudo de la tool que llamó**, en vez de analizar/sintetizar una respuesta útil.
+
+## BE.4 Hallazgo clave de la auditoría — la infraestructura para esto YA EXISTE en el código
+
+Esto es lo más importante de esta sección: **no es que falte construir el sistema predictivo/de aprendizaje — ya está construido** (confirmado con 2 auditorías de código independientes, 25 jun 2026):
+
+- `incident_knowledge`, `agente_skills`, `patrones_detectados` (tablas reales en `knowledge.db`, esquema correcto, sin bugs de inconsistencia)
+- `pattern_analysis.py` — ya intenta detectar patrones predictivos vía Groq
+- `agente_skills.py` / `learning.py` — capa de aprendizaje L3-L5 (§AM), promoción `learning`→`approved`, todo funcionalmente completo
+- `memoria_central.py` — sincronización de incidentes, atómica, sin bugs
+
+**Y aun así Juan Pablo dice que no sirve de nada.** Conclusión: el problema no es ausencia de funcionalidad — es que lo ya construido **no está conectado de forma efectiva al chat/experiencia real**, o no se usa de verdad al responder. Construir más encima de esto sin entender por qué lo existente no rinde sería repetir el patrón de parche-sobre-parche que ya cansó a Juan Pablo.
+
+## BE.5 Próximo paso acordado — diagnosticar antes de rediseñar
+
+**No se va a implementar nada nuevo todavía.** Acordado con Juan Pablo: antes de proponer arquitectura nueva, diagnosticar con evidencia real:
+1. Qué le dice el bot al modelo (system prompt real) en `openai_helper.py`/`groq_helper.py`/`llm_router.py` — ¿lo empuja a llamar una tool y devolver el resultado crudo, en vez de razonar con el resultado?
+2. ¿El chat interactivo realmente consulta `incident_knowledge`/`agente_skills`/inventario de Tracker antes de responder, o esas fuentes solo se usan desde los monitores de fondo y nunca desde el chat?
+3. ¿Por qué el sistema de patrones (`pattern_analysis.py`) no le da al técnico nada que él sienta como "predictivo" en la práctica?
+
+**Pendiente — diagnóstico aún no iniciado al cierre de esta sesión.** Retomar leyendo el system prompt real y el flujo de `msg_natural`/`llm_router.chat()` end-to-end antes de proponer cualquier cambio de arquitectura.
+
+## BE.6 Diagnóstico real completado (25 jun 2026) — por qué el sistema predictivo se siente vacío
+
+Se hizo el diagnóstico acordado en §BE.5: se leyó el system prompt real (`groq_helper.py::_SYSTEM_BASE/_SYSTEM_TECNICO/_SYSTEM_DEVELOPER`) y el flujo completo `llm_router.py::_inject_snapshot()` → `_local_context()`, y se consultó en vivo el contenido real de las 3 tablas de aprendizaje en `knowledge.db`.
+
+**Hallazgo 1 — `patrones_detectados` no deduplica, redetecta el mismo síntoma como si fuera nuevo:** 8 filas totales (25 jun 2026), de las cuales **6 son la misma detección repetida** ("AP_SISTEMAS — intermitencia de conexión/internet, 12-14 ocurrencias") a las 04:21, 04:26, 04:37, 10:37, 16:21 y 22:21 del 24 jun — casi con certeza el mismo síntoma del bug de flapping de Inframonitor corregido el mismo día en §BC. `pattern_analysis.py` (Groq) no marca un patrón como "ya conocido/explicado" antes de generar uno nuevo — cada corrida independiente redetecta sin memoria de detecciones previas.
+
+**Hallazgo 2 — `incident_knowledge` (la "memoria de soluciones") tiene 1 sola fila en toda la historia operativa:** el mecanismo (`/guardar`, botones `save_know:*` post-acción) existe y funciona — pero casi nadie lo usa. No es un bug de código, es un problema de **adopción/flujo**: documentar una solución requiere una acción manual extra que en la práctica casi nunca pasa.
+
+**Hallazgo 3 — `agente_skills` apenas tiene 3 filas, cubriendo solo 2 de las 10 TASK-***: consistente con un sistema joven, sin suficiente uso acumulado todavía — no es un bug, es falta de tiempo/volumen de operación real.
+
+**Hallazgo 4 — el chat NUNCA recibe el inventario de Tracker, confirmado leyendo el código (no es bug, es diseño actual):** `_local_context()` en `llm_router.py` solo construye 7 campos: nodos Guardian online/offline, estado WAN, CPU/RAM/disco, conteo de IPs bloqueadas, nombres de backups fallidos. **Cero referencia a `inventory.db`/Tracker, cero referencia a equipos de Inframonitor.** Esto confirma exactamente el punto 3 de la visión de Juan Pablo (§BE.2) — el inventario detallado existe pero nunca llega al modelo.
+
+## BE.7 Conclusión — no es un problema de bugs, es un problema de diseño del ciclo de aprendizaje
+
+El sistema predictivo/de aprendizaje (L3-L5, §AM) está bien construido a nivel de código (confirmado por 2 auditorías) pero el **ciclo no cierra**:
+1. Detecta patrones pero no recuerda haberlos detectado antes (redetección infinita del mismo síntoma).
+2. Depende de que un humano documente manualmente cada solución — casi nunca pasa.
+3. Nunca tiene acceso al inventario de equipos para razonar con contexto real.
+
+## BE.8 Plan concreto propuesto (pendiente de aprobación de Juan Pablo — NO implementado todavía)
+
+1. **Deduplicar `patrones_detectados`** — antes de insertar un patrón nuevo, comparar contra patrones `activo` recientes de la misma entidad; si es el mismo síntoma, actualizar el existente (subir contador de ocurrencias) en vez de crear una fila nueva.
+2. **Inyectar contexto de inventario Tracker al chat** — agregar a `_local_context()` (o a una función nueva inyectada en `_inject_snapshot()`) un resumen acotado del equipo relevante a la pregunta (por IP o nombre mencionado en el mensaje del técnico), no el inventario completo.
+3. **Automatizar el guardado de soluciones** — que ciertas acciones exitosas (reboot que resuelve una caída, desbloqueo que no reincide, TASK-* con confirmación positiva) generen una entrada en `incident_knowledge` automáticamente, sin depender de que el técnico recuerde usar `/guardar`.
+
+**Estado: documentado, sin iniciar implementación — pendiente de que Juan Pablo apruebe el plan antes de tocar código.**
+
+## BE.9 Plan §BE.8 implementado y verificado en `.205` (25 jun 2026)
+
+Autorizado por Juan Pablo ("haslo"). Estado real de cada punto, confirmado con código y pruebas en vivo en `.205` — pendiente de despliegue a producción (Ópera) hasta autorización explícita aparte (§B.3):
+
+**Punto 1 (dedup patrones) — ya estaba implementado** desde el commit del mismo día (`PATTERN_DEDUP_HOURS`, ver pattern_analysis.py). Nada que hacer.
+
+**Punto 2 (inventario al chat) — implementado.**
+- `core/llm_router.py::_local_context_struct()` — agrega `tracker_total` (vía `shomer_api.get_tracker_summary()`, solo lectura SQLite) y `infra_total`/`infra_online` (vía `shomer_api.get_infra_summary()`, HTTP a `/infra/devices`). Ambas funciones ya blindadas contra excepción internamente.
+- `core/llm_router.py::_local_context()` — agrega 2 líneas de texto al snapshot inyectado: conteo de equipos Tracker e Inframonitor online/total.
+- `core/groq_helper.py::_SYSTEM_BASE` — la enumeración de qué trae el snapshot ahora incluye Tracker/Inframonitor, y se agregó instrucción explícita: ante pregunta por equipo específico o detalle de inventario, llamar `get_tracker_summary`/`get_infra_devices`/`get_infra_device`/`get_infra_snmp` antes de decir "no tengo esa información". Hereda a OpenAI automático (import compartido, no se tocó `openai_helper.py`).
+- **Verificado en `.205`:** `_local_context()` retorna `"Inventario Tracker: 7 equipos registrados"` / `"Inframonitor: 2/2 equipos online"` con datos reales del lab — antes esas 2 líneas no existían.
+
+**Punto 3 (auto-guardado con device_ip) — implementado con corrección honesta sobre el plan original.** Al revisar el código real (`auto_tasks.py::TaskRunResult.context`) se confirmó que **ninguna de las 9 TASK-001..009 opera sobre un solo equipo remoto con IP** — son todas a nivel servidor (disco local, servicios systemd locales). La única que toca "equipos" es TASK-006 (muestreo Protector, hasta 3 dispositivos a la vez) — forzar un `device_ip` único ahí habría sido inventar un dato que no existe.
+- `core/auto_tasks.py::_task_006_protector_sample()` — `context` ahora incluye `sample_devices` estructurado (`[{"name", "ip"}, ...]`) en vez de solo nombres mezclados en un string.
+- `core/learning.py::on_task_completed()` — si `sample_devices` tiene exactamente 1 elemento, etiqueta el skill con su `device_ip` real; si tiene varios, los lista por nombre en `detail`/notas (visible, pero sin forzar una IP falsa); las otras 8 tasks (sin target de equipo) siguen sin `device_ip`, correctamente.
+- **Verificado en `.205`:** corrida real de TASK-006 (3 equipos del lab) → fila en `agente_skills` con `device_ip=''` y `notes="3 problema(s) en 3 equipos | Equipos: windows 50, Mac 90, Kalinux 203"`. Prueba sintética con 1 solo equipo → `device_ip='192.168.1.90'` correctamente seteado.
+
+**Despliegue:** `.205` reconstruido (`docker compose build` + `up -d`), 28 monitores activos, sin errores en log. **Hotel Ópera — pendiente, requiere autorización explícita de Juan Pablo aparte (regla §B.3), no incluida en el "haslo" de este punto.**
