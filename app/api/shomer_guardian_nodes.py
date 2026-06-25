@@ -17,6 +17,7 @@ from app.api.shomer_common import (
     REDIS_HOST,
     REDIS_PORT,
     _prune_old_logs,
+    get_config,
     get_db,
     get_redis,
 )
@@ -47,6 +48,7 @@ from app.api.shomer_guardian_lib import (
     _save_node_data_redis,
 )
 from app.api.shomer_status_events import _context_snapshots, record_status_event
+from app.api.shomer_network_blip import evaluate_host_network_blip_async, metrics_to_status
 
 try:
     import redis as redis_lib
@@ -210,6 +212,7 @@ def _load_guardian_poll_read() -> Optional[Dict[str, Any]]:
     _cleanup_orphan_guardian_keys(r, all_ips)
     ips = [d["ip_address"] for d in devices]
     redis_state = _batch_read_redis_state(r, ips)
+    gateway_ip = (get_config("base.gateway") or "").strip()
     return {
         "devices": devices,
         "all_ips": all_ips,
@@ -220,6 +223,7 @@ def _load_guardian_poll_read() -> Optional[Dict[str, Any]]:
         "maintenance": maintenance,
         "redis": r,
         "redis_state": redis_state,
+        "gateway_ip": gateway_ip,
     }
 
 
@@ -251,6 +255,7 @@ def _build_node_outcome(
     batch_id: str,
     wan_snapshot: str,
     maintenance: int,
+    host_network_blip: bool = False,
 ) -> Dict[str, Any]:
     """Calcula estado, eventos y operaciones Redis en memoria (sin I/O)."""
     ip = dev["ip_address"]
@@ -297,6 +302,8 @@ def _build_node_outcome(
     }
 
     def _event(prev: str, status: str, reason_txt: str) -> None:
+        if host_network_blip:
+            return
         outcome["status_events"].append({
             "source": "guardian",
             "ip": ip,
@@ -341,7 +348,7 @@ def _build_node_outcome(
             _event(prev_redis, "degraded", reason)
         outcome["redis_ops"].append(("set", status_key, "degraded"))
         notify_key = f"{DEGRADED_NOTIFY_KEY_PREFIX}{ip}"
-        if not redis_snap.get("notify"):
+        if not host_network_blip and not redis_snap.get("notify"):
             alert_cooldown = int(health_cfg.get("degraded_alert_cooldown_sec") or 1800)
             outcome["redis_ops"].append(("setex", notify_key, "1", alert_cooldown))
             outcome["telegrams"].append(
@@ -360,7 +367,7 @@ def _build_node_outcome(
     ])
     outcome["tick_result"] = {"ip": ip, "status": status_label, "latency_ms": lat_ms}
 
-    if global_maint or redis_snap.get("node_maint"):
+    if global_maint or redis_snap.get("node_maint") or host_network_blip:
         return outcome
 
     new_failures = int(redis_snap.get("failures") or 0) + 1
@@ -465,27 +472,36 @@ def _persist_guardian_tick(
         pass
 
 
-async def _probe_guardian_device(
+async def _probe_guardian_ping(
     dev: Dict[str, Any],
     health_cfg: Dict[str, Any],
-) -> Tuple[Dict[str, Any], int, int, int]:
-    """Ping + SSH/SNMP en hilos con semáforos. Devuelve (probe, ping_ms, ssh_ms, snmp_ms)."""
+) -> Tuple[Tuple[bool, float, Optional[float]], int]:
+    """Solo ICMP — fase 1 del ciclo Guardian."""
     ip = dev["ip_address"]
-    ping_ms = 0
-    ssh_ms = 0
-    snmp_ms = 0
-    is_snmp_device = dev.get("reboot_method") == "snmp"
-    is_router = not is_snmp_device and dev.get("device_type") in ("router", "gateway")
-
     t0 = _time.monotonic()
     async with HC_SEM:
         lan_ok, lan_loss, lan_rtt = await asyncio.to_thread(
             _ping_metrics, ip, health_cfg["ping_count"],
         )
-    ping_ms = int((_time.monotonic() - t0) * 1000)
+    return (lan_ok, lan_loss, lan_rtt), int((_time.monotonic() - t0) * 1000)
 
+
+async def _probe_guardian_extended(
+    dev: Dict[str, Any],
+    health_cfg: Dict[str, Any],
+    lan_ok: bool,
+    lan_loss: float,
+    lan_rtt: Optional[float],
+) -> Tuple[Dict[str, Any], int, int]:
+    """SSH/SNMP tras ping OK — no se llama durante host_network_blip."""
+    ip = dev["ip_address"]
+    ssh_ms = 0
+    snmp_ms = 0
     ssh_result: Any = None
     snmp_result: Any = None
+    is_snmp_device = dev.get("reboot_method") == "snmp"
+    is_router = not is_snmp_device and dev.get("device_type") in ("router", "gateway")
+
     if lan_ok and is_router:
         t0 = _time.monotonic()
         async with SSH_SEM:
@@ -509,7 +525,19 @@ async def _probe_guardian_device(
         "lan_rtt": lan_rtt,
         "ssh_result": ssh_result,
         "snmp_result": snmp_result,
-    }, ping_ms, ssh_ms, snmp_ms
+    }, ssh_ms, snmp_ms
+
+
+async def _probe_guardian_device(
+    dev: Dict[str, Any],
+    health_cfg: Dict[str, Any],
+) -> Tuple[Dict[str, Any], int, int, int]:
+    """Ping + SSH/SNMP (ruta completa cuando no hay blip)."""
+    (lan_ok, lan_loss, lan_rtt), ping_ms = await _probe_guardian_ping(dev, health_cfg)
+    probe, ssh_ms, snmp_ms = await _probe_guardian_extended(
+        dev, health_cfg, lan_ok, lan_loss, lan_rtt,
+    )
+    return probe, ping_ms, ssh_ms, snmp_ms
 
 
 async def _poller_tick() -> None:
@@ -539,27 +567,82 @@ async def _poller_tick() -> None:
     redis_state = ctx["redis_state"]
     global_maint = redis_state["global_maintenance"]
     per_ip = redis_state["per_ip"]
+    gateway_ip = ctx.get("gateway_ip") or ""
 
-    probe_tasks = [_probe_guardian_device(dev, health_cfg) for dev in devices]
-    probe_out = await asyncio.gather(*probe_tasks, return_exceptions=True)
+    # Fase 1 — ping paralelo a todos los nodos
+    ping_tasks = [_probe_guardian_ping(dev, health_cfg) for dev in devices]
+    ping_out = await asyncio.gather(*ping_tasks, return_exceptions=True)
 
     checks_ms = 0
+    ping_by_ip: Dict[str, Tuple[bool, float, Optional[float]]] = {}
+    cycle_status: Dict[str, str] = {}
+    existing_status: Dict[str, str] = {}
+
+    for dev, pr in zip(devices, ping_out):
+        ip = dev["ip_address"]
+        if isinstance(pr, Exception):
+            ping_by_ip[ip] = (False, 100.0, None)
+            cycle_status[ip] = "offline"
+        else:
+            (lan_ok, lan_loss, lan_rtt), p_ms = pr
+            checks_ms += p_ms
+            ping_by_ip[ip] = (lan_ok, lan_loss, lan_rtt)
+            cycle_status[ip] = metrics_to_status(
+                lan_ok, lan_loss, lan_rtt,
+                loss_degraded_pct=float(health_cfg.get("loss_degraded_pct") or 60),
+            )
+        existing_status[ip] = per_ip.get(ip, {}).get("status") or "unknown"
+
+    loss_deg = float(health_cfg.get("loss_degraded_pct") or 60)
+
+    async def _gw_ping_triplet():
+        if not gateway_ip:
+            return "online", 0.0, None
+        ok, loss, rtt = await asyncio.to_thread(
+            _ping_metrics, gateway_ip, health_cfg["ping_count"],
+        )
+        return metrics_to_status(ok, loss, rtt, loss_degraded_pct=loss_deg), loss, rtt
+
+    host_network_blip, blip_skip_ips = await evaluate_host_network_blip_async(
+        gateway_ip,
+        _gw_ping_triplet,
+        cycle_status,
+        existing_status,
+        len(devices),
+        log_prefix="guardian poll",
+    )
+
     ssh_ms = 0
     snmp_ms = 0
     outcomes: List[Dict[str, Any]] = []
     tick_results: List[Dict[str, Any]] = []
 
-    for dev, pr in zip(devices, probe_out):
+    for dev in devices:
         ip = dev["ip_address"]
-        if isinstance(pr, Exception):
-            logger.warning("Poller error en %s: %s", ip, pr)
-            tick_results.append({"ip": ip, "status": "unknown", "latency_ms": None})
+        lan_ok, lan_loss, lan_rtt = ping_by_ip.get(ip, (False, 100.0, None))
+
+        if host_network_blip and ip in blip_skip_ips:
+            prev = existing_status.get(ip) or "unknown"
+            lat_ms = int(round(lan_rtt)) if lan_rtt is not None else None
+            tick_results.append({"ip": ip, "status": prev, "latency_ms": lat_ms})
             continue
-        probe, p_ms, s_ms, n_ms = pr
-        checks_ms += p_ms
-        ssh_ms += s_ms
-        snmp_ms += n_ms
+
         try:
+            if host_network_blip:
+                probe = {
+                    "lan_ok": lan_ok,
+                    "lan_loss": lan_loss,
+                    "lan_rtt": lan_rtt,
+                    "ssh_result": None,
+                    "snmp_result": None,
+                }
+            else:
+                probe, s_ms, n_ms = await _probe_guardian_extended(
+                    dev, health_cfg, lan_ok, lan_loss, lan_rtt,
+                )
+                ssh_ms += s_ms
+                snmp_ms += n_ms
+
             oc = _build_node_outcome(
                 dev,
                 probe,
@@ -571,6 +654,7 @@ async def _poller_tick() -> None:
                 batch_id=batch_id,
                 wan_snapshot=wan_snapshot,
                 maintenance=maintenance,
+                host_network_blip=host_network_blip,
             )
             outcomes.append(oc)
             if oc.get("tick_result"):

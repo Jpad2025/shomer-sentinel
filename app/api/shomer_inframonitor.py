@@ -32,6 +32,7 @@ from app.api.shomer_common import (
     get_config,
 )
 from app.api.shomer_status_events import _context_snapshots, record_status_event
+from app.api.shomer_network_blip import evaluate_host_network_blip_async
 
 try:
     import redis as redis_lib
@@ -231,6 +232,13 @@ PING_COUNT = int(os.environ.get("INFRA_PING_COUNT", "3"))
 PING_LOSS_DEGRADED_PCT = int(os.environ.get("INFRA_PING_LOSS_DEGRADED_PCT", "60"))
 INFRA_BLIP_MIN_DEVICES = int(os.environ.get("INFRA_BLIP_MIN_DEVICES", "8"))
 
+# SNMP — semáforo async, cache ifTable y walk cada 60 s (poll cada 30 s).
+SNMP_SEM = asyncio.Semaphore(int(os.environ.get("INFRA_SNMP_SEM", "8")))
+SNMP_IFCACHE_SEC = int(os.environ.get("INFRA_SNMP_IFCACHE_SEC", "90"))
+SNMP_WALK_INTERVAL_SEC = int(os.environ.get("INFRA_SNMP_WALK_INTERVAL_SEC", "60"))
+_snmp_iftable_cache: Dict[str, Dict[str, Any]] = {}
+_PRINTER_DESCR_MARKERS = ("HP", "BROTHER", "CANON", "EPSON")
+
 
 def _ping(ip: str) -> tuple[str, Optional[float], float]:
     """3 paquetes (igual que Guardian, shomer_guardian_health_checks.py::_ping_metrics) --
@@ -406,7 +414,26 @@ def _snmp_probe_version(
     return None, None
 
 
-def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict], device_type: str = "generic") -> dict:
+def _is_printer_sysdescr(sys_descr: str) -> bool:
+    u = (sys_descr or "").upper()
+    return any(m in u for m in _PRINTER_DESCR_MARKERS)
+
+
+def _uptime_ticks(sys_uptime: str) -> Optional[str]:
+    """Clave estable de uptime SNMP para invalidar cache."""
+    if not sys_uptime:
+        return None
+    return sys_uptime.strip()
+
+
+def _snmp_poll(
+    ip: str,
+    community: str,
+    prev_snmp: Optional[dict],
+    device_type: str = "generic",
+    *,
+    do_walk: bool = True,
+) -> dict:
     """Blocking: collect SNMP system info + interface table (+ printer OIDs si aplica)."""
     snmpget  = shutil.which("snmpget")
     snmpwalk = shutil.which("snmpwalk")
@@ -436,11 +463,29 @@ def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict], device_type: 
         elif "sysname" in lhs_l or lhs_s.endswith(".2.1.1.5.0"):
             sys_name = _parse_snmp_string(rhs)
 
-    # Interface table
+    is_printer = device_type in ("printer", "pos") or _is_printer_sysdescr(sys_descr)
+    uptime_key = _uptime_ticks(sys_uptime)
+    cached = _snmp_iftable_cache.get(ip) or {}
+    cache_fresh = (
+        cached
+        and (_time.time() - cached.get("ts", 0)) < SNMP_IFCACHE_SEC
+        and cached.get("uptime_key") == uptime_key
+        and uptime_key is not None
+    )
+
+    # Interface table — impresoras: sin walk; switches: walk solo si do_walk o cache inválida
     interfaces: list = []
     raw_octets: dict = {}
-    walk_timeout = TIMEOUT + (20 if snmp_ver == "1" else 10)
-    if snmpwalk:
+    skip_walk = is_printer or (not do_walk and cache_fresh)
+
+    if skip_walk and cache_fresh:
+        interfaces = list(cached.get("interfaces") or [])
+        raw_octets = dict(cached.get("raw_octets") or {})
+    elif skip_walk and prev_snmp and prev_snmp.get("interfaces"):
+        interfaces = prev_snmp.get("interfaces") or []
+        raw_octets = prev_snmp.get("_raw_octets") or {}
+    elif snmpwalk and do_walk and not is_printer:
+        walk_timeout = TIMEOUT + (20 if snmp_ver == "1" else 10)
         try:
             r_if = subprocess.run(
                 [snmpwalk] + BASE + [ip, "1.3.6.1.2.1.2.2.1"],
@@ -455,6 +500,22 @@ def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict], device_type: 
         interfaces = prev_snmp.get("interfaces") or []
         raw_octets = prev_snmp.get("_raw_octets") or {}
 
+    if interfaces and uptime_key:
+        _snmp_iftable_cache[ip] = {
+            "ts": _time.time(),
+            "uptime_key": uptime_key,
+            "num_interfaces": len(interfaces),
+            "interfaces": interfaces,
+            "raw_octets": raw_octets,
+        }
+        prev_num = (prev_snmp or {}).get("_num_interfaces")
+        if (
+            prev_num is not None
+            and prev_num != len(interfaces)
+            and cache_fresh
+        ):
+            pass  # num_interfaces cambió — ya guardamos cache nueva arriba
+
     result = {
         "ok": True,
         "sys_descr": sys_descr,
@@ -462,12 +523,16 @@ def _snmp_poll(ip: str, community: str, prev_snmp: Optional[dict], device_type: 
         "sys_name": sys_name,
         "interfaces": interfaces,
         "_raw_octets": raw_octets,
+        "_num_interfaces": len(interfaces),
+        "_last_walk_at": _time.time() if (do_walk and not is_printer and interfaces) else (
+            (prev_snmp or {}).get("_last_walk_at")
+        ),
         "_raw_ts": _time.time(),
         "polled_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    # OIDs específicos de impresora (printer MIB RFC 3805)
-    if device_type in ("printer", "pos") and snmpget:
+    # OIDs específicos de impresora (printer MIB RFC 3805) — sin walk
+    if is_printer and snmpget:
         try:
             r_p = subprocess.run(
                 [snmpget] + BASE + [ip,
@@ -932,24 +997,25 @@ async def _poll_once():
         row["ip"]: ("offline" if isinstance(pr, Exception) else pr[0])
         for row, pr in zip(rows, ping_results)
     }
-    gateway_ip = (await asyncio.to_thread(get_config, "base.gateway") or "").strip()
-    newly_offline_ips = {
-        ip for ip, st in cycle_status.items()
-        if st == "offline" and (existing.get(ip) or {}).get("status") != "offline"
+    existing_status = {
+        ip: (existing.get(ip) or {}).get("status") or "unknown"
+        for ip in cycle_status
     }
-    host_network_blip = (
-        bool(gateway_ip)
-        and cycle_status.get(gateway_ip) == "offline"
-        and len(newly_offline_ips) >= INFRA_BLIP_MIN_DEVICES
+    gateway_ip = (await asyncio.to_thread(get_config, "base.gateway") or "").strip()
+
+    async def _gw_ping():
+        if not gateway_ip:
+            return "online", 0.0, None
+        return await asyncio.to_thread(_ping, gateway_ip)
+
+    host_network_blip, newly_offline_ips = await evaluate_host_network_blip_async(
+        gateway_ip,
+        _gw_ping,
+        cycle_status,
+        existing_status,
+        len(rows),
+        log_prefix="infra poll",
     )
-    if host_network_blip:
-        logger.warning(
-            "infra poll: corte de red propio del host (no de los equipos) -- gateway %s y "
-            "%d equipos mas cayeron 'offline' en el mismo ciclo. Se omite su actualizacion de "
-            "estado y cualquier evento/alerta de este ciclo para esos IPs (ver CLAUDE.md "
-            "Inframonitor -- host_network_blip).",
-            gateway_ip, len(newly_offline_ips),
-        )
 
     tcp_ok_by_ip: Dict[str, Optional[int]] = {}
     tcp_jobs: List[tuple] = []
@@ -995,6 +1061,16 @@ async def _poll_once():
     snmp_map: dict = {}
     snmp_tasks_list = []
     snmp_ips_list = []
+    now_ts = _time.time()
+
+    async def _snmp_with_sem(ip: str, community: str, prev_snmp, device_type: str) -> dict:
+        last_walk = (prev_snmp or {}).get("_last_walk_at") or 0
+        do_walk = (now_ts - last_walk) >= SNMP_WALK_INTERVAL_SEC
+        async with SNMP_SEM:
+            return await asyncio.to_thread(
+                _snmp_poll, ip, community, prev_snmp, device_type, do_walk=do_walk,
+            )
+
     for row in rows:
         community = (row.get("snmp_community") or "").strip()
         if not community:
@@ -1006,11 +1082,9 @@ async def _poll_once():
                 prev_snmp = json.loads(prev["snmp_data"])
             except Exception:
                 pass
+        dt = row.get("device_type") or "generic"
         snmp_tasks_list.append(
-            asyncio.to_thread(
-                _snmp_poll, row["ip"], community, prev_snmp,
-                row.get("device_type") or "generic",
-            )
+            _snmp_with_sem(row["ip"], community, prev_snmp, dt)
         )
         snmp_ips_list.append(row["ip"])
     if snmp_tasks_list:

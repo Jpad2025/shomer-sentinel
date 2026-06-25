@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 24 jun 2026 (Sesión 61 cont. 4 — **Refactor poller Inframonitor** `_poll_once` ✅ §BF desplegado y verificado en **Hotel Ópera** 24 jun: métricas por fase en journal, `write=42ms`, `infra:poller:last_ok` OK). Sesión 61 cont. 3 previa — **Visión de producto del bot guardada en §BE**: Juan Pablo definió qué quiere que `shomer-agent` sea (alertas inteligentes + sistema predictivo + aprendizaje real del inventario Tracker) y diagnosticó por qué hoy no sirve ("sirena ruidosa", chat de pago que solo reenvía datos crudos sin razonar). Auditoría de código completa del bot (2 rondas, ~13.250 líneas + sistema de aprendizaje/TASK-*) encontró que la infraestructura predictiva/de aprendizaje **ya existe y funciona** (`incident_knowledge`, `agente_skills`, `pattern_analysis.py`) — el problema es que no está conectada al chat real. Bugs reales confirmados y pendientes de aplicar: llamadas SSH/HTTP bloqueantes sin `asyncio.to_thread()` en `bot.py` y en todo `auto_tasks.py` (congelan el bot completo mientras corren), inconsistencia de presupuesto de tokens entre OpenAI/Groq. Próximo paso acordado: diagnosticar el system prompt y el flujo `msg_natural`/`llm_router.chat()` real antes de rediseñar nada — ver §BE.5. Sesión 61 cont. 2 previa — **Causa real de la caída sincronizada de Inframonitor (§BD.4) encontrada con instrumentación en vivo**: durante el corte, el ping del propio Shomer a SU gateway local Y a 8.8.8.8 fallan los dos a la vez por ~30s, con el contador `rx_drop` de la NIC congelado y sin ningún error de kernel/firewall/DHCP — no son 52 equipos cayendo, es el propio host sin poder mandar paquetes por su NIC de gestión durante ese instante (causa más probable: STP/flap en algún switch de la red — confirmado STP activo y con cambios de topología frecuentes en al menos 2 switches Cisco del sitio, sin poder aún correlacionar el instante exacto). Fix aplicado: `host_network_blip` en `shomer_inframonitor.py` — si el gateway configurado (`base.gateway`) y ≥8 equipos caen "offline" en el mismo ciclo del poller, se asume corte del host y se omite su actualización de estado/evento/alerta Telegram para ese ciclo (evita la "recuperación huérfana" sin alerta de caída) ✅ desplegado y verificado en Ópera §BD.10. Instrumentación STP en paralelo sigue corriendo para confirmar el mecanismo exacto en el próximo evento. Sesión 61 cont. previa: **primera auditoría end-to-end en vivo de Ópera** (Guardian→Hunter→Tracker→Protector→Inframonitor→Bot), solo lectura, sin parches a ciegas ✅ §BD — corrige memoria desactualizada y expone discrepancias ya resueltas (retención Protector, regla DROP MikroTik) §BD.5, halla y corrige ruido real de Suricata (67% de alertas, laptop con software de impresoras mal configurado) ✅ §BD.8. Sesión 61 previa: causa raíz real del flapping individual de Inframonitor: `_ping()` con 1 solo paquete ICMP ✅ §BC; fix a 3 paquetes + estado `degraded` ✅ §BC.3. Sesión 60 previa: causa de fondo de los apagones recurrentes — 6 escrituras SQLite síncronas en el hilo único de Guardian ✅ §BB) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
+**Última unificación:** 24 jun 2026 (Sesión 61 cont. 6 — **host_network_blip avanzado** compartido Infra+Guardian + optimización SNMP fase media ✅ §BH; código en `.205`, pendiente deploy Ópera). Sesión 61 cont. 5 — refactor poller Guardian §BG desplegado Ópera 25 jun. Sesión 61 cont. 4 — refactor Inframonitor §BF desplegado Ópera 24 jun. Sesión 61 cont. 3 — visión bot §BE … Juan Pablo definió qué quiere que `shomer-agent` sea (alertas inteligentes + sistema predictivo + aprendizaje real del inventario Tracker) y diagnosticó por qué hoy no sirve ("sirena ruidosa", chat de pago que solo reenvía datos crudos sin razonar). Auditoría de código completa del bot (2 rondas, ~13.250 líneas + sistema de aprendizaje/TASK-*) encontró que la infraestructura predictiva/de aprendizaje **ya existe y funciona** (`incident_knowledge`, `agente_skills`, `pattern_analysis.py`) — el problema es que no está conectada al chat real. Bugs reales confirmados y pendientes de aplicar: llamadas SSH/HTTP bloqueantes sin `asyncio.to_thread()` en `bot.py` y en todo `auto_tasks.py` (congelan el bot completo mientras corren), inconsistencia de presupuesto de tokens entre OpenAI/Groq. Próximo paso acordado: diagnosticar el system prompt y el flujo `msg_natural`/`llm_router.chat()` real antes de rediseñar nada — ver §BE.5. Sesión 61 cont. 2 previa — **Causa real de la caída sincronizada de Inframonitor (§BD.4) encontrada con instrumentación en vivo**: durante el corte, el ping del propio Shomer a SU gateway local Y a 8.8.8.8 fallan los dos a la vez por ~30s, con el contador `rx_drop` de la NIC congelado y sin ningún error de kernel/firewall/DHCP — no son 52 equipos cayendo, es el propio host sin poder mandar paquetes por su NIC de gestión durante ese instante (causa más probable: STP/flap en algún switch de la red — confirmado STP activo y con cambios de topología frecuentes en al menos 2 switches Cisco del sitio, sin poder aún correlacionar el instante exacto). Fix aplicado: `host_network_blip` en `shomer_inframonitor.py` — si el gateway configurado (`base.gateway`) y ≥8 equipos caen "offline" en el mismo ciclo del poller, se asume corte del host y se omite su actualización de estado/evento/alerta Telegram para ese ciclo (evita la "recuperación huérfana" sin alerta de caída) ✅ desplegado y verificado en Ópera §BD.10. Instrumentación STP en paralelo sigue corriendo para confirmar el mecanismo exacto en el próximo evento. Sesión 61 cont. previa: **primera auditoría end-to-end en vivo de Ópera** (Guardian→Hunter→Tracker→Protector→Inframonitor→Bot), solo lectura, sin parches a ciegas ✅ §BD — corrige memoria desactualizada y expone discrepancias ya resueltas (retención Protector, regla DROP MikroTik) §BD.5, halla y corrige ruido real de Suricata (67% de alertas, laptop con software de impresoras mal configurado) ✅ §BD.8. Sesión 61 previa: causa raíz real del flapping individual de Inframonitor: `_ping()` con 1 solo paquete ICMP ✅ §BC; fix a 3 paquetes + estado `degraded` ✅ §BC.3. Sesión 60 previa: causa de fondo de los apagones recurrentes — 6 escrituras SQLite síncronas en el hilo único de Guardian ✅ §BB) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/`
 
 ---
 
@@ -5028,3 +5028,47 @@ Mismo patrón que §BF: `_poller_tick()` era `async def` pero ejecutaba Redis (`
 | `.205` lab | ✅ código + `py_compile` OK; smoke 28 tests (3 fallos preexistentes). |
 | **Hotel Ópera** | ✅ 25 jun 2026 | `SHOMER_DEPLOY_AUTHORIZED=1 deploy.sh 100.103.148.119` + restart `shomer-inframonitor-poller`. `/health` 200 (~11ms); `guardian:poller:last_ok` y `infra:poller:last_ok` OK. |
 | shomer245 / shomer243 | ⏳ pendiente deploy lab. |
+
+---
+
+# Parte BH — Sesión 61 cont. 6 (24 jun 2026) — host_network_blip avanzado + SNMP optimizado
+
+## BH.1 Módulo compartido `shomer_network_blip.py`
+
+Lógica única para Inframonitor y Guardian (no duplicar en cada poller).
+
+| Regla | Implementación |
+|-------|----------------|
+| Gateway degradado | `gateway_unhealthy()` — offline, o degraded con pérdida >50% o RTT >300 ms (`INFRA_BLIP_GATEWAY_*`) |
+| Umbral dinámico | ≥8, ≥20, ≥50% inventario, o todos offline (`mass_outage_threshold_met`) |
+| Recheck 300 ms | `evaluate_host_network_blip_async()` — segundo ping al gateway antes de confirmar |
+| IPs a omitir | `compute_blip_skip_ips()` — solo transiciones nuevas a offline |
+
+## BH.2 Inframonitor
+
+- `_poll_once()` usa `evaluate_host_network_blip_async()` (reemplaza blip simple §BD.10).
+- **SNMP:** `SNMP_SEM=8`, cache ifTable 90 s (`_snmp_iftable_cache`), walk cada 60 s (`INFRA_SNMP_WALK_INTERVAL_SEC`), sin walk en impresoras HP/Brother/Canon/Epson.
+- Persistencia: durante blip, IPs en `newly_offline_ips` no actualizan estado ni eventos.
+
+## BH.3 Guardian
+
+- Fase ping → blip async → probes extendidos (SSH/SNMP) **solo si no hay blip**.
+- Durante blip: IPs en `blip_skip_ips` conservan estado previo; sin `status_events`, sin Telegram degradado, sin reboot (`host_network_blip` en `_build_node_outcome`).
+- Gateway desde `base.gateway` en `_load_guardian_poll_read()`.
+
+## BH.4 Archivos
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/api/shomer_network_blip.py` | **Nuevo** — detección blip compartida |
+| `app/api/shomer_inframonitor.py` | Blip avanzado + SNMP optimizado |
+| `app/api/shomer_guardian_nodes.py` | Integración blip en `_poller_tick()` |
+| `tests/test_network_blip.py` | Tests unitarios blip |
+
+## BH.5 Despliegue
+
+| Servidor | Estado |
+|----------|--------|
+| `.205` lab | ✅ código local |
+| **Hotel Ópera** | ⏳ pendiente autorización + `deploy.sh` + **`systemctl restart shomer-inframonitor-poller`** (deploy.sh no reinicia el poller) |
+| shomer245 / shomer243 | ⏳ pendiente deploy lab |
