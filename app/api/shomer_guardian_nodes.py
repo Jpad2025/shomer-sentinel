@@ -1,15 +1,25 @@
 """Guardian — nodos, heartbeat, reboot, logs, health."""
 import asyncio
+import json
 import logging
 import os
 import subprocess
+import time as _time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.auth_api import get_current_user
-from app.api.shomer_common import _prune_old_logs, get_db, get_redis
+from app.api.shomer_common import (
+    REDIS_AVAILABLE,
+    REDIS_DB,
+    REDIS_HOST,
+    REDIS_PORT,
+    _prune_old_logs,
+    get_db,
+    get_redis,
+)
 from app.api.shomer_guardian_health_checks import (
     DEGRADED_NOTIFY_KEY_PREFIX,
     DEGRADED_STREAK_KEY_PREFIX,
@@ -36,13 +46,24 @@ from app.api.shomer_guardian_lib import (
     _run_ssh_reboot,
     _save_node_data_redis,
 )
-from app.api.shomer_status_events import record_status_event
+from app.api.shomer_status_events import _context_snapshots, record_status_event
+
+try:
+    import redis as redis_lib
+except ImportError:
+    redis_lib = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Shomer Guardian"])
 
 _POLL_INTERVAL_SEC = int(os.environ.get("SHOMER_POLL_INTERVAL_SEC", "10"))
+GUARDIAN_POLL_INTERVAL_SEC = _POLL_INTERVAL_SEC
 _poller_task = None
+
+# Límites de concurrencia — evitan saturar el pool de hilos y la red del sitio.
+SSH_SEM = asyncio.Semaphore(4)
+HC_SEM = asyncio.Semaphore(8)
+SNMP_SEM = asyncio.Semaphore(4)
 
 
 def _get_devices_for_poll() -> List[Dict]:
@@ -100,233 +121,521 @@ def _update_infra_nodes(results: List[Dict[str, Any]]) -> None:
             return
 
 
-async def _poller_tick() -> None:
-    r = get_redis()
-    if r is None:
-        return
-
-    devices = await asyncio.to_thread(_get_devices_for_poll)
-
-    # Limpiar claves Redis huérfanas (de dispositivos ya eliminados de `devices`)
-    # en lugar de re-incluirlas en el sondeo: re-incluirlas regenera la propia
-    # clave en cada ciclo y perpetúa el "fantasma" indefinidamente (bug Sesión 49).
-    known_ips = {d["ip_address"] for d in devices}
+def _get_redis_guardian_client():
+    """Cliente Redis para el poller Guardian (timeouts acotados)."""
+    if not REDIS_AVAILABLE or redis_lib is None:
+        return None
     try:
-        with get_db() as conn:
-            all_ips = {row[0] for row in conn.execute("SELECT ip_address FROM devices").fetchall()}
-        for key in r.keys("status:*"):
-            ip = key.replace("status:", "")
+        r = redis_lib.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_DB,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        )
+        r.ping()
+        return r
+    except Exception:
+        return None
+
+
+def _redis_scan_keys(r, pattern: str) -> List[str]:
+    """SCAN en lugar de KEYS — no bloquea Redis en producción."""
+    keys: List[str] = []
+    cursor = 0
+    while True:
+        cursor, batch = r.scan(cursor=cursor, match=pattern, count=200)
+        keys.extend(batch)
+        if cursor == 0:
+            break
+    return keys
+
+
+def _cleanup_orphan_guardian_keys(r, all_ips: set) -> None:
+    """Elimina claves Redis de nodos ya borrados de `devices` (sync, en hilo)."""
+    try:
+        for key in _redis_scan_keys(r, "status:*"):
+            ip = key.replace("status:", "", 1)
             if ip not in all_ips:
-                for prefix in ("status:", "failures:", "last_reboot:", "node_maintenance:",
-                               "degraded_notified:", "degraded_streak:"):
+                for prefix in (
+                    "status:", "failures:", "last_reboot:", "node_maintenance:",
+                    "degraded_notified:", "degraded_streak:",
+                ):
                     r.delete(f"{prefix}{ip}")
     except Exception:
         pass
 
+
+def _batch_read_redis_state(r, ips: List[str]) -> Dict[str, Any]:
+    """Lee estado Redis de todos los nodos en un solo pipeline."""
+    if not ips:
+        return {"global_maintenance": False, "per_ip": {}}
+    pipe = r.pipeline()
+    for ip in ips:
+        pipe.get(f"status:{ip}")
+        pipe.get(f"{FAILURES_KEY_PREFIX}{ip}")
+        pipe.get(f"{DEGRADED_STREAK_KEY_PREFIX}{ip}")
+        pipe.get(f"{DEGRADED_NOTIFY_KEY_PREFIX}{ip}")
+        pipe.get(f"{NODE_MAINTENANCE_PREFIX}{ip}")
+        pipe.get(f"{LAST_REBOOT_KEY_PREFIX}{ip}")
+    pipe.get(MAINTENANCE_KEY)
+    raw = pipe.execute()
+    per_ip: Dict[str, Dict[str, Any]] = {}
+    idx = 0
+    for ip in ips:
+        per_ip[ip] = {
+            "status": raw[idx] or "unknown",
+            "failures": int(raw[idx + 1] or 0),
+            "streak": int(raw[idx + 2] or 0),
+            "notify": raw[idx + 3],
+            "node_maint": raw[idx + 4] == "1",
+            "last_reboot": raw[idx + 5],
+        }
+        idx += 6
+    return {"global_maintenance": raw[idx] == "1", "per_ip": per_ip}
+
+
+def _load_guardian_poll_read() -> Optional[Dict[str, Any]]:
+    """Fase lectura del ciclo Guardian (sync — asyncio.to_thread)."""
+    devices = _get_devices_for_poll()
+    with get_db() as conn:
+        all_ips = {row[0] for row in conn.execute("SELECT ip_address FROM devices").fetchall()}
+    threshold, cooldown = _get_guardian_thresholds()
+    health_cfg = _get_health_config()
+    wan_snapshot, maintenance = _context_snapshots()
+    r = _get_redis_guardian_client()
+    if r is None:
+        return None
+    _cleanup_orphan_guardian_keys(r, all_ips)
+    ips = [d["ip_address"] for d in devices]
+    redis_state = _batch_read_redis_state(r, ips)
+    return {
+        "devices": devices,
+        "all_ips": all_ips,
+        "threshold": threshold,
+        "cooldown": cooldown,
+        "health_cfg": health_cfg,
+        "wan_snapshot": wan_snapshot,
+        "maintenance": maintenance,
+        "redis": r,
+        "redis_state": redis_state,
+    }
+
+
+def _apply_redis_op(pipe, op: Tuple) -> None:
+    kind = op[0]
+    if kind == "set":
+        _, key, val = op
+        pipe.set(key, val)
+    elif kind == "setex":
+        _, key, val, ttl = op
+        pipe.setex(key, ttl, val)
+    elif kind == "delete":
+        _, key = op
+        pipe.delete(key)
+    elif kind == "expire":
+        _, key, ttl = op
+        pipe.expire(key, ttl)
+
+
+def _build_node_outcome(
+    dev: Dict[str, Any],
+    probe: Dict[str, Any],
+    *,
+    threshold: int,
+    cooldown: int,
+    health_cfg: Dict[str, Any],
+    redis_snap: Dict[str, Any],
+    global_maint: bool,
+    batch_id: str,
+    wan_snapshot: str,
+    maintenance: int,
+) -> Dict[str, Any]:
+    """Calcula estado, eventos y operaciones Redis en memoria (sin I/O)."""
+    ip = dev["ip_address"]
+    dev_name = dev.get("name") or ip
+    dev_type = dev.get("device_type") or "generic"
+    prev_redis = redis_snap.get("status") or "unknown"
+
+    lan_ok = probe["lan_ok"]
+    lan_loss = probe["lan_loss"]
+    lan_rtt = probe["lan_rtt"]
+    ssh_result = probe.get("ssh_result")
+    snmp_result = probe.get("snmp_result")
+    is_snmp_device = dev.get("reboot_method") == "snmp"
+    is_router = not is_snmp_device and dev.get("device_type") in ("router", "gateway")
+
+    if is_snmp_device:
+        status_label, reason = classify_snmp_health(
+            lan_ok=lan_ok,
+            lan_loss_pct=lan_loss,
+            lan_rtt_ms=lan_rtt,
+            snmp_result=snmp_result,
+            cfg=health_cfg,
+        )
+    else:
+        status_label, reason = classify_health(
+            lan_ok=lan_ok,
+            lan_loss_pct=lan_loss,
+            lan_rtt_ms=lan_rtt,
+            is_router=is_router,
+            ssh_result=ssh_result,
+            cfg=health_cfg,
+        )
+
+    lat_ms = int(round(lan_rtt)) if lan_rtt is not None else None
+    outcome: Dict[str, Any] = {
+        "ip": ip,
+        "status_events": [],
+        "redis_ops": [],
+        "telegrams": [],
+        "log_events": [],
+        "reboot": None,
+        "poller_log": None,
+        "tick_result": None,
+    }
+
+    def _event(prev: str, status: str, reason_txt: str) -> None:
+        outcome["status_events"].append({
+            "source": "guardian",
+            "ip": ip,
+            "name": dev_name,
+            "device_type": dev_type,
+            "prev_status": prev,
+            "status": status,
+            "reason": reason_txt,
+            "latency_ms": lat_ms,
+            "loss_pct": lan_loss,
+            "batch_id": batch_id,
+            "wan_snapshot": wan_snapshot,
+            "maintenance": maintenance,
+        })
+
+    fail_key = f"{FAILURES_KEY_PREFIX}{ip}"
+    streak_key = f"{DEGRADED_STREAK_KEY_PREFIX}{ip}"
+    status_key = f"status:{ip}"
+
+    if status_label == "online":
+        if prev_redis != "online":
+            _event(prev_redis, "online", "ping OK")
+        outcome["redis_ops"].extend([
+            ("set", status_key, "online"),
+            ("delete", fail_key),
+            ("delete", streak_key),
+        ])
+        outcome["tick_result"] = {"ip": ip, "status": "online", "latency_ms": lat_ms}
+        return outcome
+
+    if status_label == "degraded":
+        outcome["redis_ops"].append(("delete", fail_key))
+        new_streak = int(redis_snap.get("streak") or 0) + 1
+        outcome["redis_ops"].append(("set", streak_key, str(new_streak)))
+        outcome["redis_ops"].append(("expire", streak_key, max(cooldown, 60)))
+        persist = int(health_cfg.get("degraded_persist_ticks") or 3)
+        if new_streak < persist:
+            prev = redis_snap.get("status") or "online"
+            outcome["tick_result"] = {"ip": ip, "status": prev, "latency_ms": lat_ms}
+            return outcome
+        if prev_redis != "degraded":
+            _event(prev_redis, "degraded", reason)
+        outcome["redis_ops"].append(("set", status_key, "degraded"))
+        notify_key = f"{DEGRADED_NOTIFY_KEY_PREFIX}{ip}"
+        if not redis_snap.get("notify"):
+            alert_cooldown = int(health_cfg.get("degraded_alert_cooldown_sec") or 1800)
+            outcome["redis_ops"].append(("setex", notify_key, "1", alert_cooldown))
+            outcome["telegrams"].append(
+                f"🟡 <b>CALIDAD DEGRADADA</b> SHOMER: Nodo {ip} — {reason} "
+                f"({new_streak} ticks sostenidos)"
+            )
+            outcome["log_events"].append(("warning", "DEGRADED", f"Nodo {ip} degradado: {reason}"))
+        outcome["tick_result"] = {"ip": ip, "status": "degraded", "latency_ms": lat_ms}
+        return outcome
+
+    if prev_redis != status_label:
+        _event(prev_redis, status_label, reason)
+    outcome["redis_ops"].extend([
+        ("set", status_key, status_label),
+        ("delete", streak_key),
+    ])
+    outcome["tick_result"] = {"ip": ip, "status": status_label, "latency_ms": lat_ms}
+
+    if global_maint or redis_snap.get("node_maint"):
+        return outcome
+
+    new_failures = int(redis_snap.get("failures") or 0) + 1
+    outcome["redis_ops"].append(("set", fail_key, str(new_failures)))
+    outcome["poller_log"] = (ip, status_label, new_failures, threshold, reason)
+
+    if new_failures < threshold:
+        return outcome
+
+    now_ts = int(datetime.utcnow().timestamp())
+    lr_key = f"{LAST_REBOOT_KEY_PREFIX}{ip}"
+    last_raw = redis_snap.get("last_reboot")
+    if last_raw:
+        try:
+            if now_ts - int(last_raw) < cooldown:
+                return outcome
+        except Exception:
+            pass
+
+    reboot_via = "SNMP" if dev.get("reboot_method") == "snmp" else "SSH"
+    outcome["reboot"] = {
+        "ip": ip,
+        "dev_name": dev_name,
+        "reason": reason,
+        "count": new_failures,
+        "reboot_via": reboot_via,
+        "lr_key": lr_key,
+        "now_ts": now_ts,
+    }
+    return outcome
+
+
+def _persist_guardian_tick(
+    outcomes: List[Dict[str, Any]],
+    tick_results: List[Dict[str, Any]],
+    r,
+) -> None:
+    """SQLite corto + pipeline Redis + reboots (sync — asyncio.to_thread)."""
+    with get_db() as conn:
+        for oc in outcomes:
+            for ev in oc.get("status_events", []):
+                record_status_event(conn=conn, **ev)
+        conn.commit()
+
+    _update_infra_nodes(tick_results)
+
+    pipe = r.pipeline()
+    for oc in outcomes:
+        for op in oc.get("redis_ops", []):
+            _apply_redis_op(pipe, op)
+    pipe.execute()
+
+    for oc in outcomes:
+        pl = oc.get("poller_log")
+        if pl:
+            logger.info(
+                "[POLLER] %s → %s | fallos: %d/%d | %s",
+                pl[0], pl[1], pl[2], pl[3], pl[4],
+            )
+        for msg in oc.get("telegrams", []):
+            send_telegram_safe(msg)
+        for lev, src, msg in oc.get("log_events", []):
+            log_event(r, lev, src, msg)
+
+        reboot = oc.get("reboot")
+        if not reboot:
+            continue
+        ok, msg = _run_ssh_reboot(reboot["ip"])
+        r.set(reboot["lr_key"], str(reboot["now_ts"]))
+        if ok:
+            send_telegram_safe(
+                f"⚡ <b>REINICIO EN PROGRESO</b> SHOMER\n"
+                f"<b>Equipo:</b> {reboot['dev_name']} ({reboot['ip']})\n"
+                f"<b>Motivo:</b> {reboot['reason']}\n"
+                f"<b>Fallos:</b> {reboot['count']} consecutivos\n"
+                f"<b>Vía:</b> {reboot['reboot_via']} — {msg}"
+            )
+            log_event(
+                r, "warning", "AUTO-REBOOT",
+                f"{reboot['dev_name']} ({reboot['ip']}) reiniciado — "
+                f"motivo: {reboot['reason']}, {reboot['count']} fallos",
+            )
+        else:
+            send_telegram_safe(
+                f"🚨 <b>PÉRDIDA DE SERVICIO</b> SHOMER\n"
+                f"<b>Equipo:</b> {reboot['dev_name']} ({reboot['ip']})\n"
+                f"<b>Error al reiniciar:</b> {msg}\n"
+                f"<b>Motivo:</b> {reboot['reason']} — {reboot['count']} fallos consecutivos"
+            )
+            log_event(
+                r, "error", "AUTO-REBOOT",
+                f"Fallo al reiniciar {reboot['dev_name']} ({reboot['ip']}): {msg}",
+            )
+
+    try:
+        r.setex(
+            "guardian:poller:last_ok",
+            GUARDIAN_POLL_INTERVAL_SEC * 4,
+            datetime.utcnow().isoformat(),
+        )
+    except Exception:
+        pass
+
+
+async def _probe_guardian_device(
+    dev: Dict[str, Any],
+    health_cfg: Dict[str, Any],
+) -> Tuple[Dict[str, Any], int, int, int]:
+    """Ping + SSH/SNMP en hilos con semáforos. Devuelve (probe, ping_ms, ssh_ms, snmp_ms)."""
+    ip = dev["ip_address"]
+    ping_ms = 0
+    ssh_ms = 0
+    snmp_ms = 0
+    is_snmp_device = dev.get("reboot_method") == "snmp"
+    is_router = not is_snmp_device and dev.get("device_type") in ("router", "gateway")
+
+    t0 = _time.monotonic()
+    async with HC_SEM:
+        lan_ok, lan_loss, lan_rtt = await asyncio.to_thread(
+            _ping_metrics, ip, health_cfg["ping_count"],
+        )
+    ping_ms = int((_time.monotonic() - t0) * 1000)
+
+    ssh_result: Any = None
+    snmp_result: Any = None
+    if lan_ok and is_router:
+        t0 = _time.monotonic()
+        async with SSH_SEM:
+            ssh_user = dev.get("ssh_user") or "root"
+            ssh_port = int(dev.get("ssh_port") or 22)
+            ssh_pwd = dev.get("ssh_password") or ""
+            ssh_result = await asyncio.to_thread(
+                _ssh_health_probes, ip, ssh_user, ssh_port, ssh_pwd, health_cfg,
+            )
+        ssh_ms = int((_time.monotonic() - t0) * 1000)
+    elif lan_ok and is_snmp_device:
+        t0 = _time.monotonic()
+        async with SNMP_SEM:
+            snmp_community = dev.get("snmp_community") or "public"
+            snmp_result = await asyncio.to_thread(_snmp_health_probes, ip, snmp_community)
+        snmp_ms = int((_time.monotonic() - t0) * 1000)
+
+    return {
+        "lan_ok": lan_ok,
+        "lan_loss": lan_loss,
+        "lan_rtt": lan_rtt,
+        "ssh_result": ssh_result,
+        "snmp_result": snmp_result,
+    }, ping_ms, ssh_ms, snmp_ms
+
+
+async def _poller_tick() -> None:
+    t_total = _time.monotonic()
+    batch_id = f"g-{int(datetime.utcnow().timestamp())}"
+
+    try:
+        ctx = await asyncio.to_thread(_load_guardian_poll_read)
+    except Exception as e:
+        logger.error("guardian poll: read error: %s", e, exc_info=True)
+        return
+
+    if ctx is None:
+        return
+
+    devices = ctx["devices"]
+    read_ms = int((_time.monotonic() - t_total) * 1000)
     if not devices:
         return
 
-    threshold, cooldown = _get_guardian_thresholds()
-    health_cfg = _get_health_config()
+    r = ctx["redis"]
+    threshold = ctx["threshold"]
+    cooldown = ctx["cooldown"]
+    health_cfg = ctx["health_cfg"]
+    wan_snapshot = ctx["wan_snapshot"]
+    maintenance = ctx["maintenance"]
+    redis_state = ctx["redis_state"]
+    global_maint = redis_state["global_maintenance"]
+    per_ip = redis_state["per_ip"]
+
+    probe_tasks = [_probe_guardian_device(dev, health_cfg) for dev in devices]
+    probe_out = await asyncio.gather(*probe_tasks, return_exceptions=True)
+
+    checks_ms = 0
+    ssh_ms = 0
+    snmp_ms = 0
+    outcomes: List[Dict[str, Any]] = []
     tick_results: List[Dict[str, Any]] = []
-    batch_id = f"g-{int(datetime.utcnow().timestamp())}"
 
-    for dev in devices:
+    for dev, pr in zip(devices, probe_out):
         ip = dev["ip_address"]
-        dev_name = dev.get("name") or ip
-        dev_type = dev.get("device_type") or "generic"
+        if isinstance(pr, Exception):
+            logger.warning("Poller error en %s: %s", ip, pr)
+            tick_results.append({"ip": ip, "status": "unknown", "latency_ms": None})
+            continue
+        probe, p_ms, s_ms, n_ms = pr
+        checks_ms += p_ms
+        ssh_ms += s_ms
+        snmp_ms += n_ms
         try:
-            prev_redis = r.get(f"status:{ip}") or "unknown"
-            lan_ok, lan_loss, lan_rtt = await asyncio.to_thread(
-                _ping_metrics, ip, health_cfg["ping_count"]
+            oc = _build_node_outcome(
+                dev,
+                probe,
+                threshold=threshold,
+                cooldown=cooldown,
+                health_cfg=health_cfg,
+                redis_snap=per_ip.get(ip, {}),
+                global_maint=global_maint,
+                batch_id=batch_id,
+                wan_snapshot=wan_snapshot,
+                maintenance=maintenance,
             )
-
-            is_snmp_device = dev.get("reboot_method") == "snmp"
-            # Solo routers/gateways reciben probes WAN (ping 8.8.8.8, DNS, HTTP) vía SSH.
-            # APs con reboot_method=ssh NO son routers — probes WAN en UniFi generaban
-            # falsos no-internet/degraded (Sesión Ópera jun 2026).
-            is_router = not is_snmp_device and dev.get("device_type") in (
-                "router", "gateway"
-            )
-
-            ssh_result: Any = None
-            snmp_result: Any = None
-
-            if lan_ok and is_router:
-                ssh_user = dev.get("ssh_user") or "root"
-                ssh_port = int(dev.get("ssh_port") or 22)
-                ssh_pwd = dev.get("ssh_password") or ""
-                ssh_result = await asyncio.to_thread(
-                    _ssh_health_probes, ip, ssh_user, ssh_port, ssh_pwd, health_cfg,
-                )
-            elif lan_ok and is_snmp_device:
-                snmp_community = dev.get("snmp_community") or "public"
-                snmp_result = await asyncio.to_thread(
-                    _snmp_health_probes, ip, snmp_community,
-                )
-
-            if is_snmp_device:
-                status_label, reason = classify_snmp_health(
-                    lan_ok=lan_ok,
-                    lan_loss_pct=lan_loss,
-                    lan_rtt_ms=lan_rtt,
-                    snmp_result=snmp_result,
-                    cfg=health_cfg,
-                )
-            else:
-                status_label, reason = classify_health(
-                    lan_ok=lan_ok,
-                    lan_loss_pct=lan_loss,
-                    lan_rtt_ms=lan_rtt,
-                    is_router=is_router,
-                    ssh_result=ssh_result,
-                    cfg=health_cfg,
-                )
-
-            key = f"{FAILURES_KEY_PREFIX}{ip}"
-            streak_key = f"{DEGRADED_STREAK_KEY_PREFIX}{ip}"
-
-            lat_ms = int(round(lan_rtt)) if lan_rtt is not None else None
-
-            if status_label == "online":
-                if prev_redis != "online":
-                    record_status_event(
-                        source="guardian",
-                        ip=ip,
-                        name=dev_name,
-                        device_type=dev_type,
-                        prev_status=prev_redis,
-                        status="online",
-                        reason="ping OK",
-                        latency_ms=lat_ms,
-                        loss_pct=lan_loss,
-                        batch_id=batch_id,
-                    )
-                r.set(f"status:{ip}", "online")
-                r.delete(key)
-                r.delete(streak_key)
-                # NO borrar DEGRADED_NOTIFY_KEY_PREFIX: dejamos que expire por su TTL.
-                # Así oscilaciones degraded↔online no spammean Telegram en cada rebote.
-                tick_results.append({"ip": ip, "status": "online", "latency_ms": lat_ms})
-                continue
-
-            if status_label == "degraded":
-                r.delete(key)
-                streak = r.incr(streak_key)
-                r.expire(streak_key, max(cooldown, 60))
-                persist = int(health_cfg.get("degraded_persist_ticks") or 3)
-                if streak < persist:
-                    # condición transitoria — mantener estado anterior, no alertar aún
-                    prev = r.get(f"status:{ip}") or "online"
-                    tick_results.append({"ip": ip, "status": prev, "latency_ms": lat_ms})
-                    continue
-                if prev_redis != "degraded":
-                    record_status_event(
-                        source="guardian",
-                        ip=ip,
-                        name=dev_name,
-                        device_type=dev_type,
-                        prev_status=prev_redis,
-                        status="degraded",
-                        reason=reason,
-                        latency_ms=lat_ms,
-                        loss_pct=lan_loss,
-                        batch_id=batch_id,
-                    )
-                r.set(f"status:{ip}", "degraded")
-                notify_key = f"{DEGRADED_NOTIFY_KEY_PREFIX}{ip}"
-                alert_cooldown = int(health_cfg.get("degraded_alert_cooldown_sec") or 1800)
-                if not r.get(notify_key):
-                    r.set(notify_key, "1", ex=alert_cooldown)
-                    send_telegram_safe(
-                        f"🟡 <b>CALIDAD DEGRADADA</b> SHOMER: Nodo {ip} — {reason} "
-                        f"({streak} ticks sostenidos)"
-                    )
-                    log_event(r, "warning", "DEGRADED", f"Nodo {ip} degradado: {reason}")
-                tick_results.append({"ip": ip, "status": "degraded", "latency_ms": lat_ms})
-                continue
-
-            if prev_redis != status_label:
-                record_status_event(
-                    source="guardian",
-                    ip=ip,
-                    name=dev_name,
-                    device_type=dev_type,
-                    prev_status=prev_redis,
-                    status=status_label,
-                    reason=reason,
-                    latency_ms=lat_ms,
-                    loss_pct=lan_loss,
-                    batch_id=batch_id,
-                )
-            r.set(f"status:{ip}", status_label)
-            r.delete(streak_key)
-            tick_results.append({"ip": ip, "status": status_label, "latency_ms": lat_ms})
-
-            if r.get(MAINTENANCE_KEY) == "1":
-                continue
-            if r.get(f"{NODE_MAINTENANCE_PREFIX}{ip}") == "1":
-                continue
-
-            r.incr(key)
-            count = int(r.get(key) or 1)
-            logger.info(
-                "[POLLER] %s → %s | fallos: %d/%d | %s",
-                ip, status_label, count, threshold, reason,
-            )
-
-            if count < threshold:
-                continue
-
-            now_ts = int(datetime.utcnow().timestamp())
-            lr_key = f"{LAST_REBOOT_KEY_PREFIX}{ip}"
-            last_raw = r.get(lr_key)
-            if last_raw:
-                try:
-                    if now_ts - int(last_raw) < cooldown:
-                        continue
-                except Exception:
-                    pass
-
-            dev_name = dev.get("name") or ip
-            reboot_via = "SNMP" if dev.get("reboot_method") == "snmp" else "SSH"
-            ok, msg = _run_ssh_reboot(ip)
-            r.set(lr_key, str(now_ts))  # siempre registrar intento para que cooldown arranque
-            if ok:
-                send_telegram_safe(
-                    f"⚡ <b>REINICIO EN PROGRESO</b> SHOMER\n"
-                    f"<b>Equipo:</b> {dev_name} ({ip})\n"
-                    f"<b>Motivo:</b> {reason}\n"
-                    f"<b>Fallos:</b> {count} consecutivos\n"
-                    f"<b>Vía:</b> {reboot_via} — {msg}"
-                )
-                log_event(
-                    r, "warning", "AUTO-REBOOT",
-                    f"{dev_name} ({ip}) reiniciado — motivo: {reason}, {count} fallos",
-                )
-            else:
-                send_telegram_safe(
-                    f"🚨 <b>PÉRDIDA DE SERVICIO</b> SHOMER\n"
-                    f"<b>Equipo:</b> {dev_name} ({ip})\n"
-                    f"<b>Error al reiniciar:</b> {msg}\n"
-                    f"<b>Motivo:</b> {reason} — {count} fallos consecutivos"
-                )
-                log_event(r, "error", "AUTO-REBOOT", f"Fallo al reiniciar {dev_name} ({ip}): {msg}")
+            outcomes.append(oc)
+            if oc.get("tick_result"):
+                tick_results.append(oc["tick_result"])
         except Exception as e:
-            logger.warning("Poller error en %s: %s", ip, e)
+            logger.warning("Poller outcome error en %s: %s", ip, e)
             tick_results.append({"ip": ip, "status": "unknown", "latency_ms": None})
 
-    await asyncio.to_thread(_update_infra_nodes, tick_results)
+    t_write = _time.monotonic()
+    try:
+        await asyncio.to_thread(_persist_guardian_tick, outcomes, tick_results, r)
+    except Exception as e:
+        logger.error(
+            "guardian poll: persist failed batch_id=%s nodes=%d: %s",
+            batch_id, len(devices), e,
+            exc_info=True,
+        )
+        try:
+            r.setex(
+                "guardian:poller:last_error",
+                300,
+                json.dumps({
+                    "ts": datetime.utcnow().isoformat(),
+                    "batch_id": batch_id,
+                    "error": str(e)[:500],
+                }),
+            )
+        except Exception:
+            pass
+        write_ms = int((_time.monotonic() - t_write) * 1000)
+        total_ms = int((_time.monotonic() - t_total) * 1000)
+        logger.info(
+            "guardian poll: read=%dms checks=%dms ssh=%dms snmp=%dms write=%dms "
+            "total=%dms nodes=%d (persist error)",
+            read_ms, checks_ms, ssh_ms, snmp_ms, write_ms, total_ms, len(devices),
+        )
+        return
+
+    write_ms = int((_time.monotonic() - t_write) * 1000)
+    total_ms = int((_time.monotonic() - t_total) * 1000)
+    logger.info(
+        "guardian poll: read=%dms checks=%dms ssh=%dms snmp=%dms write=%dms "
+        "total=%dms nodes=%d",
+        read_ms, checks_ms, ssh_ms, snmp_ms, write_ms, total_ms, len(devices),
+    )
+    if total_ms > GUARDIAN_POLL_INTERVAL_SEC * 1000:
+        logger.warning(
+            "guardian poll: ciclo lento read=%dms checks=%dms ssh=%dms snmp=%dms "
+            "write=%dms total=%dms nodes=%d (umbral %ds)",
+            read_ms, checks_ms, ssh_ms, snmp_ms, write_ms, total_ms,
+            len(devices), GUARDIAN_POLL_INTERVAL_SEC,
+        )
 
 
 async def _poller_loop() -> None:
     await asyncio.sleep(5)
+    loop = asyncio.get_event_loop()
     while True:
+        t0 = loop.time()
         try:
             await _poller_tick()
         except Exception as e:
             logger.warning("Poller loop error: %s", e)
-        await asyncio.sleep(_POLL_INTERVAL_SEC)
+        elapsed = loop.time() - t0
+        await asyncio.sleep(max(0.1, GUARDIAN_POLL_INTERVAL_SEC - elapsed))
 
 
 def start_node_poller() -> None:
@@ -502,7 +811,7 @@ async def heartbeat(request: Request):
                 except Exception:
                     pass
 
-            ok, msg = _run_ssh_reboot(node_id)
+            ok, msg = await asyncio.to_thread(_run_ssh_reboot, node_id)
             if ok:
                 r.set(LAST_REBOOT_KEY_PREFIX + node_id, str(now_ts))
                 logger.info("[AUTO-REBOOT] Nodo %s: %s", node_id, msg)
@@ -582,7 +891,7 @@ async def reboot_node(ip: str, user=Depends(get_current_user)):
         except Exception:
             pass
 
-    ok, msg = _run_ssh_reboot(ip)
+    ok, msg = await asyncio.to_thread(_run_ssh_reboot, ip)
     if not ok:
         if r is not None:
             log_event(r, "error", "MANUAL-REBOOT", f"Fallo al reiniciar manualmente {ip}: {msg}")

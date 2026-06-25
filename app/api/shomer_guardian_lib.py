@@ -197,7 +197,7 @@ def _run_snmp_reboot(node_ip: str, community_write: str) -> Tuple[bool, str]:
 
 
 def _run_ssh_reboot(node_ip: str) -> Tuple[bool, str]:
-    """Ejecuta reboot. Prioridad: (1) SNMP si reboot_method=snmp, (2) SSH credenciales BD, (3) llave SSH, (4) fallback global, (5) SNMP fallback."""
+    """Ejecuta reboot (SSH/SNMP). Bloqueante — solo desde ``asyncio.to_thread()`` o persist sync."""
     if not ALLOWED_IP_PATTERN.match(node_ip):
         return False, "IP no permitida"
 

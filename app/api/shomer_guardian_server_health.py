@@ -266,9 +266,10 @@ def _send_startup_message_once() -> None:
         pass
 
 
-async def _server_health_tick(cfg: Dict[str, Any]) -> None:
+def _server_health_tick_sync(cfg: Dict[str, Any]) -> None:
+    """Un ciclo de salud servidor: WAN quorum, métricas, Redis y failsafe (sync)."""
     r = get_redis()
-    down, detail = await asyncio.to_thread(_check_wan_quorum, cfg)
+    down, detail = _check_wan_quorum(cfg)
     now_ts = int(time.time())
 
     if r is not None:
@@ -281,9 +282,8 @@ async def _server_health_tick(cfg: Dict[str, Any]) -> None:
         except Exception:
             pass
 
-    cpu, ram, temp = await asyncio.to_thread(_get_server_metrics)
-
-    await asyncio.to_thread(_persist_server_metrics, cpu, ram, temp)
+    cpu, ram, temp = _get_server_metrics()
+    _persist_server_metrics(cpu, ram, temp)
 
     if ram is not None and ram >= cfg["ram_alert_pct"] and r is not None:
         ram_alert_key = "shomer:ram_alert_sent"
@@ -348,23 +348,12 @@ async def _server_health_tick(cfg: Dict[str, Any]) -> None:
         logger.warning("wan failsafe: %s", e)
 
 
-async def _server_health_loop() -> None:
-    _send_startup_message_once()
-    await asyncio.sleep(5)
-    while True:
-        try:
-            cfg = await asyncio.to_thread(_get_server_health_config)
-            await _server_health_tick(cfg)
-        except Exception as e:
-            logger.warning("server_health_loop error: %s", e)
-        try:
-            interval = int(get_config("guardian.health_interval_sec") or _HEALTH_INTERVAL_DEFAULT)
-        except Exception:
-            interval = _HEALTH_INTERVAL_DEFAULT
-        await asyncio.sleep(interval)
+async def _server_health_tick(cfg: Dict[str, Any]) -> None:
+    await asyncio.to_thread(_server_health_tick_sync, cfg)
 
 
-async def _heartbeat_report_tick(cfg: Dict[str, Any]) -> None:
+def _heartbeat_report_tick_sync(cfg: Dict[str, Any]) -> None:
+    """Reporte horario de salud (sync — Redis + métricas + Telegram)."""
     r = get_redis()
     if r is None:
         return
@@ -379,7 +368,7 @@ async def _heartbeat_report_tick(cfg: Dict[str, Any]) -> None:
         _failsafe_state_set("last_heartbeat_report_hour", str(now.hour))
     except Exception:
         return
-    cpu, ram, temp = await asyncio.to_thread(_get_server_metrics)
+    cpu, ram, temp = _get_server_metrics()
     parts = []
     if cpu is not None:
         parts.append(f"CPU {cpu:.0f}%")
@@ -393,6 +382,26 @@ async def _heartbeat_report_tick(cfg: Dict[str, Any]) -> None:
     send_telegram_safe(
         f"✅ <b>SALUD DE NODOS</b> SHOMER operativo — todos los sistemas OK{suffix}"
     )
+
+
+async def _heartbeat_report_tick(cfg: Dict[str, Any]) -> None:
+    await asyncio.to_thread(_heartbeat_report_tick_sync, cfg)
+
+
+async def _server_health_loop() -> None:
+    _send_startup_message_once()
+    await asyncio.sleep(5)
+    while True:
+        try:
+            cfg = await asyncio.to_thread(_get_server_health_config)
+            await _server_health_tick(cfg)
+        except Exception as e:
+            logger.warning("server_health_loop error: %s", e)
+        try:
+            interval = int(get_config("guardian.health_interval_sec") or _HEALTH_INTERVAL_DEFAULT)
+        except Exception:
+            interval = _HEALTH_INTERVAL_DEFAULT
+        await asyncio.sleep(interval)
 
 
 async def _heartbeat_report_loop() -> None:

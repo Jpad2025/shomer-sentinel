@@ -326,6 +326,8 @@ def record_status_event(
     loss_pct: Optional[float] = None,
     batch_id: str = "",
     conn=None,
+    wan_snapshot: Optional[str] = None,
+    maintenance: Optional[int] = None,
 ) -> None:
     """Inserta una transición si prev != status.
 
@@ -336,10 +338,17 @@ def record_status_event(
     esperara su propio lock hasta busy_timeout (10s) por cada equipo que cambiaba de
     estado en el mismo ciclo, alargando innecesariamente la ventana de contención
     contra Guardian/Hunter/Protector.
+
+    wan_snapshot / maintenance (opcionales): el poller Infra los obtiene una vez por
+    ciclo y los pasa aquí para no llamar get_redis() por cada transición.
     """
     if prev_status == status:
         return
-    wan_snap, maint = _context_snapshots()
+    if wan_snapshot is None:
+        wan_snap, maint = _context_snapshots()
+    else:
+        wan_snap = wan_snapshot
+        maint = 0 if maintenance is None else int(maintenance)
     sql = """INSERT INTO status_events
                (source, ip, name, device_type, prev_status, status, reason,
                 latency_ms, loss_pct, batch_id, wan_snapshot, maintenance)

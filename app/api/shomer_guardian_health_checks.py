@@ -1,5 +1,10 @@
 """Guardian — health checks extendidos (DNS, HTTP 204, métricas ping).
 
+Todas las funciones de esta módulo son **síncronas y bloqueantes** (subprocess,
+SSH, SNMP). El poller Guardian las invoca exclusivamente vía
+``asyncio.to_thread()`` con semáforos (``HC_SEM`` / ``SSH_SEM`` / ``SNMP_SEM``)
+para no bloquear el event loop ni ``/health``.
+
 Cumple §0: todos los umbrales y toggles se leen de `system_state` vía
 `get_config(...)`; los defaults vienen de variables de entorno, nunca
 literales de red.
