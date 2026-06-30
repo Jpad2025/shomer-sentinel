@@ -14,6 +14,7 @@ import socket
 import subprocess
 import time as _time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -33,6 +34,12 @@ from app.api.shomer_common import (
 )
 from app.api.shomer_status_events import _context_snapshots, record_status_event
 from app.api.shomer_network_blip import evaluate_host_network_blip_async
+from app.api.infra_monitor_profiles import (
+    derive_liveness,
+    enrich_device_row,
+    ping_count_for_profile,
+    resolve_monitor_profile,
+)
 
 try:
     import redis as redis_lib
@@ -60,14 +67,15 @@ def _optional_user(
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["inframonitor"])
 
-POLL_INTERVAL_SEC = 30
+FAST_POLL_INTERVAL_SEC = int(os.environ.get("INFRA_FAST_POLL_INTERVAL_SEC", "30"))
+SNMP_POLL_INTERVAL_SEC = int(os.environ.get("INFRA_SNMP_POLL_INTERVAL_SEC", "300"))
+POLL_INTERVAL_SEC = FAST_POLL_INTERVAL_SEC  # compat TTL / logs
 _poller_running = False
 _executor_configured = False
-# El pool de hilos por defecto de asyncio es min(32, CPUs+4) -- en un servidor de
-# 4 CPUs son solo 8 hilos para ~100 tareas bloqueantes por ciclo (ping+tcp+snmp de
-# todos los equipos). Eso hacía que pings quedaran en cola y equipos sanos
-# aparecieran "offline" por unos segundos (falso flapping). Pool dedicado y fijo.
-INFRA_THREAD_WORKERS = int(os.environ.get("INFRA_THREAD_WORKERS", "48"))
+_fast_executor: Optional[ThreadPoolExecutor] = None
+_snmp_executor: Optional[ThreadPoolExecutor] = None
+# Pools separados: ping/tcp/mac (fast) vs SNMP (lento). El default de asyncio
+# (min(32, CPUs+4) ≈ 8 hilos) hacía cola y falsos offline.
 ALERT_COOLDOWN_SEC = 300  # no repetir alerta del mismo equipo por 5 min
 _sync_ap_cache: Optional[frozenset] = None  # evita writes en BD si los APs Guardian no cambiaron
 
@@ -93,20 +101,80 @@ DEVICE_ICONS = {
 # DB init + migrations
 # ──────────────────────────────────────────────
 
-def _ensure_executor():
-    """Agranda el pool de hilos del event-loop actual para que asyncio.to_thread()
-    (ping/tcp/snmp del poller) no haga cola esperando hilo libre. Se llama una vez
-    desde _init_tables(), tanto en el poller standalone como en el embebido."""
-    global _executor_configured
+def _infra_device_counts() -> Tuple[int, int]:
+    """Equipos activos (sin APs Guardian) y con SNMP — para dimensionar pools."""
+    try:
+        with get_db() as conn:
+            n = int(conn.execute(
+                "SELECT COUNT(*) FROM infra_devices "
+                "WHERE active = 1 AND device_type != 'ap'"
+            ).fetchone()[0])
+            n_snmp = int(conn.execute(
+                "SELECT COUNT(*) FROM infra_devices WHERE active = 1 "
+                "AND device_type != 'ap' "
+                "AND snmp_community IS NOT NULL AND trim(snmp_community) != ''"
+            ).fetchone()[0])
+        return n, n_snmp
+    except Exception:
+        return 0, 0
+
+
+def _scaled_fast_workers(n_devices: int) -> int:
+    auto = min(128, max(32, n_devices * 2)) if n_devices > 0 else 32
+    override = os.environ.get("INFRA_THREAD_WORKERS", "").strip()
+    manual = os.environ.get("INFRA_AUTO_SCALE_WORKERS", "1").strip().lower() in (
+        "0", "false", "no",
+    )
+    if override and manual:
+        return max(8, int(override))
+    if override:
+        return max(auto, int(override))
+    return auto
+
+
+def _scaled_snmp_workers(n_snmp: int) -> int:
+    auto = min(32, max(8, n_snmp * 2)) if n_snmp > 0 else 8
+    override = os.environ.get("INFRA_SNMP_THREAD_WORKERS", "").strip()
+    manual = os.environ.get("INFRA_AUTO_SCALE_WORKERS", "1").strip().lower() in (
+        "0", "false", "no",
+    )
+    if override and manual:
+        return max(4, int(override))
+    if override:
+        return max(auto, int(override))
+    return auto
+
+
+def _ensure_executors():
+    """Pools fast (ping/tcp/mac) y snmp separados; tamaño según inventario activo."""
+    global _executor_configured, _fast_executor, _snmp_executor
     if _executor_configured:
         return
+    n_dev, n_snmp = _infra_device_counts()
+    fast_w = _scaled_fast_workers(n_dev)
+    snmp_w = _scaled_snmp_workers(n_snmp)
+    _fast_executor = ThreadPoolExecutor(
+        max_workers=fast_w, thread_name_prefix="infra-fast",
+    )
+    _snmp_executor = ThreadPoolExecutor(
+        max_workers=snmp_w, thread_name_prefix="infra-snmp",
+    )
     try:
         loop = asyncio.get_event_loop()
-        loop.set_default_executor(ThreadPoolExecutor(max_workers=INFRA_THREAD_WORKERS))
+        loop.set_default_executor(_fast_executor)
         _executor_configured = True
-        logger.info("Inframonitor: pool de hilos configurado a %d workers", INFRA_THREAD_WORKERS)
+        logger.info(
+            "Inframonitor: pools fast=%d snmp=%d workers (equipos=%d con_snmp=%d)",
+            fast_w, snmp_w, n_dev, n_snmp,
+        )
     except Exception as e:
-        logger.warning("Inframonitor: no se pudo ajustar el executor: %s", e)
+        logger.warning("Inframonitor: no se pudo configurar executors: %s", e)
+
+
+async def _run_in_snmp_executor(fn, /, *args, **kwargs):
+    _ensure_executors()
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_snmp_executor, partial(fn, *args, **kwargs))
 
 
 _tables_ready = False
@@ -120,7 +188,7 @@ def _init_tables():
     global _tables_ready
     if _tables_ready:
         return
-    _ensure_executor()
+    _ensure_executors()
     with get_db() as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript("""
@@ -163,13 +231,40 @@ def _init_tables():
             ("last_state_change","infra_status",  "TEXT"),
             ("snmp_data",        "infra_status",  "TEXT"),
             ("snmp_ok",          "infra_status",  "INTEGER DEFAULT NULL"),
+            ("monitor_profile",  "infra_devices", "TEXT DEFAULT ''"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {defn}")
             except Exception:
                 pass
         conn.commit()
+        _backfill_monitor_profiles(conn)
     _tables_ready = True
+
+
+def _backfill_monitor_profiles(conn) -> None:
+    """Asigna monitor_profile inferido a equipos sin perfil explícito."""
+    try:
+        rows = conn.execute(
+            "SELECT ip, device_type, tcp_port, snmp_community, monitor_profile "
+            "FROM infra_devices WHERE active = 1"
+        ).fetchall()
+        for r in rows:
+            desired = resolve_monitor_profile(
+                r["device_type"] or "generic",
+                r["tcp_port"],
+                r["snmp_community"],
+                r["monitor_profile"],
+            )
+            current = (r["monitor_profile"] or "").strip()
+            if current != desired:
+                conn.execute(
+                    "UPDATE infra_devices SET monitor_profile = ? WHERE ip = ?",
+                    (desired, r["ip"]),
+                )
+        conn.commit()
+    except Exception as e:
+        logger.warning("backfill monitor_profile: %s", e)
 
 
 def _sync_guardian_aps() -> int:
@@ -198,11 +293,12 @@ def _sync_guardian_aps() -> int:
                 if not ip:
                     continue
                 conn.execute(
-                    "INSERT INTO infra_devices (ip, name, device_type, location, active, tcp_port, snmp_community) "
-                    "VALUES (?, ?, 'ap', ?, 1, NULL, '') "
+                    "INSERT INTO infra_devices "
+                    "(ip, name, device_type, location, active, tcp_port, snmp_community, monitor_profile) "
+                    "VALUES (?, ?, 'ap', ?, 1, NULL, '', 'ap_guardian') "
                     "ON CONFLICT(ip) DO UPDATE SET "
                     "name=excluded.name, location=excluded.location, "
-                    "device_type='ap', active=1",
+                    "device_type='ap', active=1, monitor_profile='ap_guardian'",
                     (ip, row["name"] or ip, row["location"] or ""),
                 )
                 n += 1
@@ -223,6 +319,70 @@ def _sync_guardian_aps() -> int:
     return n
 
 
+def _map_guardian_status_to_infra(g_st: str) -> str:
+    """Traduce estado Guardian/infra_nodes al vocabulario de infra_status."""
+    s = (g_st or "unknown").strip().lower()
+    if s in ("online", "ok"):
+        return "online"
+    if s == "degraded":
+        return "degraded"
+    if s in ("offline", "down", "no-internet"):
+        return "offline"
+    return "unknown"
+
+
+def _sync_ap_status_from_guardian() -> int:
+    """Espeja estado Guardian (infra_nodes) → infra_status para APs (sin ping Infra)."""
+    now = datetime.now(timezone.utc).isoformat()
+    updated = 0
+    try:
+        with get_db() as conn:
+            # devices.status queda en 'unknown' (inventario); el poller Guardian escribe en infra_nodes.
+            rows = conn.execute(
+                """
+                SELECT n.ip_address, n.status, n.latency_ms
+                FROM infra_nodes n
+                INNER JOIN infra_devices i ON i.ip = n.ip_address
+                    AND i.device_type = 'ap' AND i.active = 1
+                """
+            ).fetchall()
+            for r in rows:
+                ip = r["ip_address"]
+                if not ip:
+                    continue
+                status = _map_guardian_status_to_infra(r["status"])
+                raw_lat = r["latency_ms"]
+                latency = int(round(raw_lat)) if raw_lat is not None else None
+                prev = conn.execute(
+                    "SELECT status, last_state_change FROM infra_status WHERE ip = ?",
+                    (ip,),
+                ).fetchone()
+                prev_status = prev["status"] if prev else None
+                last_change = now
+                if prev and prev_status == status and prev["last_state_change"]:
+                    last_change = prev["last_state_change"]
+                conn.execute(
+                    """
+                    INSERT INTO infra_status (ip, status, latency_ms, checked_at, last_state_change)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(ip) DO UPDATE SET
+                        status = excluded.status,
+                        latency_ms = excluded.latency_ms,
+                        checked_at = excluded.checked_at,
+                        last_state_change = CASE
+                            WHEN infra_status.status != excluded.status THEN excluded.last_state_change
+                            ELSE infra_status.last_state_change
+                        END
+                    """,
+                    (ip, status, latency, now, last_change),
+                )
+                updated += 1
+            conn.commit()
+    except Exception as e:
+        logger.warning("sync ap status from guardian: %s", e)
+    return updated
+
+
 # ──────────────────────────────────────────────
 # Network helpers (blocking, run in thread)
 # ──────────────────────────────────────────────
@@ -236,19 +396,22 @@ INFRA_BLIP_MIN_DEVICES = int(os.environ.get("INFRA_BLIP_MIN_DEVICES", "8"))
 SNMP_SEM = asyncio.Semaphore(int(os.environ.get("INFRA_SNMP_SEM", "8")))
 SNMP_IFCACHE_SEC = int(os.environ.get("INFRA_SNMP_IFCACHE_SEC", "90"))
 SNMP_WALK_INTERVAL_SEC = int(os.environ.get("INFRA_SNMP_WALK_INTERVAL_SEC", "60"))
+# Equipos que solo hablan v1 (EdgeSwitch/UniFi/impresoras) pagaban el timeout
+# completo de v2c en cada ciclo antes de caer a v1 -- ahora se recuerda la
+# versión que funcionó (_snmp_ver en snmp_data) y se prueba esa primero.
+SNMP_FAIL_BACKOFF_THRESHOLD = int(os.environ.get("INFRA_SNMP_FAIL_BACKOFF_THRESHOLD", "3"))
+SNMP_FAIL_BACKOFF_SEC = int(os.environ.get("INFRA_SNMP_FAIL_BACKOFF_SEC", "300"))
 _snmp_iftable_cache: Dict[str, Dict[str, Any]] = {}
 _PRINTER_DESCR_MARKERS = ("HP", "BROTHER", "CANON", "EPSON")
 
 
-def _ping(ip: str) -> tuple[str, Optional[float], float]:
-    """3 paquetes (igual que Guardian, shomer_guardian_health_checks.py::_ping_metrics) --
-    offline solo si se pierden TODOS; degraded si la pérdida sostenida supera el umbral;
-    online si no. Antes: 1 solo paquete -- cualquier pérdida transitoria (normal en
-    WiFi/PoE/switches reales) se registraba como caída real, generando flapping falso."""
+def _ping(ip: str, count: Optional[int] = None) -> tuple[str, Optional[float], float]:
+    """Paquetes ICMP — offline solo si se pierden TODOS; degraded si pérdida alta."""
+    ping_n = count if count is not None else PING_COUNT
     try:
         result = subprocess.run(
-            ["ping", "-c", str(PING_COUNT), "-W", "2", "-i", "0.3", ip],
-            capture_output=True, text=True, timeout=PING_COUNT * 2 + 3,
+            ["ping", "-c", str(ping_n), "-W", "2", "-i", "0.3", ip],
+            capture_output=True, text=True, timeout=ping_n * 2 + 3,
         )
         out = result.stdout or ""
         m_loss = _LOSS_RE.search(out)
@@ -384,6 +547,180 @@ def _parse_iftable(output: str, prev_snmp: Optional[dict]) -> tuple:
 
 
 _PRINTER_STATUS_LABELS = {1: "otro", 2: "desconocido", 3: "lista", 4: "imprimiendo", 5: "calentando"}
+_OID_INPUT_CURRENT = "1.3.6.1.2.1.43.8.2.1.10"
+_OID_INPUT_MAX = "1.3.6.1.2.1.43.8.2.1.9"
+
+
+def _parse_snmp_walk_indexed(stdout: str, table_oid: str) -> dict[str, int]:
+    """Parsea snmpwalk de tablas prtInput* — clave = sufijo índice (ej. '1.1', '1.2')."""
+    tail = table_oid.rsplit(".", 1)[-1]
+    pattern = re.compile(rf"\.43\.8\.2\.1\.{re.escape(tail)}\.(.+)$")
+    out: dict[str, int] = {}
+    for line in (stdout or "").splitlines():
+        if "=" not in line:
+            continue
+        lhs, rhs = line.split("=", 1)
+        m = pattern.search(lhs.strip())
+        if not m:
+            continue
+        val_str = rhs.strip().split(":")[-1].strip()
+        try:
+            out[m.group(1)] = int(val_str)
+        except ValueError:
+            continue
+    return out
+
+
+def _tray_paper_state(current: int, max_cap: int) -> str:
+    """RFC 3805 prtInputCurrentLevel — -3/-4 = con papel; 0 = vacía."""
+    if current in (-3, -4):
+        return "ok"
+    if current in (-2, -1):
+        return "unknown"
+    if current == 0:
+        return "empty" if max_cap > 0 else "unknown"
+    if current > 0:
+        if max_cap > 0 and current <= max(10, int(max_cap * 0.08)):
+            return "low"
+        return "ok"
+    return "unknown"
+
+
+def _summarize_printer_paper(levels: dict[str, int], maxs: dict[str, int]) -> dict:
+    """Agrega todas las bandejas — alerta solo si ninguna tiene papel."""
+    trays: list = []
+    has_paper = False
+    has_definite_empty = False
+    best_current: Optional[int] = None
+    best_max: Optional[int] = None
+    worst_empty_current: Optional[int] = None
+    worst_empty_max: Optional[int] = None
+
+    def _idx_key(k: str) -> tuple:
+        try:
+            return tuple(int(p) for p in k.split("."))
+        except ValueError:
+            return (999, 999)
+
+    for idx in sorted(set(levels) | set(maxs), key=_idx_key):
+        cur = levels.get(idx)
+        if cur is None:
+            continue
+        mx = maxs.get(idx, 0)
+        state = _tray_paper_state(cur, mx)
+        trays.append({
+            "index": idx,
+            "current": cur if cur >= 0 else None,
+            "max": mx if mx > 0 else None,
+            "level_raw": cur,
+            "state": state,
+        })
+        if state in ("ok", "low"):
+            has_paper = True
+            if cur >= 0 and (best_current is None or cur > best_current):
+                best_current = cur
+                best_max = mx if mx > 0 else None
+        elif state == "empty":
+            has_definite_empty = True
+            if worst_empty_current is None:
+                worst_empty_current = 0
+                worst_empty_max = mx if mx > 0 else None
+
+    paper_low = bool(trays) and not has_paper and has_definite_empty
+    if best_current is not None:
+        paper_current, paper_max = best_current, best_max
+    elif worst_empty_current is not None:
+        paper_current, paper_max = worst_empty_current, worst_empty_max
+    else:
+        paper_current = paper_max = None
+
+    return {
+        "paper_trays": trays,
+        "paper_ok": has_paper,
+        "paper_low": paper_low,
+        "paper_current": paper_current,
+        "paper_max": paper_max,
+        "paper_tray_count": len(trays),
+    }
+
+
+def _poll_printer_snmp(
+    snmpget: str,
+    snmpwalk: Optional[str],
+    base: list,
+    ip: str,
+    timeout: int,
+) -> Optional[dict]:
+    """Estado impresora: tóner + todas las bandejas de papel (prtInput table)."""
+    try:
+        r_p = subprocess.run(
+            [snmpget] + base + [ip,
+                "1.3.6.1.2.1.25.3.5.1.1.1",
+                "1.3.6.1.2.1.43.11.1.1.9.1.1",
+            ],
+            capture_output=True, text=True, timeout=timeout + 2,
+        )
+        if r_p.returncode != 0 or not r_p.stdout.strip():
+            return None
+        pr_status = pr_toner = None
+        for line in r_p.stdout.splitlines():
+            if "=" not in line:
+                continue
+            lhs, rhs = line.split("=", 1)
+            lhs_s = lhs.strip()
+            val_str = rhs.strip().split(":")[-1].strip()
+            try:
+                val = int(val_str)
+            except ValueError:
+                continue
+            if "25.3.5.1.1.1" in lhs_s:
+                pr_status = _PRINTER_STATUS_LABELS.get(val, f"código {val}")
+            elif "43.11.1.1.9.1.1" in lhs_s:
+                pr_toner = None if val < 0 else val
+
+        levels: dict[str, int] = {}
+        maxs: dict[str, int] = {}
+        if snmpwalk:
+            walk_to = timeout + 6
+            for oid, dest in ((_OID_INPUT_CURRENT, levels), (_OID_INPUT_MAX, maxs)):
+                try:
+                    r_w = subprocess.run(
+                        [snmpwalk] + base + [ip, oid],
+                        capture_output=True, text=True, timeout=walk_to,
+                    )
+                    if r_w.returncode == 0 and r_w.stdout.strip():
+                        dest.update(_parse_snmp_walk_indexed(r_w.stdout, oid))
+                except Exception:
+                    pass
+        if not levels and not maxs:
+            r_fb = subprocess.run(
+                [snmpget] + base + [ip, f"{_OID_INPUT_CURRENT}.1.1", f"{_OID_INPUT_MAX}.1.1"],
+                capture_output=True, text=True, timeout=timeout + 2,
+            )
+            if r_fb.returncode == 0:
+                for line in r_fb.stdout.splitlines():
+                    if "=" not in line:
+                        continue
+                    lhs, rhs = line.split("=", 1)
+                    lhs_s = lhs.strip()
+                    val_str = rhs.strip().split(":")[-1].strip()
+                    try:
+                        val = int(val_str)
+                    except ValueError:
+                        continue
+                    if "43.8.2.1.10.1.1" in lhs_s:
+                        levels["1.1"] = val
+                    elif "43.8.2.1.9.1.1" in lhs_s:
+                        maxs["1.1"] = val
+
+        paper = _summarize_printer_paper(levels, maxs)
+        return {
+            "status": pr_status,
+            "toner_pct": pr_toner,
+            **paper,
+        }
+    except Exception:
+        return None
 
 
 def _parse_snmp_string(rhs: str) -> str:
@@ -398,10 +735,19 @@ def _snmp_cmd_base(community: str, timeout: int, version: str) -> list:
 
 def _snmp_probe_version(
     snmpget: str, ip: str, community: str, timeout: int,
+    known_version: Optional[str] = None,
 ) -> tuple[Optional[str], Optional[str]]:
-    """Prueba v2c primero; fallback v1 (EdgeSwitch / UniFi adoptados)."""
+    """Prueba v2c primero; fallback v1 (EdgeSwitch / UniFi adoptados).
+
+    Si known_version viene seteado (la versión que respondió la última vez
+    para este equipo), se prueba primero -- evita pagar el timeout completo
+    de v2c en cada ciclo para equipos que solo hablan v1.
+    """
     sys_oids = ["1.3.6.1.2.1.1.1.0", "1.3.6.1.2.1.1.3.0", "1.3.6.1.2.1.1.5.0"]
-    for ver in ("2c", "1"):
+    versions = ("2c", "1")
+    if known_version in versions:
+        versions = (known_version,) + tuple(v for v in versions if v != known_version)
+    for ver in versions:
         try:
             r = subprocess.run(
                 [snmpget] + _snmp_cmd_base(community, timeout, ver) + [ip] + sys_oids,
@@ -441,9 +787,14 @@ def _snmp_poll(
         return {"ok": False, "error": "snmpget no disponible"}
 
     TIMEOUT = 4
-    sys_out, snmp_ver = _snmp_probe_version(snmpget, ip, community, TIMEOUT)
+    known_version = (prev_snmp or {}).get("_snmp_ver")
+    sys_out, snmp_ver = _snmp_probe_version(snmpget, ip, community, TIMEOUT, known_version)
     if not sys_out or not snmp_ver:
-        return {"ok": False, "error": "SNMP no responde (timeout o comunidad incorrecta)"}
+        return {
+            "ok": False,
+            "error": "SNMP no responde (timeout o comunidad incorrecta)",
+            "_snmp_ver": known_version,
+        }
     BASE = _snmp_cmd_base(community, TIMEOUT, snmp_ver)
 
     sys_descr = sys_uptime = sys_name = ""
@@ -521,6 +872,7 @@ def _snmp_poll(
         "sys_descr": sys_descr,
         "sys_uptime": sys_uptime,
         "sys_name": sys_name,
+        "_snmp_ver": snmp_ver,
         "interfaces": interfaces,
         "_raw_octets": raw_octets,
         "_num_interfaces": len(interfaces),
@@ -531,48 +883,11 @@ def _snmp_poll(
         "polled_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    # OIDs específicos de impresora (printer MIB RFC 3805) — sin walk
+    # Impresora: tóner + walk de todas las bandejas (prtInput)
     if is_printer and snmpget:
-        try:
-            r_p = subprocess.run(
-                [snmpget] + BASE + [ip,
-                    "1.3.6.1.2.1.25.3.5.1.1.1",    # hrPrinterStatus
-                    "1.3.6.1.2.1.43.11.1.1.9.1.1",  # prtMarkerSuppliesLevel (tóner)
-                    "1.3.6.1.2.1.43.8.2.1.10.1.1",  # prtInputCurrentLevel (papel actual)
-                    "1.3.6.1.2.1.43.8.2.1.9.1.1",   # prtInputMaxCapacity (papel máx)
-                ],
-                capture_output=True, text=True, timeout=TIMEOUT + 2,
-            )
-            if r_p.returncode == 0 and r_p.stdout.strip():
-                pr_status = pr_toner = pr_paper = pr_paper_max = None
-                for line in r_p.stdout.splitlines():
-                    if "=" not in line:
-                        continue
-                    lhs, rhs = line.split("=", 1)
-                    lhs_s = lhs.strip()
-                    rhs = rhs.strip()
-                    val_str = rhs.split(":")[-1].strip() if ":" in rhs else rhs
-                    try:
-                        val = int(val_str)
-                    except ValueError:
-                        continue
-                    if "25.3.5.1.1.1" in lhs_s:
-                        pr_status = _PRINTER_STATUS_LABELS.get(val, f"código {val}")
-                    elif "43.11.1.1.9.1.1" in lhs_s:
-                        # -3=lleno, -2=desconocido, -1=otro, ≥0 = porcentaje/unidades
-                        pr_toner = None if val < 0 else val
-                    elif "43.8.2.1.10.1.1" in lhs_s:
-                        pr_paper = None if val < 0 else val
-                    elif "43.8.2.1.9.1.1" in lhs_s:
-                        pr_paper_max = None if val <= 0 else val
-                result["printer"] = {
-                    "status": pr_status,
-                    "toner_pct": pr_toner,
-                    "paper_current": pr_paper,
-                    "paper_max": pr_paper_max,
-                }
-        except Exception:
-            pass
+        pr_data = _poll_printer_snmp(snmpget, snmpwalk, BASE, ip, TIMEOUT)
+        if pr_data:
+            result["printer"] = pr_data
 
     return result
 
@@ -765,14 +1080,15 @@ def _load_poll_context() -> Tuple[List[dict], Dict[str, dict]]:
         rows = [
             dict(r)
             for r in conn.execute(
-                "SELECT ip, name, device_type, tcp_port, snmp_community "
+                "SELECT ip, name, device_type, tcp_port, snmp_community, monitor_profile "
                 "FROM infra_devices WHERE active = 1"
             ).fetchall()
         ]
         existing = {
             r["ip"]: dict(r)
             for r in conn.execute(
-                "SELECT ip, status, last_state_change, snmp_data FROM infra_status"
+                "SELECT ip, status, last_state_change, snmp_data, checked_at "
+                "FROM infra_status"
             ).fetchall()
         }
     return rows, existing
@@ -805,36 +1121,35 @@ def _persist_poll_results(
     for row, ping_r in zip(rows, ping_results):
         ip = row["ip"]
         name = row["name"]
+        profile = row.get("monitor_profile") or resolve_monitor_profile(
+            row.get("device_type") or "generic",
+            row.get("tcp_port"),
+            row.get("snmp_community"),
+            row.get("monitor_profile"),
+        )
+
+        if profile == "ap_guardian":
+            continue
 
         if host_network_blip and ip in newly_offline_ips:
             continue
 
-        if isinstance(ping_r, Exception):
-            status, latency, loss_pct = "offline", None, 100.0
-        else:
-            status, latency, loss_pct = ping_r
-
         tcp_ok = tcp_ok_by_ip.get(ip)
-        mac = mac_res.get(ip)
-
         prev = existing.get(ip)
+
+        if ping_r is None:
+            continue
+
+        status, latency, loss_pct = derive_liveness(
+            profile, ping_r, tcp_ok, prev,
+        )
+
+        mac = mac_res.get(ip)
         prev_status = prev.get("status") if prev else None
         last_change_str = prev.get("last_state_change") if prev else None
 
         snmp_res = snmp_map.get(ip)
-        if snmp_res and snmp_res.get("ok") and not (snmp_res.get("interfaces") or []):
-            prev_row = existing.get(ip) or {}
-            if prev_row.get("snmp_data"):
-                try:
-                    prev_snmp = json.loads(prev_row["snmp_data"])
-                    if prev_snmp.get("interfaces"):
-                        snmp_res = {
-                            **snmp_res,
-                            "interfaces": prev_snmp["interfaces"],
-                            "_raw_octets": prev_snmp.get("_raw_octets", {}),
-                        }
-                except Exception:
-                    pass
+        snmp_res = _merge_snmp_interfaces(snmp_res, existing, ip)
         snmp_data_json = json.dumps(snmp_res) if snmp_res is not None else None
         snmp_ok_val = (
             1 if (snmp_res and snmp_res.get("ok")) else (0 if snmp_res is not None else None)
@@ -856,9 +1171,18 @@ def _persist_poll_results(
             if device_type != "ap":
                 lat_int = int(round(latency)) if latency is not None else None
                 if status == "offline":
-                    infra_reason = "sin respuesta ping (100% pérdida)"
+                    if profile == "endpoint_tcp":
+                        infra_reason = "puerto TCP sin respuesta"
+                    elif profile == "network_gear":
+                        infra_reason = "sin respuesta (ping/SNMP)"
+                    else:
+                        infra_reason = "sin respuesta ping (100% pérdida)"
                 elif status == "degraded":
                     infra_reason = f"pérdida de paquetes {loss_pct:.0f}%"
+                elif profile == "network_gear":
+                    infra_reason = "SNMP OK"
+                elif profile == "endpoint_tcp":
+                    infra_reason = "puerto TCP OK"
                 else:
                     infra_reason = "ping OK"
                 infra_event["record_status"] = {
@@ -973,90 +1297,84 @@ def _persist_poll_results(
     return {"telegram_alerts": telegram_alerts, "devices_written": devices_written}
 
 
-async def _poll_once():
-    t_total = _time.monotonic()
-
+def _merge_snmp_interfaces(snmp_res: Optional[dict], existing: Dict[str, dict], ip: str) -> Optional[dict]:
+    """Conserva ifTable cacheado si un poll get-only no trajo interfaces."""
+    if not snmp_res or not snmp_res.get("ok"):
+        return snmp_res
+    if snmp_res.get("interfaces"):
+        return snmp_res
+    prev_row = existing.get(ip) or {}
+    if not prev_row.get("snmp_data"):
+        return snmp_res
     try:
-        rows, existing = await asyncio.to_thread(_load_poll_context)
-    except Exception as e:
-        logger.error("infra poll: DB read error: %s", e)
-        return
+        prev_snmp = json.loads(prev_row["snmp_data"])
+        if prev_snmp.get("interfaces"):
+            return {
+                **snmp_res,
+                "interfaces": prev_snmp["interfaces"],
+                "_raw_octets": prev_snmp.get("_raw_octets", {}),
+            }
+    except Exception:
+        pass
+    return snmp_res
 
-    if not rows:
-        return
 
-    read_ms = int((_time.monotonic() - t_total) * 1000)
-    now_utc = datetime.now(timezone.utc)
-    batch_id = f"i-{int(now_utc.timestamp())}"
+def _persist_snmp_results(snmp_map: dict, existing: Dict[str, dict]) -> int:
+    """Actualiza solo columnas SNMP (sync — invocar vía asyncio.to_thread)."""
+    if not snmp_map:
+        return 0
+    checked_at = datetime.now(timezone.utc).isoformat()
+    ttl = FAST_POLL_INTERVAL_SEC * 4
+    updates: List[tuple] = []
 
-    t_ping = _time.monotonic()
-    ping_tasks = [asyncio.to_thread(_ping, r["ip"]) for r in rows]
-    ping_results = await asyncio.gather(*ping_tasks, return_exceptions=True)
-
-    cycle_status = {
-        row["ip"]: ("offline" if isinstance(pr, Exception) else pr[0])
-        for row, pr in zip(rows, ping_results)
-    }
-    existing_status = {
-        ip: (existing.get(ip) or {}).get("status") or "unknown"
-        for ip in cycle_status
-    }
-    gateway_ip = (await asyncio.to_thread(get_config, "base.gateway") or "").strip()
-
-    async def _gw_ping():
-        if not gateway_ip:
-            return "online", 0.0, None
-        return await asyncio.to_thread(_ping, gateway_ip)
-
-    host_network_blip, newly_offline_ips = await evaluate_host_network_blip_async(
-        gateway_ip,
-        _gw_ping,
-        cycle_status,
-        existing_status,
-        len(rows),
-        log_prefix="infra poll",
-    )
-
-    tcp_ok_by_ip: Dict[str, Optional[int]] = {}
-    tcp_jobs: List[tuple] = []
-    for row, ping_r in zip(rows, ping_results):
-        if not row.get("tcp_port"):
-            continue
-        if isinstance(ping_r, Exception):
-            continue
-        if ping_r[0] not in ("online", "degraded"):
-            continue
-        ip = row["ip"]
-        tcp_jobs.append((ip, asyncio.to_thread(_tcp_check, ip, row["tcp_port"])))
-    if tcp_jobs:
-        tcp_vals = await asyncio.gather(
-            *[job for _, job in tcp_jobs], return_exceptions=True,
+    for ip, snmp_res in snmp_map.items():
+        snmp_res = _merge_snmp_interfaces(snmp_res, existing, ip)
+        snmp_data_json = json.dumps(snmp_res) if snmp_res is not None else None
+        snmp_ok_val = (
+            1 if (snmp_res and snmp_res.get("ok")) else (0 if snmp_res is not None else None)
         )
-        for (ip, _), tcp_r in zip(tcp_jobs, tcp_vals):
-            if isinstance(tcp_r, Exception):
-                tcp_ok_by_ip[ip] = None
-            else:
-                tcp_ok_by_ip[ip] = 1 if tcp_r else 0
+        updates.append((snmp_data_json, snmp_ok_val, ip))
 
-    ping_ms = int((_time.monotonic() - t_ping) * 1000)
+    with get_db() as conn:
+        for snmp_data_json, snmp_ok_val, ip in updates:
+            conn.execute(
+                """
+                UPDATE infra_status
+                SET snmp_data=?, snmp_ok=?, checked_at=datetime('now')
+                WHERE ip=?
+                """,
+                (snmp_data_json, snmp_ok_val, ip),
+            )
+        conn.commit()
 
-    t_mac = _time.monotonic()
-    mac_ips = [
-        r["ip"] for r, pr in zip(rows, ping_results)
-        if not isinstance(pr, Exception) and pr[0] in ("online", "degraded")
-    ]
-    mac_res: Dict[str, Optional[str]] = {}
-    if mac_ips:
-        mac_vals = await asyncio.gather(
-            *[asyncio.to_thread(_get_mac, ip) for ip in mac_ips],
-            return_exceptions=True,
-        )
-        mac_res = {
-            ip: (v if not isinstance(v, Exception) else None)
-            for ip, v in zip(mac_ips, mac_vals)
-        }
-    mac_ms = int((_time.monotonic() - t_mac) * 1000)
+    written = len(updates)
 
+    redis = _get_redis_poll_client()
+    if redis:
+        try:
+            pipe = redis.pipeline()
+            for snmp_data_json, snmp_ok_val, ip in updates:
+                key = f"infra:{ip}:data"
+                raw = redis.get(key)
+                payload: dict = {}
+                if raw:
+                    try:
+                        payload = json.loads(raw)
+                    except Exception:
+                        payload = {}
+                payload["snmp_ok"] = snmp_ok_val
+                payload["checked_at"] = checked_at
+                pipe.setex(key, ttl, json.dumps(payload))
+            pipe.execute()
+            redis.setex("infra:poller:last_snmp_ok", ttl, checked_at)
+        except Exception as e:
+            logger.error("infra poll snmp: Redis pipeline failed: %s", e)
+
+    return len(updates)
+
+
+async def _collect_snmp_map(rows: List[dict], existing: Dict[str, dict]) -> tuple[dict, int]:
+    """Ejecuta polls SNMP en paralelo; retorna (snmp_map, snmp_ms)."""
     t_snmp = _time.monotonic()
     snmp_map: dict = {}
     snmp_tasks_list = []
@@ -1064,12 +1382,24 @@ async def _poll_once():
     now_ts = _time.time()
 
     async def _snmp_with_sem(ip: str, community: str, prev_snmp, device_type: str) -> dict:
-        last_walk = (prev_snmp or {}).get("_last_walk_at") or 0
+        prev_snmp = prev_snmp or {}
+        fail_streak = prev_snmp.get("_snmp_fail_streak") or 0
+        last_attempt = prev_snmp.get("_snmp_last_attempt_at") or 0
+        if (
+            fail_streak >= SNMP_FAIL_BACKOFF_THRESHOLD
+            and (now_ts - last_attempt) < SNMP_FAIL_BACKOFF_SEC
+        ):
+            return prev_snmp
+
+        last_walk = prev_snmp.get("_last_walk_at") or 0
         do_walk = (now_ts - last_walk) >= SNMP_WALK_INTERVAL_SEC
         async with SNMP_SEM:
-            return await asyncio.to_thread(
+            result = await _run_in_snmp_executor(
                 _snmp_poll, ip, community, prev_snmp, device_type, do_walk=do_walk,
             )
+        result["_snmp_last_attempt_at"] = now_ts
+        result["_snmp_fail_streak"] = 0 if result.get("ok") else fail_streak + 1
+        return result
 
     for row in rows:
         community = (row.get("snmp_community") or "").strip()
@@ -1094,6 +1424,125 @@ async def _poll_once():
                 sval if not isinstance(sval, Exception) else {"ok": False, "error": str(sval)}
             )
     snmp_ms = int((_time.monotonic() - t_snmp) * 1000)
+    return snmp_map, snmp_ms
+
+
+async def _poll_fast_once():
+    t_total = _time.monotonic()
+
+    try:
+        rows, existing = await asyncio.to_thread(_load_poll_context)
+    except Exception as e:
+        logger.error("infra poll fast: DB read error: %s", e)
+        return
+
+    if not rows:
+        return
+
+    rows = [enrich_device_row(r) for r in rows]
+    await asyncio.to_thread(_sync_ap_status_from_guardian)
+
+    poll_rows = [r for r in rows if r.get("monitor_profile") != "ap_guardian"]
+    ping_results_full: List[Any] = []
+    ping_by_ip: Dict[str, Any] = {}
+
+    read_ms = int((_time.monotonic() - t_total) * 1000)
+    now_utc = datetime.now(timezone.utc)
+    batch_id = f"i-{int(now_utc.timestamp())}"
+
+    t_ping = _time.monotonic()
+    if poll_rows:
+        ping_tasks = [
+            asyncio.to_thread(
+                _ping,
+                r["ip"],
+                ping_count_for_profile(r["monitor_profile"], PING_COUNT),
+            )
+            for r in poll_rows
+        ]
+        ping_gathered = await asyncio.gather(*ping_tasks, return_exceptions=True)
+        ping_by_ip = {r["ip"]: pr for r, pr in zip(poll_rows, ping_gathered)}
+
+    for row in rows:
+        if row.get("monitor_profile") == "ap_guardian":
+            ping_results_full.append(None)
+        else:
+            ping_results_full.append(ping_by_ip.get(row["ip"], Exception("sin ping")))
+
+    cycle_status = {
+        row["ip"]: (
+            "offline"
+            if isinstance(ping_by_ip.get(row["ip"]), Exception)
+            else ping_by_ip.get(row["ip"], ("unknown", None, 0.0))[0]
+        )
+        for row in poll_rows
+    }
+    existing_status = {
+        ip: (existing.get(ip) or {}).get("status") or "unknown"
+        for ip in cycle_status
+    }
+    gateway_ip = (await asyncio.to_thread(get_config, "base.gateway") or "").strip()
+
+    async def _gw_ping():
+        if not gateway_ip:
+            return "online", 0.0, None
+        # _ping() devuelve (status, latency_ms, loss_pct) -- el contrato compartido
+        # de shomer_network_blip.py espera (status, loss_pct, rtt_ms), igual que
+        # Guardian (_gw_ping_triplet). Reordenar aquí, no en el módulo compartido.
+        status, latency_ms, loss_pct = await asyncio.to_thread(_ping, gateway_ip)
+        return status, loss_pct, latency_ms
+
+    host_network_blip, newly_offline_ips = await evaluate_host_network_blip_async(
+        gateway_ip,
+        _gw_ping,
+        cycle_status,
+        existing_status,
+        len(poll_rows),
+        log_prefix="infra poll",
+    )
+
+    tcp_ok_by_ip: Dict[str, Optional[int]] = {}
+    tcp_jobs: List[tuple] = []
+    for row in poll_rows:
+        ip = row["ip"]
+        port = row.get("tcp_port")
+        if not port:
+            continue
+        profile = row.get("monitor_profile") or "generic"
+        pr = ping_by_ip.get(ip)
+        if profile == "endpoint_tcp":
+            tcp_jobs.append((ip, asyncio.to_thread(_tcp_check, ip, port)))
+        elif not isinstance(pr, Exception) and pr[0] in ("online", "degraded"):
+            tcp_jobs.append((ip, asyncio.to_thread(_tcp_check, ip, port)))
+    if tcp_jobs:
+        tcp_vals = await asyncio.gather(
+            *[job for _, job in tcp_jobs], return_exceptions=True,
+        )
+        for (ip, _), tcp_r in zip(tcp_jobs, tcp_vals):
+            if isinstance(tcp_r, Exception):
+                tcp_ok_by_ip[ip] = None
+            else:
+                tcp_ok_by_ip[ip] = 1 if tcp_r else 0
+
+    ping_ms = int((_time.monotonic() - t_ping) * 1000)
+
+    t_mac = _time.monotonic()
+    mac_ips = [
+        r["ip"] for r in poll_rows
+        if not isinstance(ping_by_ip.get(r["ip"]), Exception)
+        and ping_by_ip.get(r["ip"], ("offline",))[0] in ("online", "degraded")
+    ]
+    mac_res: Dict[str, Optional[str]] = {}
+    if mac_ips:
+        mac_vals = await asyncio.gather(
+            *[asyncio.to_thread(_get_mac, ip) for ip in mac_ips],
+            return_exceptions=True,
+        )
+        mac_res = {
+            ip: (v if not isinstance(v, Exception) else None)
+            for ip, v in zip(mac_ips, mac_vals)
+        }
+    mac_ms = int((_time.monotonic() - t_mac) * 1000)
 
     t_write = _time.monotonic()
     devices_written = 0
@@ -1101,10 +1550,10 @@ async def _poll_once():
         persist_result = await asyncio.to_thread(
             _persist_poll_results,
             rows,
-            ping_results,
+            ping_results_full,
             tcp_ok_by_ip,
             mac_res,
-            snmp_map,
+            {},  # SNMP en capa lenta (_poll_snmp_once)
             existing,
             host_network_blip,
             newly_offline_ips,
@@ -1117,7 +1566,7 @@ async def _poll_once():
     except Exception as e:
         logger.error(
             "infra poll: persist failed batch_id=%s devices=%d: %s",
-            batch_id, len(rows), e,
+            batch_id, len(poll_rows), e,
             exc_info=True,
         )
         try:
@@ -1137,41 +1586,95 @@ async def _poll_once():
         write_ms = int((_time.monotonic() - t_write) * 1000)
         total_ms = int((_time.monotonic() - t_total) * 1000)
         logger.info(
-            "infra poll: read=%dms ping=%dms mac=%dms snmp=%dms write=%dms "
+            "infra poll fast: read=%dms ping=%dms mac=%dms write=%dms "
             "total=%dms devices=%d (persist error)",
-            read_ms, ping_ms, mac_ms, snmp_ms, write_ms, total_ms, len(rows),
+            read_ms, ping_ms, mac_ms, write_ms, total_ms, len(rows),
         )
         return
 
     write_ms = int((_time.monotonic() - t_write) * 1000)
     total_ms = int((_time.monotonic() - t_total) * 1000)
     logger.info(
-        "infra poll: read=%dms ping=%dms mac=%dms snmp=%dms write=%dms "
-        "total=%dms devices=%d",
-        read_ms, ping_ms, mac_ms, snmp_ms, write_ms, total_ms, devices_written,
+        "infra poll fast: read=%dms ping=%dms mac=%dms write=%dms "
+        "total=%dms devices=%d polled=%d",
+        read_ms, ping_ms, mac_ms, write_ms, total_ms, devices_written, len(poll_rows),
     )
-    if total_ms > POLL_INTERVAL_SEC * 1000:
+    if total_ms > FAST_POLL_INTERVAL_SEC * 1000:
         logger.warning(
-            "infra poll: ciclo lento read=%dms ping=%dms mac=%dms snmp=%dms "
+            "infra poll fast: ciclo lento read=%dms ping=%dms mac=%dms "
             "write=%dms total=%dms devices=%d (umbral %ds)",
-            read_ms, ping_ms, mac_ms, snmp_ms, write_ms, total_ms,
-            devices_written, POLL_INTERVAL_SEC,
+            read_ms, ping_ms, mac_ms, write_ms, total_ms,
+            devices_written, FAST_POLL_INTERVAL_SEC,
         )
+
+
+async def _poll_snmp_once():
+    t_total = _time.monotonic()
+    try:
+        rows, existing = await asyncio.to_thread(_load_poll_context)
+    except Exception as e:
+        logger.error("infra poll snmp: DB read error: %s", e)
+        return
+
+    snmp_rows = [r for r in rows if (r.get("snmp_community") or "").strip()]
+    if not snmp_rows:
+        return
+
+    read_ms = int((_time.monotonic() - t_total) * 1000)
+    snmp_map, snmp_ms = await _collect_snmp_map(snmp_rows, existing)
+
+    t_write = _time.monotonic()
+    try:
+        devices_written = await asyncio.to_thread(_persist_snmp_results, snmp_map, existing)
+    except Exception as e:
+        logger.error("infra poll snmp: persist failed devices=%d: %s", len(snmp_map), e)
+        write_ms = int((_time.monotonic() - t_write) * 1000)
+        total_ms = int((_time.monotonic() - t_total) * 1000)
+        logger.info(
+            "infra poll snmp: read=%dms snmp=%dms write=%dms total=%dms devices=%d (persist error)",
+            read_ms, snmp_ms, write_ms, total_ms, len(snmp_map),
+        )
+        return
+
+    write_ms = int((_time.monotonic() - t_write) * 1000)
+    total_ms = int((_time.monotonic() - t_total) * 1000)
+    logger.info(
+        "infra poll snmp: read=%dms snmp=%dms write=%dms total=%dms devices=%d",
+        read_ms, snmp_ms, write_ms, total_ms, devices_written,
+    )
+
+
+async def _poll_once():
+    """Compat: ciclo completo legacy = solo capa rápida (SNMP va en _poll_snmp_once)."""
+    await _poll_fast_once()
 
 
 async def _poller_loop():
     global _poller_running
     _init_tables()
     loop = asyncio.get_event_loop()
-    while True:
-        t0 = loop.time()
-        try:
-            _sync_guardian_aps()
-            await _poll_once()
-        except Exception as e:
-            logger.error("infra poller error: %s", e)
-        elapsed = loop.time() - t0
-        await asyncio.sleep(max(0.1, POLL_INTERVAL_SEC - elapsed))
+    stop = asyncio.Event()
+
+    async def _fast_loop():
+        while not stop.is_set():
+            t0 = loop.time()
+            try:
+                _sync_guardian_aps()
+                await _poll_fast_once()
+            except Exception as e:
+                logger.error("infra poller fast error: %s", e)
+            elapsed = loop.time() - t0
+            await asyncio.sleep(max(0.1, FAST_POLL_INTERVAL_SEC - elapsed))
+
+    async def _snmp_loop():
+        while not stop.is_set():
+            try:
+                await _poll_snmp_once()
+            except Exception as e:
+                logger.error("infra poller snmp error: %s", e)
+            await asyncio.sleep(max(1.0, SNMP_POLL_INTERVAL_SEC))
+
+    await asyncio.gather(_fast_loop(), _snmp_loop())
 
 
 def start_inframonitor_poller():
@@ -1180,7 +1683,10 @@ def start_inframonitor_poller():
         return
     _poller_running = True
     asyncio.create_task(_poller_loop())
-    logger.info("Inframonitor poller iniciado (intervalo %ss)", POLL_INTERVAL_SEC)
+    logger.info(
+        "Inframonitor poller iniciado (fast=%ss snmp=%ss)",
+        FAST_POLL_INTERVAL_SEC, SNMP_POLL_INTERVAL_SEC,
+    )
 
 
 # ──────────────────────────────────────────────
@@ -1279,6 +1785,13 @@ def _build_device_row(d, s, uptime: Optional[float], outages_today: int = 0) -> 
         "checked_at": (s["checked_at"] if s else None),
         "created_at": d["created_at"],
     }
+    mp = d["monitor_profile"] if "monitor_profile" in d.keys() else None
+    row["monitor_profile"] = resolve_monitor_profile(
+        d["device_type"],
+        d["tcp_port"],
+        d["snmp_community"] if "snmp_community" in d.keys() else None,
+        mp,
+    )
     # Para impresoras: incluir datos de tóner/papel/estado directamente en la fila
     if s and s.get("snmp_data"):
         try:
@@ -1352,13 +1865,20 @@ async def add_device(body: DeviceIn, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Puerto TCP inválido (1-65535)")
 
     _init_tables()
+    profile = resolve_monitor_profile(
+        body.device_type,
+        body.tcp_port,
+        body.snmp_community or "public",
+        None,
+    )
     try:
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO infra_devices (ip, name, device_type, location, tcp_port, snmp_community, pc_server_ip) "
-                "VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO infra_devices "
+                "(ip, name, device_type, location, tcp_port, snmp_community, pc_server_ip, monitor_profile) "
+                "VALUES (?,?,?,?,?,?,?,?)",
                 (body.ip, body.name, body.device_type, body.location, body.tcp_port,
-                 body.snmp_community or "public", body.pc_server_ip or None)
+                 body.snmp_community or "public", body.pc_server_ip or None, profile)
             )
             conn.commit()
         return {"success": True, "message": f"Equipo {body.ip} agregado"}

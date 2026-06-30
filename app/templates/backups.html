@@ -27,12 +27,20 @@
 .sc.blue   { border-color:rgba(59,130,246,0.3); }  .sc.blue   svg,.sc.blue   .sc-val { color:var(--blue); }
 .sc.purple { border-color:rgba(139,92,246,0.3); }  .sc.purple svg,.sc.purple .sc-val { color:#8b5cf6; }
 
-.protector-body { display:flex; gap:16px; overflow:hidden; }
-.protector-main { flex:1; overflow:hidden; }
-.table-wrap { background:var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:8px; }
+.protector-body { display:flex; gap:16px; flex:1; min-height:0; overflow:hidden; }
+.protector-main { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; }
+.table-wrap { background:var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:12px; flex-shrink:0; }
 .table-head-bar { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border); }
 .table-head-bar h3 { font-size:13px; font-weight:600; color:var(--text); }
-.table-scroll { overflow-x:auto; max-height:calc(100vh - 280px); min-height:220px; overflow-y:auto; }
+/* Ambas tablas (local + B2): mismo alto de scroll, varias filas visibles */
+.protector-main .table-scroll {
+  overflow-x:auto;
+  overflow-y:auto;
+  max-height:260px;
+  min-height:140px;
+  -webkit-overflow-scrolling:touch;
+}
+.b2-meta { font-size:12px; color:var(--muted); margin:0; padding:10px 14px 0; }
 table { width:100%; border-collapse:collapse; }
 thead tr { background:var(--sidebar); border-bottom:1px solid var(--border); }
 thead th { padding:10px 14px; text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); white-space:nowrap; }
@@ -133,7 +141,7 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
   </div>
 
   <div class="protector-body" style="flex:1;overflow:hidden;">
-    <div class="protector-main" style="display:flex;flex-direction:column;gap:22px;overflow-y:auto;">
+    <div class="protector-main">
 
       <!-- Snapshots locales -->
       <div class="table-wrap">
@@ -175,8 +183,8 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
             Cargar lista B2
           </button>
         </div>
-        <div id="b2-snapshots-wrap" style="padding:10px 14px;">
-          <p style="font-size:12px;color:var(--muted);margin:6px 0;">Pulsa "Cargar lista B2" para ver los snapshots disponibles en la nube.</p>
+        <div id="b2-snapshots-wrap" class="table-scroll">
+          <p class="b2-meta">Pulsa "Cargar lista B2" para ver los snapshots disponibles en la nube.</p>
         </div>
       </div>
 
@@ -1102,10 +1110,144 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
   }
 
   /* ── Snapshots B2 (nube) ──────────────────────────── */
+  function _escHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function _b2TagToEquipo(tags) {
+    if (!Array.isArray(tags)) return '—';
+    const skip = /^device_\d+$|^(ssh|smb|windows|linux|macos|nfs)$/i;
+    const name = tags.find(t => !skip.test(t));
+    return name ? name.replace(/_/g, ' ') : '—';
+  }
+
+  function _b2PathsSummary(s) {
+    const arr = Array.isArray(s.paths) ? s.paths : (s.paths ? [s.paths] : []);
+    if (!arr.length) return '—';
+    const first = String(arr[0]).split('/').pop() || arr[0];
+    return arr.length > 1 ? `${first} (+${arr.length - 1} archivos)` : first;
+  }
+
+  function _b2PathsTitle(s) {
+    const arr = Array.isArray(s.paths) ? s.paths : (s.paths ? [s.paths] : []);
+    return arr.length ? arr.join('\n') : '—';
+  }
+
+  function _renderB2SnapshotsTable(wrap, snaps, repo) {
+    const count = snaps.length;
+    wrap.replaceChildren();
+
+    const meta = document.createElement('p');
+    meta.className = 'b2-meta';
+    meta.style.padding = '0 0 8px 0';
+    meta.textContent = `${count} snapshot${count === 1 ? '' : 's'} en B2` + (repo ? ` — ${repo}` : '') + ' (más reciente primero)';
+
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+      <tr>
+        <th style="width:72px;padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">ID</th>
+        <th style="width:88px;padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Fecha</th>
+        <th style="width:72px;padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Hora</th>
+        <th style="width:110px;padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Equipo</th>
+        <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Contenido</th>
+        <th style="width:150px;padding:8px 10px;text-align:right;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Acciones</th>
+      </tr>`;
+
+    const tbody = document.createElement('tbody');
+    snaps.forEach(s => {
+      const dt = s.time ? new Date(s.time) : null;
+      const fecha = dt && !isNaN(dt) ? dt.toLocaleDateString('es-ES') : '—';
+      const hora = dt && !isNaN(dt) ? dt.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '—';
+      const sid = s.short_id || (s.id ? s.id.slice(0, 8) : '—');
+      const fullId = s.id || sid;
+      const equipo = _b2TagToEquipo(s.tags);
+      const pathsSummary = _b2PathsSummary(s);
+      const pathsTitle = _b2PathsTitle(s);
+
+      const tr = document.createElement('tr');
+
+      const mkTd = (text, cls, title) => {
+        const td = document.createElement('td');
+        if (cls) td.className = cls;
+        if (title) td.title = title;
+        td.textContent = text;
+        return td;
+      };
+
+      tr.appendChild(mkTd(sid, 'snap-id', fullId));
+      tr.appendChild(mkTd(fecha));
+      const tdHora = mkTd(hora);
+      tdHora.style.fontFamily = 'monospace';
+      tdHora.style.color = 'var(--muted)';
+      tr.appendChild(tdHora);
+      const tdEq = mkTd(equipo);
+      tdEq.style.fontWeight = '600';
+      tr.appendChild(tdEq);
+      const tdPath = mkTd(pathsSummary, null, pathsTitle);
+      tdPath.style.fontSize = '11px';
+      tdPath.style.color = 'var(--muted)';
+      tr.appendChild(tdPath);
+
+      const tdAct = document.createElement('td');
+      const actions = document.createElement('div');
+      actions.className = 'td-actions';
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline btn-sm btn-restore';
+      btn.id = 'btn-b2restore-' + sid;
+      btn.dataset.snapshotId = fullId;
+      btn.dataset.shortId = sid;
+      btn.dataset.equipo = equipo;
+      btn.textContent = 'Restaurar';
+      actions.appendChild(btn);
+
+      const dlBtn = document.createElement('a');
+      dlBtn.id = 'btn-b2dl-' + sid;
+      dlBtn.className = 'btn btn-outline btn-sm btn-restore';
+      dlBtn.style.display = 'none';
+      dlBtn.href = '/backups/restore/' + encodeURIComponent(sid) + '/download';
+      dlBtn.textContent = 'ZIP';
+      actions.appendChild(dlBtn);
+
+      tdAct.appendChild(actions);
+      tr.appendChild(tdAct);
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    wrap.appendChild(meta);
+    wrap.appendChild(table);
+
+    wrap.onclick = (ev) => {
+      const btn = ev.target.closest('button[data-snapshot-id]');
+      if (!btn || !wrap.contains(btn)) return;
+      const fullId = btn.dataset.snapshotId;
+      const sid = btn.dataset.shortId;
+      const equipo = btn.dataset.equipo || '';
+      confirmAction(
+        `¿Restaurar snapshot B2 ${sid} (${equipo})?\nSe descargará desde la nube.\nPuede tardar varios minutos.`,
+        () => handleB2Restore(fullId, sid)
+      );
+    };
+  }
+
   async function loadB2Snapshots() {
     const wrap = document.getElementById('b2-snapshots-wrap');
     if (!wrap) return;
-    wrap.innerHTML = '<p style="font-size:12px;color:var(--muted);">Consultando B2… puede tardar unos segundos.</p>';
+    wrap.replaceChildren();
+    const loading = document.createElement('p');
+    loading.className = 'b2-meta';
+    loading.textContent = 'Consultando B2… puede tardar unos segundos.';
+    wrap.appendChild(loading);
     try {
       const r = await shomerFetch('/backups/b2/snapshots');
       const d = await r.json();
@@ -1114,68 +1256,25 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
         const isTimeout = raw.toLowerCase().includes('timeout') || raw.toLowerCase().includes('conectar');
         const hint = isTimeout ? ' — Sin conexión a internet o credenciales B2 inválidas.' : '';
         const msg = raw + hint;
-        wrap.innerHTML = `<p style="font-size:12px;color:var(--offline);">⚠ ${msg.replace(/</g,'&lt;')}</p>`;
+        wrap.innerHTML = `<p style="font-size:12px;color:var(--offline);">⚠ ${_escHtml(msg)}</p>`;
         addLog('error','B2', msg);
         return;
       }
-      const snaps = Array.isArray(d.snapshots) ? d.snapshots : [];
+      let snaps = Array.isArray(d.snapshots) ? d.snapshots.slice() : [];
+      snaps.sort((a, b) => {
+        const ta = a.time ? Date.parse(a.time) : 0;
+        const tb = b.time ? Date.parse(b.time) : 0;
+        return tb - ta;
+      });
       addLog('success','B2', snaps.length + ' snapshots en B2' + (d.repo ? ' — ' + d.repo : ''));
       if (snaps.length === 0) {
         wrap.innerHTML = '<p style="font-size:12px;color:var(--muted);">No hay snapshots en B2 para este repositorio.</p>';
         return;
       }
-      function _b2TagToEquipo(tags) {
-        if (!Array.isArray(tags)) return '—';
-        const skip = /^device_\d+$|^(ssh|smb|windows|linux|macos|nfs)$/i;
-        const name = tags.find(t => !skip.test(t));
-        return name ? name.replace(/_/g, ' ') : '—';
-      }
-      const rows = snaps.map(s => {
-        const dt    = s.time ? new Date(s.time) : null;
-        const fecha = dt ? dt.toLocaleDateString('es-ES') : '—';
-        const hora  = dt ? dt.toLocaleTimeString('es-ES') : '—';
-        const sid   = s.short_id || s.id?.slice(0,8) || '—';
-        const fullId = s.id || sid;
-        const equipo = _b2TagToEquipo(s.tags);
-        const paths = Array.isArray(s.paths) ? s.paths.join(', ') : (s.paths || '—');
-        return `<tr>
-          <td class="snap-id" title="${fullId}">${sid}</td>
-          <td>${fecha}</td>
-          <td style="font-family:monospace;color:var(--muted);">${hora}</td>
-          <td style="font-weight:600;color:var(--text);">${equipo}</td>
-          <td style="font-size:11px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${paths}">${paths}</td>
-          <td><div class="td-actions">
-            <button id="btn-b2restore-${sid}" class="btn btn-outline btn-sm btn-restore"
-              onclick="confirmAction('¿Restaurar snapshot B2 ${sid} (${equipo})?\\nSe descargará desde la nube.\\nPuede tardar varios minutos.', ()=>handleB2Restore('${fullId}','${sid}'))">
-              <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.36"/></svg>Restaurar desde B2
-            </button>
-            <a id="btn-b2dl-${sid}" style="display:none;" class="btn btn-outline btn-sm btn-restore"
-              style="background:rgba(139,92,246,0.12);color:#a78bfa;border-color:rgba(139,92,246,0.4);text-decoration:none;"
-              href="/backups/restore/${sid}/download">
-              ⬇ Descargar ZIP
-            </a>
-          </div></td>
-        </tr>`;
-      }).join('');
-      wrap.innerHTML = `
-        <div style="overflow-x:auto;margin-top:6px;">
-          <table style="width:100%;border-collapse:collapse;font-size:12px;">
-            <thead>
-              <tr style="background:var(--sidebar);border-bottom:1px solid var(--border);">
-                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">ID</th>
-                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Fecha</th>
-                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Hora</th>
-                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Equipo</th>
-                <th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Ruta</th>
-                <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`;
+      _renderB2SnapshotsTable(wrap, snaps, d.repo || '');
     } catch (e) {
       const msg = e?.message || 'Error de conexión';
-      wrap.innerHTML = '<p style="font-size:12px;color:var(--offline);">Error: ' + msg.replace(/</g,'&lt;') + '</p>';
+      wrap.innerHTML = '<p style="font-size:12px;color:var(--offline);">Error: ' + _escHtml(msg) + '</p>';
       addLog('error','B2', msg);
     }
   }

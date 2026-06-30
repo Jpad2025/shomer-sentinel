@@ -267,11 +267,14 @@ tbody td { padding:6px 8px; font-size:11px; color:var(--text); }
     if (!confirm('¿Desbloquear ' + ip + ' del firewall? Úsalo solo si es un falso positivo.')) return;
     shomerFetch('/remedies/unblock', {
       method: 'POST',
-      body: JSON.stringify({ ip })
+      body: JSON.stringify({ ip, incident_id: id })
     })
       .then(r => r.json())
       .then(d => {
-        showToast(d.message || (d.success ? ip + ' desbloqueada' : 'Error al desbloquear'), d.success ? 'success' : 'error');
+        const okMsg = d.incidents_closed
+          ? ip + ' desbloqueada — incidente cerrado'
+          : ip + ' desbloqueada';
+        showToast(d.message || (d.success ? okMsg : 'Error al desbloquear'), d.success ? 'success' : 'error');
         if (d.success) { loadStats(); loadIncidents(); }
       })
       .catch(() => showToast('Error al desbloquear ' + ip, 'error'));

@@ -29,7 +29,8 @@ def _lab_no_span() -> bool:
 def _collect_pipeline_health() -> Dict[str, Any]:
     stale_sec = int(os.environ.get("HUNTER_PIPELINE_STALE_SEC", "900"))  # 15 min default
     lab_no_span = _lab_no_span()
-    path = _resolve_suricata_alerts_file()
+    traffic_path = SURICATA_EVE_PATH
+    alerts_path = _resolve_suricata_alerts_file()
     issues: List[str] = []
     warnings: List[str] = []
     checks: Dict[str, Any] = {}
@@ -46,41 +47,74 @@ def _collect_pipeline_health() -> Dict[str, Any]:
             f"wazuh-manager no activo (systemctl: {wazuh}) — bloqueo automático vía integración no funcionará"
         )
 
-    eve_path = path if path and os.path.isfile(path) else SURICATA_EVE_PATH
-    checks["eve_log_path"] = eve_path
-    checks["eve_log_exists"] = os.path.isfile(eve_path) if eve_path else False
-    if not checks["eve_log_exists"]:
-        issues.append("No existe el archivo de eventos EVE configurado — Suricata no escribe o ruta incorrecta")
+    # Liveness = tráfico en eve.json (flow, dns, stats…). Las alertas en eve-alerts.json
+    # pueden estar quietas de noche aunque el espejo reciba tráfico WAN normal.
+    checks["eve_traffic_log_path"] = traffic_path
+    checks["eve_traffic_log_exists"] = os.path.isfile(traffic_path) if traffic_path else False
+    checks["eve_alerts_log_path"] = alerts_path
+    checks["eve_log_path"] = traffic_path  # compat panel / bot
+    checks["eve_log_exists"] = checks["eve_traffic_log_exists"]
+
+    if not checks["eve_traffic_log_exists"]:
+        issues.append(
+            "No existe eve.json — Suricata no escribe o ruta incorrecta "
+            f"({traffic_path})"
+        )
     else:
         try:
-            st = os.stat(eve_path)
+            st = os.stat(traffic_path)
             checks["eve_log_size_bytes"] = st.st_size
             checks["eve_log_mtime_age_sec"] = max(0.0, datetime.now().timestamp() - st.st_mtime)
         except OSError as e:
             checks["eve_log_stat_error"] = str(e)
-            issues.append(f"No se pudo leer metadatos del log: {e}")
+            issues.append(f"No se pudo leer metadatos de eve.json: {e}")
 
-    last_age = _last_eve_event_age_sec(eve_path) if checks["eve_log_exists"] else None
-    checks["last_event_age_sec"] = last_age
+    last_traffic_age = (
+        _last_eve_event_age_sec(traffic_path) if checks["eve_traffic_log_exists"] else None
+    )
+    last_alert_age = (
+        _last_eve_event_age_sec(alerts_path)
+        if alerts_path and os.path.isfile(alerts_path)
+        else None
+    )
+    checks["last_traffic_age_sec"] = last_traffic_age
+    checks["last_alert_age_sec"] = last_alert_age
+    checks["last_event_age_sec"] = last_traffic_age  # compat bot watch_pipeline
     checks["lab_no_span"] = lab_no_span
-    if last_age is not None and last_age > stale_sec:
+    checks["stale_threshold_sec"] = stale_sec
+
+    if last_traffic_age is not None and last_traffic_age > stale_sec:
         stale_msg = (
-            f"Último evento en EVE hace {int(last_age // 60)} min (> {stale_sec // 60} min) — "
-            "revisar espejo SPAN, cable de la NIC mirror (Hunter) o red sin tráfico"
+            f"Sin tráfico reciente en eve.json hace {int(last_traffic_age // 60)} min "
+            f"(> {stale_sec // 60} min) — revisar espejo SPAN, cable NIC mirror (Hunter) o Suricata"
         )
         if lab_no_span:
             warnings.append(stale_msg + " (lab sin SPAN — esperado)")
         else:
             issues.append(stale_msg)
-    elif last_age is None and checks.get("eve_log_exists"):
-        eve_size = os.path.getsize(eve_path) if eve_path else 0
-        if eve_size > 0:
-            warnings.append("No se pudo parsear timestamp en la cola del log — revisar formato")
+    elif last_traffic_age is None and checks.get("eve_traffic_log_exists"):
+        traffic_size = os.path.getsize(traffic_path) if traffic_path else 0
+        if traffic_size > 0:
+            warnings.append("No se pudo parsear timestamp en eve.json — revisar formato")
         elif lab_no_span and suricata == "active":
-            warnings.append("Log EVE sin alertas — lab sin espejo SPAN (normal)")
+            warnings.append("eve.json vacío — lab sin espejo SPAN (normal)")
+
+    alert_stale_sec = int(
+        os.environ.get("HUNTER_PIPELINE_ALERT_STALE_SEC", str(max(stale_sec * 4, 3600)))
+    )
+    checks["alert_stale_threshold_sec"] = alert_stale_sec
+    if (
+        last_alert_age is not None
+        and last_traffic_age is not None
+        and last_traffic_age <= stale_sec
+        and last_alert_age > alert_stale_sec
+    ):
+        warnings.append(
+            f"Sin alertas IDS en eve-alerts hace {int(last_alert_age // 60)} min "
+            f"(tráfico espejo OK) — habitual de noche en WAN"
+        )
 
     overall_ok = len(issues) == 0
-    checks["stale_threshold_sec"] = stale_sec
     all_notes = issues + warnings
     return {
         "success": True,

@@ -1307,7 +1307,10 @@ def _b2_list_snapshots_blocking() -> dict:
         if r.returncode != 0:
             return {"success": False, "message": (r.stderr or r.stdout)[:400], "snapshots": []}
         snaps = _json.loads(r.stdout or "[]") or []
-        return {"success": True, "snapshots": snaps, "repo": b2_repo}
+        if not isinstance(snaps, list):
+            snaps = []
+        snaps.sort(key=lambda s: s.get("time") or "", reverse=True)
+        return {"success": True, "snapshots": snaps, "count": len(snaps), "repo": b2_repo}
     except subprocess.TimeoutExpired:
         return {"success": False, "message": "Timeout al conectar con B2.", "snapshots": []}
     except Exception as e:

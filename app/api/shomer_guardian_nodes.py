@@ -24,6 +24,7 @@ from app.api.shomer_common import (
 from app.api.shomer_guardian_health_checks import (
     DEGRADED_NOTIFY_KEY_PREFIX,
     DEGRADED_STREAK_KEY_PREFIX,
+    OFFLINE_STREAK_KEY_PREFIX,
     _get_health_config,
     _ping_metrics,
     _snmp_health_probes,
@@ -123,6 +124,47 @@ def _update_infra_nodes(results: List[Dict[str, Any]]) -> None:
             return
 
 
+def _sync_devices_status_from_infra_nodes() -> None:
+    """Refleja infra_nodes → devices.status para APs (inventario Guardian, no el poller)."""
+    import sqlite3
+    import time as _time
+
+    for attempt in range(4):
+        try:
+            with get_db() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT n.ip_address, n.status, n.latency_ms
+                    FROM infra_nodes n
+                    INNER JOIN devices d ON d.ip_address = n.ip_address
+                        AND d.is_active = 1 AND d.device_type = 'access_point'
+                    """
+                ).fetchall()
+                for r in rows:
+                    lat = r["latency_ms"]
+                    conn.execute(
+                        "UPDATE devices SET status = ?, latency_ms = ?, "
+                        "updated_at = datetime('now') WHERE ip_address = ? "
+                        "AND device_type = 'access_point'",
+                        (
+                            r["status"] or "unknown",
+                            int(round(lat)) if lat is not None else None,
+                            r["ip_address"],
+                        ),
+                    )
+                conn.commit()
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 3:
+                _time.sleep(0.15 * (attempt + 1))
+                continue
+            logger.warning("sync_devices_status_from_infra_nodes: %s", e)
+            return
+        except Exception as e:
+            logger.warning("sync_devices_status_from_infra_nodes: %s", e)
+            return
+
+
 def _get_redis_guardian_client():
     """Cliente Redis para el poller Guardian (timeouts acotados)."""
     if not REDIS_AVAILABLE or redis_lib is None:
@@ -162,7 +204,7 @@ def _cleanup_orphan_guardian_keys(r, all_ips: set) -> None:
             if ip not in all_ips:
                 for prefix in (
                     "status:", "failures:", "last_reboot:", "node_maintenance:",
-                    "degraded_notified:", "degraded_streak:",
+                    "degraded_notified:", "degraded_streak:", "offline_streak:",
                 ):
                     r.delete(f"{prefix}{ip}")
     except Exception:
@@ -178,6 +220,7 @@ def _batch_read_redis_state(r, ips: List[str]) -> Dict[str, Any]:
         pipe.get(f"status:{ip}")
         pipe.get(f"{FAILURES_KEY_PREFIX}{ip}")
         pipe.get(f"{DEGRADED_STREAK_KEY_PREFIX}{ip}")
+        pipe.get(f"{OFFLINE_STREAK_KEY_PREFIX}{ip}")
         pipe.get(f"{DEGRADED_NOTIFY_KEY_PREFIX}{ip}")
         pipe.get(f"{NODE_MAINTENANCE_PREFIX}{ip}")
         pipe.get(f"{LAST_REBOOT_KEY_PREFIX}{ip}")
@@ -190,11 +233,12 @@ def _batch_read_redis_state(r, ips: List[str]) -> Dict[str, Any]:
             "status": raw[idx] or "unknown",
             "failures": int(raw[idx + 1] or 0),
             "streak": int(raw[idx + 2] or 0),
-            "notify": raw[idx + 3],
-            "node_maint": raw[idx + 4] == "1",
-            "last_reboot": raw[idx + 5],
+            "offline_streak": int(raw[idx + 3] or 0),
+            "notify": raw[idx + 4],
+            "node_maint": raw[idx + 5] == "1",
+            "last_reboot": raw[idx + 6],
         }
-        idx += 6
+        idx += 7
     return {"global_maintenance": raw[idx] == "1", "per_ip": per_ip}
 
 
@@ -321,6 +365,7 @@ def _build_node_outcome(
 
     fail_key = f"{FAILURES_KEY_PREFIX}{ip}"
     streak_key = f"{DEGRADED_STREAK_KEY_PREFIX}{ip}"
+    offline_streak_key = f"{OFFLINE_STREAK_KEY_PREFIX}{ip}"
     status_key = f"status:{ip}"
 
     if status_label == "online":
@@ -330,6 +375,7 @@ def _build_node_outcome(
             ("set", status_key, "online"),
             ("delete", fail_key),
             ("delete", streak_key),
+            ("delete", offline_streak_key),
         ])
         outcome["tick_result"] = {"ip": ip, "status": "online", "latency_ms": lat_ms}
         return outcome
@@ -359,13 +405,32 @@ def _build_node_outcome(
         outcome["tick_result"] = {"ip": ip, "status": "degraded", "latency_ms": lat_ms}
         return outcome
 
-    if prev_redis != status_label:
-        _event(prev_redis, status_label, reason)
-    outcome["redis_ops"].extend([
-        ("set", status_key, status_label),
-        ("delete", streak_key),
-    ])
-    outcome["tick_result"] = {"ip": ip, "status": status_label, "latency_ms": lat_ms}
+    if status_label == "offline":
+        new_offline_streak = int(redis_snap.get("offline_streak") or 0) + 1
+        outcome["redis_ops"].append(("set", offline_streak_key, str(new_offline_streak)))
+        outcome["redis_ops"].append(("expire", offline_streak_key, max(cooldown, 60)))
+        offline_persist = int(health_cfg.get("offline_persist_ticks") or 3)
+        if new_offline_streak < offline_persist:
+            prev = redis_snap.get("status") or "online"
+            outcome["redis_ops"].append(("delete", streak_key))
+            outcome["tick_result"] = {"ip": ip, "status": prev, "latency_ms": lat_ms}
+        else:
+            if prev_redis != "offline":
+                _event(prev_redis, "offline", reason)
+            outcome["redis_ops"].extend([
+                ("set", status_key, "offline"),
+                ("delete", streak_key),
+            ])
+            outcome["tick_result"] = {"ip": ip, "status": "offline", "latency_ms": lat_ms}
+    else:
+        if prev_redis != status_label:
+            _event(prev_redis, status_label, reason)
+        outcome["redis_ops"].extend([
+            ("set", status_key, status_label),
+            ("delete", streak_key),
+            ("delete", offline_streak_key),
+        ])
+        outcome["tick_result"] = {"ip": ip, "status": status_label, "latency_ms": lat_ms}
 
     if global_maint or redis_snap.get("node_maint") or host_network_blip:
         return outcome
@@ -413,6 +478,7 @@ def _persist_guardian_tick(
         conn.commit()
 
     _update_infra_nodes(tick_results)
+    _sync_devices_status_from_infra_nodes()
 
     pipe = r.pipeline()
     for oc in outcomes:

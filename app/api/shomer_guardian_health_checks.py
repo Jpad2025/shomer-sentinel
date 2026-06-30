@@ -32,11 +32,13 @@ logger = logging.getLogger(__name__)
 
 DEGRADED_NOTIFY_KEY_PREFIX = "degraded_notified:"
 DEGRADED_STREAK_KEY_PREFIX = "degraded_streak:"
+OFFLINE_STREAK_KEY_PREFIX = "offline_streak:"
 
 _PING_COUNT_DEFAULT = int(os.environ.get("SHOMER_PING_COUNT", "3"))
 _PING_LOSS_DEGRADED_PCT = int(os.environ.get("SHOMER_PING_LOSS_DEGRADED_PCT", "60"))
 _PING_RTT_DEGRADED_MS = int(os.environ.get("SHOMER_PING_RTT_DEGRADED_MS", "400"))
 _DEGRADED_PERSIST_TICKS = int(os.environ.get("SHOMER_DEGRADED_PERSIST_TICKS", "3"))
+_OFFLINE_PERSIST_TICKS = int(os.environ.get("SHOMER_OFFLINE_PERSIST_TICKS", "3"))
 _DEGRADED_ALERT_COOLDOWN_SEC = int(os.environ.get("SHOMER_DEGRADED_ALERT_COOLDOWN_SEC", "1800"))
 _HTTP_PROBE_URL = os.environ.get(
     "SHOMER_HTTP_PROBE_URL", "http://connectivitycheck.gstatic.com/generate_204"
@@ -85,6 +87,9 @@ def _get_health_config() -> Dict[str, Any]:
         ),
             "degraded_persist_ticks": _cfg_int(
                 "guardian.degraded_persist_ticks", _DEGRADED_PERSIST_TICKS
+            ),
+            "offline_persist_ticks": _cfg_int(
+                "guardian.offline_persist_ticks", _OFFLINE_PERSIST_TICKS
             ),
             "degraded_alert_cooldown_sec": _cfg_int(
                 "guardian.degraded_alert_cooldown_sec", _DEGRADED_ALERT_COOLDOWN_SEC

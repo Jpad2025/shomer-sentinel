@@ -1,7 +1,8 @@
 """
 Inframonitor standalone poller — proceso independiente controlado por systemd.
 Importa la lógica de shomer_inframonitor sin levantar FastAPI.
-Permite separar el ciclo de polling de los workers uvicorn.
+Capa rápida (ping/tcp/mac) cada INFRA_FAST_POLL_INTERVAL_SEC;
+SNMP en proceso paralelo cada INFRA_SNMP_POLL_INTERVAL_SEC.
 """
 import asyncio
 import logging
@@ -33,26 +34,54 @@ async def main() -> None:
 
     from app.api.shomer_inframonitor import (
         _init_tables,
-        _poll_once,
+        _poll_fast_once,
+        _poll_snmp_once,
         _sync_guardian_aps,
-        POLL_INTERVAL_SEC,
+        FAST_POLL_INTERVAL_SEC,
+        SNMP_POLL_INTERVAL_SEC,
     )
 
-    logger.info("Inframonitor standalone poller arrancando (intervalo %ss)", POLL_INTERVAL_SEC)
+    logger.info(
+        "Inframonitor standalone poller arrancando (fast=%ss snmp=%ss)",
+        FAST_POLL_INTERVAL_SEC, SNMP_POLL_INTERVAL_SEC,
+    )
     _init_tables()
 
-    while not _stop_event.is_set():
-        t0 = loop.time()
+    async def _fast_loop():
+        while not _stop_event.is_set():
+            t0 = loop.time()
+            try:
+                _sync_guardian_aps()
+                await _poll_fast_once()
+            except Exception as exc:
+                logger.error("Error en ciclo fast: %s", exc)
+            elapsed = loop.time() - t0
+            wait = max(0.1, FAST_POLL_INTERVAL_SEC - elapsed)
+            try:
+                await asyncio.wait_for(_stop_event.wait(), timeout=wait)
+            except asyncio.TimeoutError:
+                pass
+
+    async def _snmp_loop():
+        while not _stop_event.is_set():
+            try:
+                await _poll_snmp_once()
+            except Exception as exc:
+                logger.error("Error en ciclo snmp: %s", exc)
+            try:
+                await asyncio.wait_for(_stop_event.wait(), timeout=SNMP_POLL_INTERVAL_SEC)
+            except asyncio.TimeoutError:
+                pass
+
+    fast_task = asyncio.create_task(_fast_loop())
+    snmp_task = asyncio.create_task(_snmp_loop())
+    await _stop_event.wait()
+    fast_task.cancel()
+    snmp_task.cancel()
+    for t in (fast_task, snmp_task):
         try:
-            _sync_guardian_aps()
-            await _poll_once()
-        except Exception as exc:
-            logger.error("Error en ciclo de poll: %s", exc)
-        elapsed = loop.time() - t0
-        wait = max(0.1, POLL_INTERVAL_SEC - elapsed)
-        try:
-            await asyncio.wait_for(_stop_event.wait(), timeout=wait)
-        except asyncio.TimeoutError:
+            await t
+        except asyncio.CancelledError:
             pass
 
     logger.info("Inframonitor standalone poller detenido")

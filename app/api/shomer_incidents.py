@@ -61,6 +61,69 @@ def _init_table():
 # Public API — llamado desde casador_blocking.py
 # ──────────────────────────────────────────────
 
+def close_incidents_on_unblock(
+    ip: str,
+    closed_by: str,
+    *,
+    incident_id: Optional[int] = None,
+    notes: str = "",
+) -> int:
+    """Cierra incidente(s) al desbloquear una IP. Retorna cantidad cerrada."""
+    _init_table()
+    now = datetime.now(timezone.utc).isoformat()
+    note = (notes or "IP desbloqueada — falso positivo").strip()
+    closed = 0
+    try:
+        with get_db() as conn:
+            if incident_id is not None:
+                row = conn.execute(
+                    "SELECT status FROM incidents WHERE id = ? AND ip = ?",
+                    (incident_id, ip),
+                ).fetchone()
+                if row and row["status"] != STATUS_CLOSED:
+                    conn.execute(
+                        """UPDATE incidents SET status=?, closed_at=?, closed_by=?,
+                           ack_at=COALESCE(ack_at, ?), ack_by=COALESCE(ack_by, ?),
+                           notes=CASE WHEN notes='' THEN ? ELSE notes||' | '||? END
+                           WHERE id=?""",
+                        (
+                            STATUS_CLOSED,
+                            now,
+                            closed_by,
+                            now,
+                            closed_by,
+                            note,
+                            note,
+                            incident_id,
+                        ),
+                    )
+                    closed = 1
+            else:
+                cur = conn.execute(
+                    """UPDATE incidents SET status=?, closed_at=?, closed_by=?,
+                       ack_at=COALESCE(ack_at, ?), ack_by=COALESCE(ack_by, ?),
+                       notes=CASE WHEN notes='' THEN ? ELSE notes||' | '||? END
+                       WHERE ip=? AND status IN (?, ?)""",
+                    (
+                        STATUS_CLOSED,
+                        now,
+                        closed_by,
+                        now,
+                        closed_by,
+                        note,
+                        note,
+                        ip,
+                        STATUS_OPEN,
+                        STATUS_ACK,
+                    ),
+                )
+                closed = cur.rowcount
+            conn.commit()
+    except Exception as e:
+        logger.error("close_incidents_on_unblock error (ip=%s): %s", ip, e)
+    return closed
+
+
 def create_incident(
     ip: str,
     alert_signature: str,

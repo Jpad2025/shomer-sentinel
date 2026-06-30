@@ -157,13 +157,18 @@ async def evaluate_host_network_blip_async(
         return False, set()
 
     offline_count = sum(1 for s in cycle_status.values() if s == "offline")
+    loss_display = (
+        f"{gw2_loss:.0f}%"
+        if gw2_loss is not None
+        else "—"
+    )
     logger.warning(
-        "%s: host_network_blip confirmado — gateway %s (%s, loss=%.0f%%, rtt=%s) y "
+        "%s: host_network_blip confirmado — gateway %s (%s, loss=%s, rtt=%s) y "
         "%d/%d equipos offline en el mismo ciclo. Se omiten %d transiciones offline.",
         log_prefix,
         gateway_ip,
         gw2_status,
-        gw2_loss,
+        loss_display,
         f"{gw2_rtt:.0f}ms" if gw2_rtt is not None else "—",
         offline_count,
         total_devices,

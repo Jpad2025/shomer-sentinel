@@ -258,6 +258,35 @@ tr:last-child td { border-bottom:none; }
     return Math.floor(diff/3600) + 'h ' + Math.floor((diff%3600)/60) + 'm';
   }
 
+  function formatPrinterPaper(p, detailed) {
+    if (!p) return detailed ? '—' : '';
+    const trays = p.paper_trays || [];
+    if (p.paper_ok === true && trays.length > 1) {
+      const okN = trays.filter(t => t.state === 'ok' || t.state === 'low').length;
+      const short = `📄 ${okN}/${trays.length} band.`;
+      if (!detailed) return `<span style="font-size:10px;color:#4ade80;margin-left:4px;" title="Papel OK en al menos una bandeja">${short}</span>`;
+      const rows = trays.map(t => {
+        const lbl = `Bandeja ${t.index}`;
+        if (t.state === 'ok' && t.level_raw < 0) return `${lbl}: con papel`;
+        if (t.state === 'ok' || t.state === 'low') return `${lbl}: ${t.current != null ? t.current : '?'}/${t.max || '?'} hojas`;
+        if (t.state === 'empty') return `${lbl}: vacía`;
+        return `${lbl}: sin dato`;
+      }).join('<br>');
+      return `<span style="color:var(--online);">Papel OK</span><div style="font-size:11px;color:var(--muted);margin-top:4px;">${rows}</div>`;
+    }
+    if (p.paper_low) {
+      if (!detailed) return `<span style="font-size:10px;color:#f87171;margin-left:4px;" title="Sin papel">📄 bajo</span>`;
+      return '<span style="color:var(--offline)">Sin papel en bandejas</span>';
+    }
+    if (p.paper_max && p.paper_current != null) {
+      const pct = Math.round(p.paper_current / p.paper_max * 100);
+      const col = pct < 15 ? 'var(--offline)' : pct < 30 ? '#f59e0b' : 'var(--online)';
+      if (!detailed) return `<span style="font-size:10px;color:#94a3b8;margin-left:4px;" title="Papel">📄 ${pct}%</span>`;
+      return `<span style="color:${col}">${pct}% (${p.paper_current}/${p.paper_max} hojas)</span>`;
+    }
+    return detailed ? '—' : '';
+  }
+
   function uptimeBadge(pct, outages) {
     let out = '';
     if (pct == null) {
@@ -370,8 +399,7 @@ tr:last-child td { border-bottom:none; }
         const tPct = p.toner_pct;
         const tColor = tPct === null || tPct === undefined ? '#94a3b8' : tPct < 10 ? '#f87171' : tPct < 25 ? '#fb923c' : '#4ade80';
         const tStr = tPct !== null && tPct !== undefined ? `<span style="font-size:10px;font-weight:700;color:${tColor};margin-left:6px;" title="Tóner">🖨️ ${tPct}%</span>` : '';
-        const pPct = (p.paper_max && p.paper_current !== null && p.paper_current !== undefined) ? Math.round(p.paper_current / p.paper_max * 100) : null;
-        const pStr = pPct !== null ? `<span style="font-size:10px;color:#94a3b8;margin-left:4px;" title="Papel">📄 ${pPct}%</span>` : '';
+        const pStr = formatPrinterPaper(p, false);
         printerInline = `<div style="margin-top:2px;font-size:10px;">${stIco} <span style="color:var(--muted);">${stLbl}</span>${tStr}${pStr}</div>`;
       }
 
@@ -701,18 +729,7 @@ tr:last-child td { border-bottom:none; }
       const tonerColor  = p.toner_pct === null ? 'var(--muted)' : p.toner_pct < 15 ? 'var(--offline)' : p.toner_pct < 30 ? '#f59e0b' : 'var(--online)';
       const tonerVal    = p.toner_pct === null ? '—' : p.toner_pct + '%';
 
-      let paperHtml = '—';
-      if (p.paper_current !== null) {
-        if (p.paper_max && p.paper_max > 0) {
-          const pct = Math.round((p.paper_current / p.paper_max) * 100);
-          const pColor = pct < 15 ? 'var(--offline)' : pct < 30 ? '#f59e0b' : 'var(--online)';
-          paperHtml = `<span style="color:${pColor}">${pct}% (${p.paper_current}/${p.paper_max} hojas)</span>`;
-        } else {
-          paperHtml = p.paper_current === 0
-            ? '<span style="color:var(--offline)">Bandeja vacía o sin sensor</span>'
-            : `${p.paper_current} hojas`;
-        }
-      }
+      let paperHtml = formatPrinterPaper(p, true);
 
       html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;">
         <div style="font-size:11px;font-weight:700;color:var(--cyan);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Estado impresora</div>

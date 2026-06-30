@@ -368,7 +368,26 @@ async def unblock_ip(body: Dict[str, Any] = Body(...), user=Depends(get_current_
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {"success": True, "message": msg, "ip": ip, "firewall_ok": ok}
+    incidents_closed = 0
+    try:
+        from app.api.shomer_incidents import close_incidents_on_unblock
+
+        raw_id = body.get("incident_id")
+        incident_id = int(raw_id) if raw_id is not None and str(raw_id).strip() else None
+        incidents_closed = close_incidents_on_unblock(
+            ip,
+            user.get("username", "?"),
+            incident_id=incident_id,
+            notes="Desbloqueo manual desde panel",
+        )
+    except Exception as _ci_err:
+        _log.warning("close_incidents_on_unblock failed (ip=%s): %s", ip, _ci_err)
+
+    out = {"success": True, "message": msg, "ip": ip, "firewall_ok": ok}
+    if incidents_closed:
+        out["incidents_closed"] = incidents_closed
+        out["message"] = f"{msg} — {incidents_closed} incidente(s) cerrado(s)"
+    return out
 
 
 @router.get("/blocked")

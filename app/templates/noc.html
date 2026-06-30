@@ -1067,12 +1067,14 @@ function renderInfraSections(devices) {
         }
         // Papel LED
         if (pr) {
-          const noPaper = pr.paper_current === 0;
-          const lowPaper = pr.paper_current != null && pr.paper_max != null && pr.paper_max > 0
-                           && (pr.paper_current / pr.paper_max) < 0.15;
+          const noPaper = pr.paper_low === true
+            || (pr.paper_low == null && pr.paper_current === 0 && pr.paper_ok !== true);
+          const lowPaper = !noPaper && pr.paper_ok !== true
+            && pr.paper_current != null && pr.paper_max != null && pr.paper_max > 0
+            && (pr.paper_current / pr.paper_max) < 0.15;
           leds += noPaper  ? '<span class="led led-alert">⚠ SIN PAPEL</span>'
                : lowPaper  ? `<span class="led led-warn">PAPEL BAJO</span>`
-               : pr.paper_current != null ? '<span class="led led-ok">PAPEL OK</span>' : '';
+               : (pr.paper_ok || pr.paper_current != null) ? '<span class="led led-ok">PAPEL OK</span>' : '';
         }
         // SNMP LED (última)
         leds += dev.snmp_ok === 1 ? '<span class="led led-ok">SNMP ✓</span>'

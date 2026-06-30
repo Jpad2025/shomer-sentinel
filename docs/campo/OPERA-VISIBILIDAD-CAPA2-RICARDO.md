@@ -1,9 +1,9 @@
 # Hotel Ópera — Visibilidad de red (Capa 2/3)  
-## Guía para Ricardo Romero — acciones en sitio
+## Guía para Ricardo Gómez — acciones en sitio
 
 **Documento:** USB Ingeniería / Shomer Sentinel  
 **Fecha:** 13 jun 2026  
-**Para:** Ricardo Romero (soporte en hotel)  
+**Para:** Ricardo Gómez (soporte en hotel)  
 **Contacto USB:** Juan Pablo  
 **Sitio:** Hotel Ópera — Shomer `192.168.0.250` — panel `https://192.168.0.250:8443`
 
