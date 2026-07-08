@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 30 jun 2026 (Sesión 62 — Estabilización Ópera post-§BC: Fase 3 perfiles `monitor_profile` + APs fuera del ping Infra ✅ §BD.3; poller CPUQuota 100% + workers auto-escala ✅ §BD.2; sync `devices.status` desde `infra_nodes` ✅ §BD.4; bot `WATCH_INFRA_INTERVAL_SEC=60`, `INFRA_SNMP_PORT_ALERTS=1`, etiquetado `memoria_alertas` por monitor ✅ §BD.5–§BD.6; predictivo `tendencia` + `ia_diagnostico` OpenAI ✅ §BD.5; histórico `monitor='bot'` sin migrar ✅ §BD.6. Sesión 61 previa: ping 3 paquetes + `degraded` ✅ §BC) · Idioma: español técnico claro · Origen código: `/opt/network_monitor/` + agente `/storage/shomer-agent/`
+**Última unificación:** 8 jul 2026 (Sesión 66 §BI — host health blips/RX dropped, VPN solo conexiones, auditoría estado; Sesión 65 §BH Pulse; Sesión 64 §BF) · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -4904,3 +4904,238 @@ Gateway y demás switches responden OK — **revisión física pendiente**.
 - Revisión física 4 equipos offline (§BE.8)
 - Cerrar incidentes viejos abiertos vía Desbloquear (tras fix §BE.4)
 - Histórico `memoria_alertas` con `monitor='bot'` no migrado (§BD.6)
+
+---
+
+# Sesión 64 — 2 jul 2026 (Hotel Ópera) — §BF
+
+## BF.1 Hunter — mensajes legibles para técnicos
+
+Nuevo módulo `app/api/hunter_signature_labels.py` (+ `core/hunter_labels.py` en agente).
+
+Traduce firmas Suricata/ET a español en Telegram, panel Hunter, incidentes y bot `watch_hunter`:
+
+| Firma técnica (ejemplo) | Mensaje humano |
+|-------------------------|----------------|
+| `ET CINS … Poor Reputation` | IP con mala reputación (lista CINS) |
+| `ET DROP Dshield` | IP en lista negra DShield |
+| `ET DROP Spamhaus` | IP en lista Spamhaus DROP |
+| `ET P2P eMule` | Tráfico P2P sospechoso |
+
+Cada alerta incluye: qué significa, nivel de riesgo, acción para el técnico, regla técnica al final.
+
+**Archivos:** `casador_blocking.py`, `casador_support_hunter_recurrence.py`, `shomer_incidents.py`, `hunter.html`, `incidents.html`, `core/monitor.py`
+
+## BF.2 Documento revisión en sitio
+
+`docs/campo/REVISION-EN-SITIO-OPERA.md` — checklist vivo para Cristian/Ricardo:
+
+- Offline crónicos, flapping, microcorte 13:07
+- Investigación blips Shomer (sin fix software)
+- Mensaje Telegram listo para copiar
+- Tabla historial de visitas
+
+## BF.3 Investigación `host_network_blip` — sin fix (pendiente causa raíz)
+
+**Contexto:** huéspedes y servicios del hotel **no reportaron falla de internet**. Gateway `192.168.0.1` responde bien entre eventos. Shomer a veces pierde visibilidad LAN.
+
+### Dos fenómenos distintos
+
+| Tipo | Cuándo | Guardian | Infra | Telegram masivo |
+|------|--------|----------|-------|-----------------|
+| **A — Blip Shomer** | Madrugada (ej. 06:32–06:37) | No oleada | Sí, `host_network_blip` | No (supresor OK) |
+| **B — Microcorte real** | Mediodía (13:07–13:14) | Sí, muchos APs | Sí, switches/impresoras | Sí |
+
+No confundir A con B. Solo B afectó usuarios potencialmente.
+
+### Evidencia tipo A (blip Shomer — 2 jul)
+
+| Dato | Valor |
+|------|-------|
+| Blips 7 días | **131** eventos |
+| Patrón | Ráfagas de **~3 ciclos** (poll cada 30 s ≈ 90 s) |
+| Guardian 06:00–08:00 | **0** eventos masivos |
+| Ping normal | **~1,3–3,5 s** (22 equipos) |
+| Ping en blip | **~10–11,3 s** — firma de **timeout ICMP total** (`_ping` timeout 9 s + overhead) |
+| Transición | 06:31:34 ping OK (1370 ms) → 06:32:11 blip en **37 s** — corte brusco, no degradación lenta |
+| Recheck blip | 300 ms — gateway a veces recupera en el recheck (falso positivo de duración sub-segundo) |
+
+### Evidencia hardware Shomer
+
+| Dato | Valor |
+|------|-------|
+| NIC gestión | `eno1` — link 1000/full, **sin errores RX/TX** |
+| RX dropped acumulado | **~12 M** paquetes — investigar tasa (no solo total lifetime) |
+| RX missed | 773 (bajo) |
+| ARP gateway | `REACHABLE` vía `eno1` |
+
+### Hipótesis ordenadas (sin confirmar)
+
+1. **Cable o puerto del switch** donde está Shomer (`.250`) — más probable para tipo A
+2. **Buffer/NIC `eno1`** bajo ráfaga ICMP (22 hosts × 3 paquetes cada 30 s)
+3. **Microcortes LAN admin muy breves** que solo el poller Infra captura (< tick Guardian)
+4. **Descartada como causa principal:** WAN/MikroTik caído (huéspedes OK, gateway OK entre blips)
+
+### Qué NO hacer hasta confirmar
+
+- No bajar umbrales del supresor de blips
+- No silenciar logs `host_network_blip`
+- No cambiar `INFRA_FAST_POLL_INTERVAL_SEC` ni timeouts de ping sin evidencia
+
+### Próximos pasos investigación
+
+- [ ] Campo: cable + puerto switch de Shomer (checklist en `REVISION-EN-SITIO-OPERA.md`)
+- [ ] USB: registrar `RX dropped` en `eno1` cada 24 h (delta, no acumulado)
+- [ ] USB: `mtr 192.168.0.1` 24 h desde Shomer (opcional)
+- [ ] Correlacionar si blips coinciden con tareas pesadas en Shomer (backups, scans)
+
+**Estado:** investigación abierta — **sin fix software aplicado**.
+
+## BF.4 VPN MikroTik — mensajes informativos (no alerta de enlace)
+
+Puertos OpenVPN (`ovpn-sistemas`, etc.) usados por USB Ingeniería: Telegram **solo conexiones** desde sesión 66 (`INFRA_VPN_ALERT_DISCONNECT=0`). Puertos físicos `ether*` y switches mantienen alertas de enlace. Ver `monitor.py` `watch_infra_vpn`.
+
+## BF.5 Pendientes sesión 64–66 (cerrar sync)
+
+- [ ] Sync sesiones 64–66 → `.205` / GitHub / deploy estándar (lab online 8 jul)
+- [ ] Rotar token Telegram (expuesto en sesión antigua)
+
+---
+
+# Sesión 65 — 8 jul 2026 — §BH — Shomer Pulse en producción Ópera
+
+## BH.1 Entregado (software — producto multi-cliente)
+
+| Mejora | Estado |
+|--------|--------|
+| Pulse Correlate — oleada LAN, blip Shomer, recuperación oleada | ✅ |
+| Pulse EWMA — `infra_pulse`, alerta degradando | ✅ `INFRA_PULSE_ENABLED=1` |
+| IA diagnóstico — cooldown 6 h por equipo | ✅ |
+| Debounce puertos SNMP — 2 polls | ✅ |
+| `watch_infra_pulse` monitor | ✅ |
+
+## BH.2 Pendientes activos post-sesión 65
+
+Ver listado maestro en `SITE.md` §Pendientes activos (8 jul 2026).
+
+---
+
+# Sesión 66 — 8 jul 2026 — §BI — Salud host + VPN + auditoría estado
+
+## BI.1 Entregado (software)
+
+| Mejora | Estado |
+|--------|--------|
+| `shomer_host_health.py` — blips en SQLite + muestras NIC | ✅ |
+| Resumen diario 07:00 — visibilidad blips + RX dropped `eno1` | ✅ |
+| API `GET /api/host-health/daily` | ✅ |
+| VPN Telegram solo conexiones (`INFRA_VPN_ALERT_DISCONNECT=0`) | ✅ |
+
+## BI.2 Estado Ópera verificado (8 jul ~12:35 COT)
+
+| Métrica | Valor |
+|---------|-------|
+| Infra activos | 50 online / 2 offline (`.148`, `.243`) |
+| Guardian APs | 29 online / 1 offline |
+| Offline crónico extra | IMP Recepción `.57` (inactive Infra, offline desde 10 jun) |
+| Pulse degradando | IMP SCOCINA `.58` (71 ticks) |
+| Blips poller | 3 / 24 h · 56 / 7 días |
+| Telegram 3 días | 138 msgs |
+| Switch `.168` GE49 | ~95.534 `in_errors` |
+
+## BI.3 Pendientes activos
+
+Ver `SITE.md` y `docs/campo/REVISION-EN-SITIO-OPERA.md` (actualizados 8 jul 2026).
+
+---
+
+# Parte BG — Shomer Pulse — capa predictiva Infra
+
+**Nombre producto:** **Shomer Pulse** — **Correlate** (oleadas/blip) ✅ + **EWMA** (latencia predictiva) ✅  
+**Objetivo:** detectar deterioro de red **antes** del offline; complementa polling ICMP, `degraded`, `host_network_blip` y `tendencia` en `knowledge.db`.  
+**Alcance:** código universal multi-cliente; activación `INFRA_PULSE_ENABLED` / `infra.pulse.enabled`. Sin lógica por sitio.
+
+## BG.1 Contexto vs estado actual
+
+| Capacidad | Hoy | Con Pulse EWMA |
+|-----------|-----|----------------|
+| Latencia instantánea | `infra_status.latency_ms` cada poll ~30 s | Igual + serie EWMA |
+| Degradación | `degraded` si pérdida ICMP ≥ `INFRA_PING_LOSS_DEGRADED_PCT` (60%) | Alerta **degradando** si EWMA sube N polls (equipo aún `online`) |
+| Predictivo | `pattern_analysis.tendencia` — caídas semana vs semana (post-incidente) | EWMA en tiempo real (~5 polls ≈ 2,5 min) |
+| Correlación oleadas | `batch_id`, `status_events`, `correlate_outage_to_switches()` | Fase 2 Pulse (ver BG.4) — topología `network_links` hoy vacía en Ópera |
+
+## BG.2 Pulse EWMA — diseño acordado (MVP)
+
+**Módulo nuevo:** `app/api/shomer_infra_pulse.py`  
+**Tabla nueva:** `infra_pulse` en `network_monitor.db`:
+
+```sql
+CREATE TABLE IF NOT EXISTS infra_pulse (
+    ip                  TEXT PRIMARY KEY,
+    ewma_latency_ms     REAL,
+    ewma_loss_pct       REAL,
+    baseline_latency_ms REAL,
+    degrade_ticks       INTEGER DEFAULT 0,
+    pulse_state         TEXT DEFAULT 'stable',  -- stable | degrading | recovered
+    last_alert_at       TEXT,
+    updated_at          TEXT DEFAULT (datetime('now'))
+);
+```
+
+**Estados Pulse:** `stable` → `degrading` (N polls) → `recovered` → `stable`.  
+**Regla MVP:** Pulse **no cambia** `infra_status.status` al inicio — solo enriquece alertas y Redis `infra:{ip}:pulse`.
+
+**Fórmula:** `ewma = alpha * sample + (1 - alpha) * prev` (~5 líneas Python).
+
+**Config por sitio (env / `get_config`):**
+
+| Clave | Default | Ópera piloto |
+|-------|---------|--------------|
+| `INFRA_PULSE_ENABLED` | `0` | `1` |
+| `INFRA_PULSE_ALPHA` | `0.25` | `0.25` |
+| `INFRA_PULSE_LATENCY_FACTOR` | `1.5` | `1.4` |
+| `INFRA_PULSE_PERSIST_TICKS` | `5` | `6` |
+| `INFRA_PULSE_ALERT_COOLDOWN_SEC` | `1800` | `1800` |
+| `INFRA_PULSE_TIMEOUT_MS` | `9000` | `9000` |
+
+**Enganche:** `shomer_inframonitor.py` — bucle fast poll, post-`_ping`, pre-`pending_rows`.  
+**Telegram:** `storage/shomer-agent/core/monitor.py` — alerta suave “⚠️ Pulse — {equipo} degradando” con cooldown; respetar supresor blip; **no** `ia_diagnostico` en cada pulse.  
+**Opcional MVP+:** sincronizar `patrones_detectados.tendencia = 'degradando'` para reutilizar `alert_suffix()` en bot.
+
+## BG.3 Checklist implementación Pulse (producto multi-cliente)
+
+- [x] **Fase 2a — Pulse Correlate** — `shomer_pulse_correlate.py` + Redis `infra:poll:context` / `blip_last`
+- [x] **Fase 2b** — `/infra/devices` expone `poll_context` + `last_blip` (cualquier sitio)
+- [x] **Fase 2c** — Agente `pulse_correlate.py`: oleada LAN (≥`PULSE_WAVE_MIN_DEVICES`), blip informativo, recuperación oleada
+- [x] **Fase 2d** — `watch_infra_pulse` monitor; IA diagnóstico con cooldown (`IA_DIAGNOSTICO_COOLDOWN_SEC`, default 6h)
+- [x] **Fase 2e** — Debounce puertos SNMP (`INFRA_SNMP_PORT_DEBOUNCE_POLLS`, default 2)
+- [x] **Fase 1 — Pulse EWMA** — `shomer_infra_pulse.py`, tabla `infra_pulse`, `INFRA_PULSE_ENABLED=1` Ópera
+- [ ] **Fase 3** — Syslog MikroTik
+- [ ] **Fase 6** — Panel badge Pulse en UI
+- [ ] **Fase 7** — Tuning multi-cliente post-piloto (2–3 días observación)
+- [ ] **Opcional** — Topología `network_links` + mensaje “switch padre” (UniFi API o mapa manual; **no** endurecer SNMP `public`)
+
+**Variables estándar (env, default OFF o conservador):**
+
+| Variable | Default | Rol |
+|----------|---------|-----|
+| `PULSE_WAVE_MIN_DEVICES` | `3` | Mínimo equipos para 1 Telegram oleada |
+| `PULSE_BLIP_INFORM_COOLDOWN_SEC` | `3600` | Máx. 1 aviso blip Shomer / hora |
+| `IA_DIAGNOSTICO_COOLDOWN_SEC` | `21600` | 1 diagnóstico IA / equipo / 6h |
+| `INFRA_SNMP_PORT_DEBOUNCE_POLLS` | `2` | Puertos SNMP: 2 polls antes de alertar |
+
+**Variables EWMA (env):**
+
+| Variable | Default | Ópera piloto |
+|----------|---------|--------------|
+| `INFRA_PULSE_ENABLED` | `0` | `1` |
+| `INFRA_PULSE_ALPHA` | `0.25` | `0.25` |
+| `INFRA_PULSE_LATENCY_FACTOR` | `1.5` | `1.4` |
+| `INFRA_PULSE_PERSIST_TICKS` | `5` | `6` (~3 min) |
+| `INFRA_PULSE_ALERT_COOLDOWN_SEC` | `1800` | `1800` |
+
+- [x] **Fase 1 — Pulse EWMA** — `shomer_infra_pulse.py`, `infra_pulse`, Telegram degradando
+
+**Estado BG:** Pulse Correlate + EWMA ✅ sesión 65 (8 jul 2026)
+
+## BG.4 Roadmap Pulse — fases posteriores (backlog producto)

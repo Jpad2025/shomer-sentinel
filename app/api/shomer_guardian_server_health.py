@@ -37,6 +37,10 @@ from fastapi import APIRouter, Depends
 from app.api.auth_api import get_current_user
 from app.api.shomer_common import get_config, get_db, get_redis
 from app.api.shomer_guardian_lib import send_telegram_safe
+from app.api.shomer_host_health import (
+    get_daily_health_summary,
+    maybe_sample_nic_counters,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Shomer Server Health"])
@@ -284,6 +288,10 @@ def _server_health_tick_sync(cfg: Dict[str, Any]) -> None:
 
     cpu, ram, temp = _get_server_metrics()
     _persist_server_metrics(cpu, ram, temp)
+    try:
+        maybe_sample_nic_counters()
+    except Exception:
+        pass
 
     if ram is not None and ram >= cfg["ram_alert_pct"] and r is not None:
         ram_alert_key = "shomer:ram_alert_sent"
@@ -418,6 +426,10 @@ async def _heartbeat_report_loop() -> None:
 def start_server_health_tasks() -> None:
     """Arranca las dos loops como background tasks del event loop actual."""
     global _server_health_task, _heartbeat_report_task
+    try:
+        maybe_sample_nic_counters(force=True)
+    except Exception:
+        pass
     loop = asyncio.get_event_loop()
     _server_health_task = loop.create_task(_server_health_loop())
     _heartbeat_report_task = loop.create_task(_heartbeat_report_loop())
@@ -489,6 +501,12 @@ async def get_disk_partitions(user=Depends(get_current_user)):
         except Exception:
             pass
     return {"success": True, "partitions": result}
+
+
+@router.get("/api/host-health/daily")
+async def host_health_daily(user=Depends(get_current_user)):
+    """Blips confirmados 24h + delta RX dropped en NIC de gestión."""
+    return get_daily_health_summary()
 
 
 @router.get("/api/wan-status")

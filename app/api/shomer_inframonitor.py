@@ -34,6 +34,15 @@ from app.api.shomer_common import (
 )
 from app.api.shomer_status_events import _context_snapshots, record_status_event
 from app.api.shomer_network_blip import evaluate_host_network_blip_async
+from app.api.shomer_pulse_correlate import read_last_blip, read_poll_context, write_poll_context
+from app.api.shomer_infra_pulse import (
+    ensure_pulse_table,
+    mark_pulse_alerted,
+    pulse_alert_due,
+    pulse_config,
+    pulse_enabled,
+    update_pulse,
+)
 from app.api.infra_monitor_profiles import (
     derive_liveness,
     enrich_device_row,
@@ -239,6 +248,8 @@ def _init_tables():
                 pass
         conn.commit()
         _backfill_monitor_profiles(conn)
+        ensure_pulse_table(conn)
+        conn.commit()
     _tables_ready = True
 
 
@@ -1117,6 +1128,8 @@ def _persist_poll_results(
 
     pending_rows: List[dict] = []
     telegram_alerts: List[dict] = []
+    pulse_events: List[dict] = []
+    pulse_cfg = pulse_config() if pulse_enabled() else None
 
     for row, ping_r in zip(rows, ping_results):
         ip = row["ip"]
@@ -1214,6 +1227,7 @@ def _persist_poll_results(
 
         pending_rows.append({
             "ip": ip,
+            "name": name,
             "status": status,
             "latency": latency,
             "loss_pct": loss_pct,
@@ -1236,7 +1250,33 @@ def _persist_poll_results(
 
     devices_written = 0
     with get_db() as conn:
+        ensure_pulse_table(conn)
         for pr in pending_rows:
+            if pulse_cfg:
+                skip_blip = host_network_blip and pr["ip"] in newly_offline_ips
+                pulse_snap = update_pulse(
+                    conn,
+                    ip=pr["ip"],
+                    name=pr.get("name") or pr["ip"],
+                    latency_ms=pr["latency"],
+                    loss_pct=float(pr["loss_pct"] or 0),
+                    status=pr["status"],
+                    host_network_blip=skip_blip,
+                    now_iso=checked_at,
+                    cfg=pulse_cfg,
+                )
+                pr["pulse"] = pulse_snap
+                if pulse_snap.get("transition") == "enter_degrading":
+                    pulse_events.append(pulse_snap)
+                    conn.execute(
+                        "INSERT INTO infra_events (ip, event) VALUES (?, ?)",
+                        (pr["ip"], "pulse_degrading"),
+                    )
+                elif pulse_snap.get("transition") == "exit_degrading":
+                    conn.execute(
+                        "INSERT INTO infra_events (ip, event) VALUES (?, ?)",
+                        (pr["ip"], "pulse_recovered"),
+                    )
             if pr.get("infra_event"):
                 ev = pr["infra_event"]
                 conn.execute(
@@ -1280,9 +1320,13 @@ def _persist_poll_results(
                 pipe.setex(f"infra:{ip}:status", ttl, pr["status"])
                 if pr["latency"] is not None:
                     pipe.setex(f"infra:{ip}:latency", ttl, str(pr["latency"]))
+                pr["redis_payload"]["pulse"] = pr.get("pulse") or {}
                 pipe.setex(
                     f"infra:{ip}:data", ttl, json.dumps(pr["redis_payload"]),
                 )
+                pulse_st = pr.get("pulse") or {}
+                if pulse_st.get("enabled"):
+                    pipe.setex(f"infra:{ip}:pulse", ttl, json.dumps(pulse_st))
             pipe.execute()
             try:
                 redis.setex("infra:poller:last_ok", ttl, checked_at)
@@ -1499,6 +1543,7 @@ async def _poll_fast_once():
         existing_status,
         len(poll_rows),
         log_prefix="infra poll",
+        batch_id=batch_id,
     )
 
     tcp_ok_by_ip: Dict[str, Optional[int]] = {}
@@ -1563,6 +1608,22 @@ async def _poll_fast_once():
         devices_written = persist_result.get("devices_written", 0)
         for alert in persist_result.get("telegram_alerts", []):
             asyncio.create_task(_send_infra_alert(**alert))
+        try:
+            rctx = _get_redis_poll_client()
+            gw_st = cycle_status.get(gateway_ip, "unknown") if gateway_ip else ""
+            write_poll_context(
+                rctx,
+                batch_id=batch_id,
+                host_network_blip=host_network_blip,
+                offline_count=sum(1 for s in cycle_status.values() if s == "offline"),
+                total_devices=len(poll_rows),
+                gateway_ip=gateway_ip,
+                gateway_status=gw_st,
+                blip_skip_count=len(newly_offline_ips),
+                pulse_events=pulse_events,
+            )
+        except Exception as e:
+            logger.debug("pulse correlate context: %s", e)
     except Exception as e:
         logger.error(
             "infra poll: persist failed batch_id=%s devices=%d: %s",
@@ -1762,7 +1823,10 @@ def _snmp_up_port_names(snmp_data_raw) -> list:
     return names
 
 
-def _build_device_row(d, s, uptime: Optional[float], outages_today: int = 0) -> dict:
+def _build_device_row(
+    d, s, uptime: Optional[float], outages_today: int = 0,
+    pulse: Optional[dict] = None,
+) -> dict:
     row = {
         "id": d["id"],
         "ip": d["ip"],
@@ -1809,6 +1873,15 @@ def _build_device_row(d, s, uptime: Optional[float], outages_today: int = 0) -> 
                     row["snmp_up_ports"] = up
         except Exception:
             pass
+    if pulse:
+        row["pulse"] = {
+            "state": pulse.get("pulse_state") or "stable",
+            "ewma_latency_ms": pulse.get("ewma_latency_ms"),
+            "ewma_loss_pct": pulse.get("ewma_loss_pct"),
+            "baseline_latency_ms": pulse.get("baseline_latency_ms"),
+            "degrade_ticks": pulse.get("degrade_ticks"),
+            "updated_at": pulse.get("updated_at"),
+        }
     return row
 
 
@@ -1837,9 +1910,21 @@ async def list_devices(user=Depends(get_current_user)):
             "WHERE event='offline' AND ts > datetime('now','-24 hours') GROUP BY ip"
         ).fetchall()
         outage_map = {r["ip"]: r["cnt"] for r in outage_rows}
+        pulse_map: Dict[str, dict] = {}
+        if pulse_enabled():
+            pulse_map = {
+                r["ip"]: dict(r)
+                for r in conn.execute(
+                    "SELECT ip, ewma_latency_ms, ewma_loss_pct, baseline_latency_ms, "
+                    "degrade_ticks, pulse_state, last_alert_at, updated_at "
+                    "FROM infra_pulse"
+                ).fetchall()
+            }
         result = [
-            _build_device_row(d, status_map.get(d["ip"]), uptime_map.get(d["ip"]),
-                              outage_map.get(d["ip"], 0))
+            _build_device_row(
+                d, status_map.get(d["ip"]), uptime_map.get(d["ip"]),
+                outage_map.get(d["ip"], 0), pulse_map.get(d["ip"]),
+            )
             for d in devices
         ]
         row = conn.execute(
@@ -1847,7 +1932,34 @@ async def list_devices(user=Depends(get_current_user)):
             "WHERE status='offline' AND checked_at > datetime('now', '-24 hours')"
         ).fetchone()
         outages_24h = row[0] if row else 0
-    return {"success": True, "devices": result, "outages_24h": outages_24h}
+    poll_context = {}
+    last_blip = {}
+    try:
+        r = get_redis()
+        if r:
+            poll_context = read_poll_context(r)
+            last_blip = read_last_blip(r)
+    except Exception:
+        pass
+    return {
+        "success": True,
+        "devices": result,
+        "outages_24h": outages_24h,
+        "poll_context": poll_context,
+        "last_blip": last_blip,
+        "pulse_enabled": pulse_enabled(),
+    }
+
+
+@router.post("/infra/pulse/{ip}/alerted")
+async def pulse_alert_ack(ip: str, user=Depends(get_current_user)):
+    """Marca cooldown Telegram Pulse EWMA tras alerta enviada (multi-cliente)."""
+    await asyncio.to_thread(_init_tables)
+    with get_db() as conn:
+        ensure_pulse_table(conn)
+        mark_pulse_alerted(conn, ip)
+        conn.commit()
+    return {"success": True, "ip": ip}
 
 
 @router.post("/infra/devices")

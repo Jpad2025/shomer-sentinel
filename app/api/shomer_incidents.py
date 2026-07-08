@@ -207,11 +207,13 @@ def _fmt_secs(s: int) -> str:
 
 
 def _row_to_dict(r) -> dict:
+    from app.api.hunter_signature_labels import enrich_hunter_row
+
     d = dict(r)
     d["severity_label"] = SEVERITY_LABEL.get(d.get("severity", 3), "?")
     d["mtta"] = _mtta_str(d["opened_at"], d.get("ack_at"))
     d["mttr"] = _mttr_str(d["opened_at"], d.get("closed_at"))
-    return d
+    return enrich_hunter_row(d)
 
 
 # ──────────────────────────────────────────────

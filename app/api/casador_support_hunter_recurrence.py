@@ -68,10 +68,14 @@ def hunter_high_recurrence_warn_telegram(
     try:
         from app.scripts.alerts import send_telegram_alert
 
-        sig = f"\n📋 <code>{(signature or '')[:200]}</code>" if signature else ""
+        from app.api.hunter_signature_labels import humanize_hunter_signature
+
+        h = humanize_hunter_signature(signature)
         send_telegram_alert(
-            f"⚠️ <b>Hunter — ALTA recurrente (aviso)</b>\n"
-            f"🌐 <code>{ip}</code> — evento {count} en {int(window_sec)}s{sig}\n"
+            f"⚠️ <b>Hunter — alerta recurrente</b>\n"
+            f"{h['risk_icon']} <b>{h['title']}</b>\n"
+            f"🌐 <code>{ip}</code> — evento {count} en {int(window_sec)}s\n"
+            f"📋 {h['detail']}\n"
             f"<i>Se requiere recurrencia completa para autobloqueo según política.</i>"
         )
         return True

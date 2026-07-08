@@ -279,20 +279,17 @@ async def execute_hunter_block(
     if blocked_by in ("auto", "wazuh"):
         try:
             from app.scripts.alerts import send_telegram_alert
+            from app.api.hunter_signature_labels import format_hunter_telegram_block
 
-            sev_label = {1: "🔴 CRÍTICA", 2: "🟠 ALTA", 3: "🟡 MEDIA"}.get(int(severity or 3), "⚪ BAJA")
-            sig_text = f"\n📋 Regla: {alert_signature}" if alert_signature else ""
-            fw_text = "✅ Firewall bloqueado" if ok else "⚠️ Firewall no disponible — solo registrado en BD"
-            if blocked_by == "wazuh":
-                title = "🛡️ <b>BLOQUEO (Wazuh → Shomer)</b>"
-            else:
-                title = "🚨 <b>BLOQUEO AUTOMÁTICO</b>"
             telegram_sent = bool(
                 send_telegram_alert(
-                    f"{title}\n"
-                    f"🌐 IP: <code>{ip}</code>\n"
-                    f"⚡ Severidad: {sev_label}{sig_text}\n"
-                    f"{fw_text}"
+                    format_hunter_telegram_block(
+                        ip,
+                        alert_signature,
+                        severity=int(severity or 3),
+                        firewall_ok=ok,
+                        blocked_by=blocked_by,
+                    )
                 )
             )
             if not telegram_sent:
@@ -397,7 +394,9 @@ async def list_blocked(user=Depends(get_current_user)):
             rows = conn.execute(
                 "SELECT ip, blocked_at, blocked_by, alert_signature, severity, firewall_blocked FROM blocked_ips WHERE unblocked_at IS NULL ORDER BY blocked_at DESC"
             ).fetchall()
-        return {"success": True, "blocked": [dict(r) for r in rows]}
+        from app.api.hunter_signature_labels import enrich_hunter_row
+
+        return {"success": True, "blocked": [enrich_hunter_row(dict(r)) for r in rows]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -412,9 +411,19 @@ async def list_history(limit: int = 200, user=Depends(get_current_user)):
                 "FROM blocked_ips WHERE unblocked_at IS NOT NULL ORDER BY unblocked_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return {"success": True, "history": [dict(r) for r in rows]}
+        from app.api.hunter_signature_labels import enrich_hunter_row
+
+        return {"success": True, "history": [enrich_hunter_row(dict(r)) for r in rows]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/signature/humanize")
+async def humanize_signature(signature: str = "", user=Depends(get_current_user)):
+    """Traduce firma Suricata a lenguaje claro (panel / integraciones)."""
+    from app.api.hunter_signature_labels import humanize_hunter_signature
+
+    return {"success": True, **humanize_hunter_signature(signature)}
 
 
 @router.get("/history/csv")

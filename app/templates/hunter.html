@@ -607,6 +607,26 @@ tbody tr:last-child { border-bottom:none; }
     wazuh_dashboard_url: '',
   };
 
+  /** Traduce firmas ET/Suricata a texto corto para técnicos (espejo de hunter_signature_labels.py). */
+  function hunterHumanize(sig) {
+    const s = (sig || '').trim();
+    if (!s) return { title: 'Amenaza de red', detail: '', technical: '' };
+    const rules = [
+      [/ET CINS.*Poor Reputation/i, 'IP con mala reputación (CINS)', 'Amenaza conocida en internet'],
+      [/ET DROP.*Dshield/i, 'IP lista negra DShield', 'Fuente de ataques reportada'],
+      [/ET DROP.*Spamhaus/i, 'IP lista Spamhaus', 'Spam o malware conocido'],
+      [/ET DROP/i, 'IP en lista negra', 'Dirección peligrosa bloqueada'],
+      [/ET P2P.*eMule/i, 'Tráfico P2P eMule', 'Posible equipo comprometido'],
+      [/ET SCAN/i, 'Escaneo de puertos', 'Reconocimiento de red'],
+      [/IKEv2|IKE/i, 'VPN IKEv2 en WAN', 'Suele ser operador móvil'],
+    ];
+    for (const [re, title, detail] of rules) {
+      if (re.test(s)) return { title, detail, technical: s };
+    }
+    if (/^ET /i.test(s)) return { title: 'Amenaza Hunter', detail: 'Regla Suricata en WAN', technical: s };
+    return { title: s.slice(0, 48), detail: '', technical: s };
+  }
+
   document.getElementById('last-update').textContent = new Date().toLocaleTimeString('es-ES');
 
   const logsEl = document.getElementById('logs-panel');
@@ -698,7 +718,7 @@ tbody tr:last-child { border-bottom:none; }
       return `<tr id="alert-row-${i}">
         <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${ts}</td>
         <td><span class="sev-badge sev-${sev}">${sev}</span></td>
-        <td>${a.signature ? escHtml(a.signature) : '—'}</td>
+        <td>${(() => { const h = hunterHumanize(a.signature); return a.signature ? `<span title="${escHtml(h.technical)}">${escHtml(h.title)}</span>` : '—'; })()}</td>
         <td style="font-family:monospace;font-size:11px;">${a.sid || '—'}</td>
         <td style="font-family:monospace;font-size:11px;">${a.src_ip || '—'}:${a.src_port || 0}${extBadge}</td>
         <td style="font-family:monospace;font-size:11px;">${a.dest_ip || '—'}:${a.dest_port || 0}</td>
@@ -896,9 +916,12 @@ tbody tr:last-child { border-bottom:none; }
             _knownBlocked.add(ip);
             // Solo notificar después de la carga inicial y si fue auto-bloqueo
             if (_blockedPollReady && entry.blocked_by === 'auto') {
-              const sig = entry.alert_signature ? ` — ${entry.alert_signature}` : '';
+              const h = entry.alert_human_title
+                ? { title: entry.alert_human_title, technical: entry.alert_signature || '' }
+                : hunterHumanize(entry.alert_signature);
+              const sig = h.title ? ` — ${h.title}` : '';
               showToast(`🚨 Auto-bloqueo: ${ip}${sig}`, 'error');
-              addLog('warning', 'AUTO-BLOCK', `IP bloqueada automáticamente: ${ip}${sig}`);
+              addLog('warning', 'AUTO-BLOCK', `IP bloqueada: ${ip}${sig}`);
             }
           }
         });
@@ -1022,7 +1045,7 @@ tbody tr:last-child { border-bottom:none; }
             <td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--muted);">${blocked}</td>
             <td style="padding:5px 8px;border-bottom:1px solid var(--border);color:var(--muted);">${unblocked}</td>
             <td style="padding:5px 8px;border-bottom:1px solid var(--border);">${originMap[r.blocked_by]||r.blocked_by||'—'}</td>
-            <td style="padding:5px 8px;border-bottom:1px solid var(--border);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.alert_signature||''}">${r.alert_signature||'—'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid var(--border);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(r.alert_signature||'')}">${escHtml(r.alert_human_title || hunterHumanize(r.alert_signature).title || '—')}</td>
             <td style="padding:5px 8px;border-bottom:1px solid var(--border);">${sevMap[r.severity]||r.severity||'—'}</td>
             <td style="padding:5px 8px;border-bottom:1px solid var(--border);">${fw}</td>
           </tr>`;

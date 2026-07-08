@@ -119,6 +119,7 @@ async def evaluate_host_network_blip_async(
     total_devices: int,
     *,
     log_prefix: str = "poll",
+    batch_id: str = "",
 ) -> Tuple[bool, Set[str]]:
     """Evalúa blip con segundo ping al gateway 300 ms después si aplica."""
     if not gateway_ip:
@@ -174,4 +175,18 @@ async def evaluate_host_network_blip_async(
         total_devices,
         len(skip_ips),
     )
+    try:
+        from app.api.shomer_host_health import record_blip_event
+
+        record_blip_event(
+            gateway_ip=gateway_ip,
+            gateway_status=gw2_status,
+            gateway_loss=float(gw2_loss or 0),
+            gateway_rtt_ms=gw2_rtt,
+            offline_count=offline_count,
+            total_devices=total_devices,
+            batch_id=batch_id or log_prefix,
+        )
+    except Exception as e:
+        logger.debug("blip persist: %s", e)
     return True, skip_ips

@@ -213,7 +213,9 @@ tbody td { padding:6px 8px; font-size:11px; color:var(--text); }
       else if (inc.status === 'acknowledged') statusBadge = `<span class="status-ack">Reconocido</span>`;
       else                               statusBadge = `<span class="status-closed">Cerrado</span>`;
 
-      const sig = (inc.alert_signature || '—').slice(0, 40);
+      const sigHuman = inc.alert_human_title || inc.alert_signature || '—';
+      const sigTech = inc.alert_signature || '';
+      const sig = sigHuman.length > 48 ? sigHuman.slice(0, 48) + '…' : sigHuman;
       // Backend devuelve "opened_at"/"mtta"/"mttr" -- no "created_at"/"mtta_formatted"/"mttr_formatted".
       // Ese desajuste dejaba Fecha/MTTA/MTTR siempre en blanco.
       const fecha = inc.opened_at ? new Date(inc.opened_at).toLocaleString('es-ES') : '—';
@@ -243,7 +245,7 @@ tbody td { padding:6px 8px; font-size:11px; color:var(--text); }
         <td style="font-family:monospace;color:var(--hunter);font-weight:600;">#${inc.id}</td>
         <td style="color:var(--muted);">${fecha}${diasInfo}</td>
         <td style="font-family:monospace;color:#06b6d4;">${inc.ip || '—'}</td>
-        <td title="${inc.alert_signature || ''}">${sig}</td>
+        <td title="${(sigTech + (inc.alert_human_detail ? ' — ' + inc.alert_human_detail : '')).replace(/"/g, '&quot;')}">${sig}</td>
         <td>${sevBadge}</td>
         <td>${statusBadge}</td>
         <td style="color:var(--muted);">${mtta}</td>

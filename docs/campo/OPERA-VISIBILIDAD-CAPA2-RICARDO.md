@@ -1,11 +1,13 @@
 # Hotel Ópera — Visibilidad de red (Capa 2/3)  
-## Guía para Ricardo Gómez — acciones en sitio
+## Guía para Ricardo Romero — acciones en sitio
 
 **Documento:** USB Ingeniería / Shomer Sentinel  
 **Fecha:** 13 jun 2026  
-**Para:** Ricardo Gómez (soporte en hotel)  
+**Para:** Ricardo Romero (soporte en hotel)  
 **Contacto USB:** Juan Pablo  
 **Sitio:** Hotel Ópera — Shomer `192.168.0.250` — panel `https://192.168.0.250:8443`
+
+> **Nota (8 jul 2026):** Los switches **ya responden SNMP** con `public` — suficiente para monitoreo. Cambiar a `shomer2026` es solo endurecimiento de seguridad; **no prioritario** para Shomer. Lo útil opcional: datos **UniFi Controller** o mapa AP→switch para mensaje “oleada → switch X”.
 
 ---
 
@@ -24,7 +26,7 @@ Es como darle al Shomer “ojos” para ver los puertos del switch — **solo mi
 
 ---
 
-### ¿Qué tienes que hacer tú, Ricardo oun tecnico o lo pudo haceryo con las credeciales ? (3 cosas)
+### ¿Qué tienes que hacer tú, Ricardo? (3 cosas)
 
 | # | Qué | ¿Difícil? | Tiempo |
 |---|-----|-----------|--------|
