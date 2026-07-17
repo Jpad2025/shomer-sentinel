@@ -127,6 +127,130 @@
   .alert-band-text { font-weight: 700; color: var(--red); font-size: 1rem; }
   .alert-band-sub  { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
 
+  /* ── PROBLEMAS ACTIVOS (núcleo operativo) ── */
+  .problems-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+  }
+  .problems-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    gap: 12px;
+  }
+  .problems-title {
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .problems-title .count-bad { color: var(--red); }
+  .problems-title .count-ok  { color: var(--green); }
+  .problems-cols {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 1100px) {
+    .problems-cols { grid-template-columns: 1fr; }
+  }
+  .prob-list { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+  .prob-row {
+    display: grid;
+    grid-template-columns: 8px 1fr auto auto auto;
+    gap: 10px;
+    align-items: center;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    border-left: 3px solid var(--muted);
+  }
+  .prob-row.sev-CRITICAL { border-left-color: var(--red); }
+  .prob-row.sev-HIGH     { border-left-color: var(--orange); }
+  .prob-row.sev-WARNING  { border-left-color: var(--yellow); }
+  .prob-row.sev-INFO     { border-left-color: var(--blue); }
+  .prob-row.acked {
+    opacity: 0.55;
+    border-left-color: var(--muted);
+  }
+  .prob-row.fresh:not(.acked) {
+    animation: prob-blink 1.4s ease-in-out infinite;
+  }
+  @keyframes prob-blink {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,77,109,0); }
+    50%      { box-shadow: 0 0 0 2px rgba(255,77,109,.55); }
+  }
+  .prob-name { font-weight: 700; font-size: 0.92rem; }
+  .prob-msg  { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+  .prob-age  {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--yellow);
+    min-width: 4.5rem;
+    text-align: right;
+  }
+  .prob-src {
+    font-size: 0.65rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    min-width: 4.5rem;
+  }
+  .prob-ack-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--cyan);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .prob-ack-btn:hover { border-color: var(--cyan); background: rgba(6,182,212,.12); }
+  .prob-ack-btn:disabled {
+    color: var(--muted);
+    border-color: var(--border);
+    cursor: default;
+    opacity: 0.7;
+  }
+  .prob-empty {
+    color: var(--green);
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 18px 8px;
+    text-align: center;
+  }
+  .hist-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .hist-list { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; }
+  .hist-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    align-items: center;
+    font-size: 0.78rem;
+    padding: 5px 8px;
+    border-radius: 6px;
+    background: rgba(0,0,0,.2);
+  }
+  .hist-ev-offline { color: var(--red); font-weight: 700; }
+  .hist-ev-online  { color: var(--green); font-weight: 700; }
+  .hist-ago { color: var(--muted); font-variant-numeric: tabular-nums; }
+
   /* ── SERVICIOS ── */
   .services-row {
     background: var(--bg2);
@@ -701,6 +825,27 @@
   </div>
 </div>
 
+<!-- PROBLEMAS ACTIVOS + HISTORIAL CORTO -->
+<div class="problems-panel" id="problems-panel">
+  <div class="problems-head">
+    <div class="problems-title" id="problems-title">Problemas activos</div>
+    <div style="font-size:0.72rem;color:var(--muted);">Solo lo que falla · tiempo activo · Ya lo vi</div>
+  </div>
+  <div class="problems-cols">
+    <div>
+      <div class="prob-list" id="prob-list">
+        <div style="color:var(--muted);font-size:0.85rem;">Cargando…</div>
+      </div>
+    </div>
+    <div>
+      <div class="hist-title">Historial de caídas (7 días)</div>
+      <div class="hist-list" id="hist-list">
+        <div style="color:var(--muted);font-size:0.8rem;">Cargando…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- SERVICES ROW -->
 <div class="services-row" id="services-row">
   <span class="services-label">Servicios</span>
@@ -816,6 +961,7 @@
 <script>
 const TOKEN = "{{ token }}";
 const API   = "/noc/data?token=" + TOKEN;
+const ACK_API = "/noc/problems/ack?token=" + TOKEN;
 
 // ── Reloj ──
 function updateClock() {
@@ -1137,10 +1283,98 @@ function renderIaLog(entries) {
   el.innerHTML = html;
 }
 
+// ── Problemas activos + historial ──
+function escHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function ackProblem(problemId) {
+  try {
+    const res = await fetch(ACK_API, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({problem_id: problemId, by: 'noc'}),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    fetchData();
+  } catch (e) {
+    console.error('ACK error:', e);
+  }
+}
+
+function renderProblems(d) {
+  const pack = d.problems || {};
+  const list = pack.active || [];
+  const title = document.getElementById('problems-title');
+  const el = document.getElementById('prob-list');
+  if (!el) return;
+
+  const n = pack.open_count || list.length;
+  const u = pack.unacked_count || 0;
+  if (title) {
+    if (n === 0) {
+      title.innerHTML = 'Problemas activos · <span class="count-ok">0</span>';
+    } else {
+      title.innerHTML =
+        `Problemas activos · <span class="count-bad">${n}</span>` +
+        (u ? ` <span style="color:var(--muted);font-weight:600;">(${u} sin ver)</span>` : '');
+    }
+  }
+
+  if (!list.length) {
+    el.innerHTML = '<div class="prob-empty">✓ Sin problemas activos — red en orden</div>';
+  } else {
+    el.innerHTML = list.map(p => {
+      const sev = p.severity || 'INFO';
+      const acked = !!p.acknowledged;
+      const fresh = !!p.fresh;
+      const cls = [
+        'prob-row',
+        'sev-' + sev,
+        acked ? 'acked' : '',
+        fresh ? 'fresh' : '',
+      ].filter(Boolean).join(' ');
+      const btn = acked
+        ? `<button class="prob-ack-btn" disabled>✓ Visto</button>`
+        : `<button class="prob-ack-btn" onclick="ackProblem('${escHtml(p.id)}')">Ya lo vi</button>`;
+      return `<div class="${cls}">
+        <div></div>
+        <div>
+          <div class="prob-name">${escHtml(p.name)}</div>
+          <div class="prob-msg">${escHtml(p.message)}</div>
+        </div>
+        <div class="prob-age" title="Tiempo activo">${escHtml(p.time_active || '—')}</div>
+        <div class="prob-src">${escHtml(p.source || '')}</div>
+        ${btn}
+      </div>`;
+    }).join('');
+  }
+
+  const hist = d.outage_history || [];
+  const hl = document.getElementById('hist-list');
+  if (!hl) return;
+  if (!hist.length) {
+    hl.innerHTML = '<div style="color:var(--muted);font-size:0.8rem;padding:8px;">Sin eventos de caída en 7 días</div>';
+    return;
+  }
+  hl.innerHTML = hist.map(h => {
+    const ev = h.event === 'offline' ? 'CAÍDA' : 'OK';
+    const evCls = h.event === 'offline' ? 'hist-ev-offline' : 'hist-ev-online';
+    return `<div class="hist-row">
+      <span class="${evCls}">${ev}</span>
+      <span>${escHtml(h.name)}</span>
+      <span class="hist-ago">${escHtml(h.ago)} atrás</span>
+    </div>`;
+  }).join('');
+}
+
 // ── Main render ──
 function render(d) {
   // KPI + alert band
   renderKpi(d);
+  renderProblems(d);
 
   // Summary bar (header)
   const sum = d.summary;

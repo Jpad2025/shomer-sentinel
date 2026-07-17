@@ -25,6 +25,7 @@ _SKIP_PATHS = {
     "/auth/logout",
     "/api/login",
     "/noc/data",          # polling TV, demasiado frecuente
+    "/noc/problems/ack",  # ACK desde TV (token NOC)
     "/api/server-metrics",
 }
 

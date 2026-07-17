@@ -1,103 +1,122 @@
-# Shomer Sentinel — Sitio: Lab Utah principal (USB-SHOMER)
+# Hotel Ópera — Configuración de sitio (NO va a git)
 
-## Identificación
-- Nombre: Lab USB Ingeniería — Utah
-- Hostname: `USB-SHOMER`
-- Tailscale: `100.100.188.87`
-- LAN: `192.168.1.205/24`
-- Fecha referencia: jun 2026
+Documento local del servidor `shomer-hotelopera` (`192.168.0.250`).  
+Actualizado: **8 jul 2026** (~12:35 COT) — verificación en vivo.
 
-## Acceso panel
-- LAN: `https://192.168.1.205:8443`
-- Tailscale: `https://100.100.188.87:8443`
+---
 
-## Red
-- Subnet: `192.168.1.0/24`
-- Gateway: `192.168.1.1` (típico lab)
+## Estado operativo (8 jul 2026)
 
-## Shomer — NICs
-| Rol | Interfaz |
-|-----|----------|
-| Gestión | `enp2s0` |
-| Espejo Hunter | `enp4s0` |
+| Métrica | Valor |
+|---------|-------|
+| Servicios | Guardian ✅ · Poller ✅ · Agente ✅ |
+| Infra (activos) | **50 online** / **2 offline** (`.148`, `.243`) |
+| Guardian APs | **29 online** / **1 offline** (HAB 103 `.148`) |
+| Pulse EWMA | ✅ activo — 22 equipos; **`.58` IMP SCOCINA en degradando** (71 ticks) |
+| Blips logs poller | **3 / 24 h** · **56 / 7 días** |
+| Blips tabla `infra_blip_events` | 0 en 24 h (persistencia desde sesión 66) |
+| RX dropped `eno1` | Acum. **~14,69 M** — delta 24 h pendiente 2ª muestra horaria |
+| Telegram 3 días | **138** total — bot 49 · VPN 33 · infra equipos 17 · snmp 16 · service 8 · printer 7 |
 
-## Hunter
-- Firewall lab: OpenWrt `192.168.1.206` (iptables)
-- Subnets internas: `192.168.1.0/24`
-- **Lab sin SPAN:** `SHOMER_LAB_NO_SPAN=1` en `/etc/shomer/shomer-runtime.env`
-- Suricata: `sudo MIRROR_IFACE=enp4s0 bash /opt/network_monitor/tools/suricata_lab_setup.sh`
-- **Seguro autobloqueo:** panel → botón **Seguro ON/OFF** o Telegram `/seguro on|off` (ver `docs/EQUIPOS.md`)
+### Offline / crónicos (verificado ahora)
 
-## Deploy código (16 jun 2026)
-- **Todos lab:** `bash tools/deploy.sh` (243+245+205)
-- **Un equipo:** `bash tools/deploy.sh 100.100.188.87`
-- **.205 local:** restart servicios si no rsync a sí mismo (`shomer-guardian`, `shomer-tools`, `shomer-agent`)
+| IP | Equipo | Estado | Notas |
+|-----|--------|--------|-------|
+| `.148` | AP HAB 103 | **Offline** | Guardian + Infra — crónico |
+| `.57` | IMP Recepción | **Offline** (desde 10 jun) | `active=0` en Infra — no entra al poll; sigue caído |
+| `.243` | Bixolon POS | **Offline** | Nuevo 8 jul — antes intermitente |
 
-## Tracker / Guardian / Infra
-- Hardware físico conectado (APs `.210`, `.253`, `.254`, Kali `.203`, etc.)
-- Ver inventario real en panel — no usar IPs de este archivo en otros sitios
+### Inestables — mejoraron (vigilar)
 
-## Historial incidentes y retención (jun 2026)
-- **Estado del Sistema** → tabla *Incidentes de red (48 h)* + export CSV
-- Retención configurable (días) — poda automática horaria de `status_events`, `infra_events`, `event_log`
-- Defaults: historial 90 d / logs BD 30 d / poda agresiva si disco ≥ 85 %
-- Código: `app/api/shomer_status_events.py`
-- **Último deploy código:** 16 jun 2026 (245/243 vía deploy.sh; .205 restart local)
+| IP | Equipo | Estado 8 jul |
+|-----|--------|--------------|
+| `.189` | AP OFC-MANTENIMIENTO | Online |
+| `.133` | SW Amalfi | Online |
+| `.52` | Cámara sin identificar | Online (2 eventos offline 24 h) |
+| `.136` | Terminal Ingenico | Online (3 eventos offline 24 h) |
+| `.58` | IMP SCOCINA | Online — **Pulse degradando** — revisar cable/impresora |
 
-## Modo mantenimiento Guardian
-- Panel **Guardian** → botón 🔧, o bot Telegram `/modo on|off` (`/mantenimiento`)
-- Al activar/desactivar → **Telegram** al chat del técnico (fix 13 jun 2026)
-- Pausa reboots automáticos; monitoreo sigue activo
-- **Antes de deploy/reinicio de servicios:** activar mantenimiento en producción
+### Switches — errores SNMP (online, hardware sospechoso)
 
-## Bot
-- Desarrollo activo en `/storage/shomer-agent/` (no afecta otros servidores)
+| IP | Puerto | Errores `in_errors` |
+|-----|--------|---------------------|
+| `.168` SW1-P50 | **GE49** | ~95.534 |
+| `.216` SW-POE-OFC | Port 7 | ~2.860 |
 
-## Pantalla frontal AceMagic S1 (jun 2026)
+### MikroTik — VPN OpenVPN
+- Desde **8 jul 2026:** Telegram **solo conexiones** (`INFRA_VPN_ALERT_DISCONNECT=0`).
+- Los 33 msgs VPN en 3 días incluyen desconexiones **anteriores** al cambio.
 
-Hardware: LCD Holtek `04d9:fd01` (320×170 portrait) + tira RGB CH340 `/dev/ttyUSB0`.
+### Blips Shomer (`host_network_blip`)
+- Investigación abierta — prioridad **campo:** cable/puerto switch del servidor `.250` / `eno1`.
+- Software: resumen diario 07:00 + registro RX dropped activo (sesión 66).
 
-| Item | Valor |
-|------|--------|
-| Etiqueta en pantalla | `shomer205` |
-| GUI s1panel (HTTP, **no HTTPS**) | LAN: `http://192.168.1.205:8686` · Tailscale: `http://100.100.188.87:8686` |
-| Panel Shomer | `https://192.168.1.205:8443` |
-| UFW | `8686/tcp` desde `192.168.1.0/24`, `10.0.0.0/24` (WiFi lab), `100.64.0.0/10` (Tailscale) |
+---
 
-**Servicios systemd**
+## ✅ Hecho en software (sesiones 64–66)
 
-| Servicio | Función |
-|----------|---------|
-| `snap.s1panel.s1panel` | Pantalla + sensores (hora, CPU, temp) |
-| `shomer-frontpanel` | Logo + WAN/AP cada 30 s (Redis + BD) |
-| `shomer-led-strip` | Arcoíris vía `/dev/ttyUSB0` |
+| Qué | Cuándo |
+|-----|--------|
+| Hunter mensajes legibles (firmas ET → español) | Sesión 64 |
+| Doc revisión sitio `REVISION-EN-SITIO-OPERA.md` | Sesión 64 |
+| **Pulse Correlate** — oleada LAN + blip Shomer | Sesión 65 |
+| **Pulse EWMA** — degradando antes de offline | Sesión 65 |
+| IA diagnóstico cooldown 6 h | Sesión 65 |
+| Debounce puertos SNMP (2 polls) | Sesión 65 |
+| **Resumen blip diario + delta RX dropped `eno1`** | Sesión 66 |
+| **VPN solo conexiones** (sin desconexiones Telegram) | Sesión 66 |
+| Perfiles Infra, poller fast/snmp, blip suppressor | Sesión 62–63 |
 
-**Tira RGB:** ❌ **hardware dañado** (jun 2026) — conexiones OK; CH340 responde; LCD OK. Servicio `shomer-led-strip` activo por uniformidad con 245/243.
+**Descartado / no prioritario:** cambiar SNMP `public` → `shomer2026`.
 
-**Mensaje "Disconnection…"** en la pantalla = s1panel caído (sin heartbeat). Recuperar:
+---
 
-```bash
-sudo snap restart s1panel
-# o
-sudo systemctl restart shomer-frontpanel
-```
+## 🔴 Pendientes activos — 8 jul 2026
 
-**Reinstalar tema Shomer**
+### Campo (único que arregla caídas reales)
 
-```bash
-cd /opt/network_monitor
-sudo bash tools/frontpanel/install_shomer_frontpanel.sh shomer205
-```
+| # | Qué | Estado | Quién |
+|---|-----|--------|-------|
+| 1 | **AP HAB 103** `.148` | Offline crónico | Cristian/Ricardo |
+| 2 | **IMP Recepción** `.57` | Offline desde 10 jun | Cristian/Ricardo |
+| 3 | **Bixolon** `.243` | Offline 8 jul | Campo si persiste |
+| 4 | **Cable/puerto switch Shomer** `.250` / `eno1` (blips) | 3 blips/24h · 56/7d | Campo |
+| 5 | Switch `.168` puerto **GE49** (~95k errores) | Online, hardware | Campo |
+| 6 | Switch `.216` puerto 7 (~2,8k errores) | Online, hardware | Campo |
+| 7 | **IMP SCOCINA** `.58` — Pulse degradando | Online inestable | Campo |
 
-**Verificación**
+Checklist detallado: `docs/campo/REVISION-EN-SITIO-OPERA.md`
 
-```bash
-systemctl is-active shomer-frontpanel shomer-led-strip
-snap services s1panel
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8686/
-```
+### USB / operación (no campo)
 
-Documentación técnica: `tools/frontpanel/README.md`
+| # | Qué | Prioridad |
+|---|-----|-----------|
+| 8 | Sync código sesiones 64–66 → `.205` / GitHub | ✅ 8 jul — `7db0383` sentinel · `0a74849` agent |
+| 9 | Rotar token Telegram (expuesto sesión antigua) | Media |
+| 10 | Observar Pulse EWMA 2–3 días (`.58` ya en degradando) | Baja |
 
-## No aplicar en clientes
-- IPs, credenciales y `SHOMER_LAB_NO_SPAN` de este archivo
+### Producto — opcional / backlog
+
+| # | Qué | Notas |
+|---|-----|-------|
+| 11 | Topología `network_links` + “switch padre” en oleada | Opcional |
+| 12 | Syslog MikroTik, SNMP traps, NetFlow | Backlog multi-cliente |
+
+### Histórico (no urgente — no hacer ahora)
+
+- Failover WAN ETB automático MikroTik
+- Credenciales `.\sistemas` en `.41`, `.142`, `.170`
+- Deep scan nocturno Tracker
+- Medición 7 días debounce OFC-COCINA
+- Plantilla genérica `REVISION-EN-SITIO-TEMPLATE.md`
+
+---
+
+## ¿Hay más que hacer en software para monitoreo?
+
+**No bloqueante.** Stack actual cubre ping, SNMP, oleadas, EWMA, blips, resumen diario.
+
+Lo que **sigue generando Telegram** hoy:
+1. **Equipos realmente caídos o inestables** (campo)
+2. **VPN USB** — solo conexiones desde 8 jul
+3. **Hunter bloqueos** (correcto)
