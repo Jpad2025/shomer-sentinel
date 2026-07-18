@@ -237,11 +237,17 @@ Se elige en el wizard. El selector incluye zonas de América Latina, Norteaméri
 - Cadena oficial autobloqueo “fuerte”: **manager Wazuh** → script **`wazuh_shomer_block.py`** → `POST /remedies/block` con cabecera `X-Shomer-Integration-Key`.
 - Firewall remoto vía SSH (`hunter.firewall_*`): **OpenWrt/Linux** → `iptables` en `FORWARD` (automático). **MikroTik RouterOS nativo** → address-list `shomer-blocked` + **regla DROP manual obligatoria** en `chain=forward` (`hunter.firewall_type=routeros`). Ver §AF.1 y §AO.1; doc `HUNTER_MIKROTIK_ROUTEROS.md`.
 
+**Auth HTTP `POST /remedies/block` (17 jul 2026):**  
+- `blocked_by=wazuh` → solo `X-Shomer-Integration-Key` (integration Wazuh en localhost).  
+- `manual` / `auto` **vía HTTP** → JWT (Bearer o cookie). El poller autoblock llama `execute_hunter_block` en proceso (no el endpoint abierto).  
+- `DELETE` / `PATCH /remedies/rules/{sid}` → JWT.  
+Config de subnets/excepciones por sitio → **`SITE.md` del servidor** (nunca hardcode en CLAUDE).
+
 **Firma ICMP laboratorio SID 9009001** suele estar bajo **`/etc/suricata/rules/`** en un fichero tipo `shomer-local.rules`; recarga lógica: `POST /remedies/rules/reload`.
 
 **Checklist campo Hunter (resumen contenido habitual del paquete de soporte):**
 - NIC gestión vs NIC espejo acordes al hardware (ej. `enp2s0` / `enp4s0` sólo ejemplo).
-- **`hunter.auto_block_*`** revalidar tras cambiar la LAN del cliente.
+- **`hunter.auto_block_*`** y **`hunter.subnets`** revalidar tras cambiar la LAN del cliente (quitar VLANs fantasma evita falsos “internos”).
 - Integración Telegram: probar **`POST`** a `/remedies/block` y luego `/remedies/unblock` en **127.0.0.1:8000** con **`X-Shomer-Integration-Key`**, usando IP de prueba reservada (p. ej. `198.51.100.1`), **nunca** direcciones operativas del hotel.
 
 ## E.1 Bugs corregidos Hunter — Sesión 23 (10 mayo 2026)
@@ -402,7 +408,8 @@ Por tick (interval default 10 s configurables `SHOMER_POLL_INTERVAL_SEC` / BD)
 | `degraded` | DNS o HTTP probes mal o LAN “sucio” según pérdidas/RTT sostenidas | ❌ reboot **bloqueado** diseño • Telegram 🟡 con anti-spam `degraded_notified:*` TTL |
 | `online` | OK o SSH no llega desde Shomer pero se asume nodo existe | reset contadores errores WAN-only |
 
-Cooldown reboot y anti-ráfagas viven Redis + algunas claves replicadas SQLite tabla `failsafe_state`.
+Cooldown reboot y anti-ráfagas viven Redis (+ `failsafe_state` SQLite sobre todo para WAN/servidor).  
+**Dos esperas de reboot de nodos (17 jul 2026):** tras reboot **OK** → `guardian.cooldown_sec` (típico 300 s, AP arrancando). Tras intento **fallido** → `guardian.fail_retry_sec` (default 150 s) en clave Redis `last_reboot_attempt:{ip}` — **no** reutilizar el cooldown de 5 min si SSH/SNMP falló.
 
 Salud servidor propio WAN + métricas CPU/RAM: `shomer_guardian_server_health.py` exponiendo `/api/server-metrics`, `/api/wan-status`.
 
@@ -3313,7 +3320,9 @@ Tras instalar/activar Suricata en un sitio nuevo, **siempre verificar**:
 
 ## AJ.6 Nota — separación config general vs. config de cliente
 
-Esta sección documenta un **bug de arquitectura/instalación que puede repetirse en cualquier Shomer** (de ahí su lugar en CLAUDE.md). Los valores específicos de Hotel Ópera —p. ej. `hunter.subnets` con las VLANs del hotel (Huéspedes `10.1.48.0/22`, Eventos `30.30.0.0/22`, Admin WiFi `192.168.40.0/24`, Teléfonos `192.168.3.0/24`)— **NO van aquí**: viven en `/opt/network_monitor/SITE.md` dentro de `shomer-hotelopera` (ex-`shomerbogota`, renombrado Sesión 50 — ver nota de convención abajo), conforme a la norma §AH.1. CLAUDE.md es manual de desarrollo (aplica a todos los sitios); SITE.md es config de cliente (aplica solo a ese sitio).
+Esta sección documenta un **bug de arquitectura/instalación que puede repetirse en cualquier Shomer** (de ahí su lugar en CLAUDE.md). Los valores específicos de Hotel Ópera (`hunter.subnets`, excepciones, NIC espejo, tipo FW) **NO van aquí**: viven en `/opt/network_monitor/SITE.md` del servidor `shomer-hotelopera`, conforme a la norma §AH.1.  
+
+**Nota (17 jul 2026):** una mención antigua en bitácora listaba Eventos como `30.30.0.0/22`. En Ópera **ya no** forma parte de `hunter.subnets` (decisión sitio: `30.30.*` = externas / bloqueables). Fuente de verdad = `SITE.md` actualizado ese día. CLAUDE.md es manual de desarrollo (todos los sitios); SITE.md es config de cliente.
 
 ---
 
