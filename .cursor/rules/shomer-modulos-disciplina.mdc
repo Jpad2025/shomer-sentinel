@@ -1,0 +1,36 @@
+---
+description: Shomer — disciplina modular; no parches ni acciones no pedidas (Ópera/prod)
+alwaysApply: true
+---
+
+# Shomer — disciplina de trabajo (Always Apply)
+
+## Antes de tocar código, BD o servicios
+1. Leer `CLAUDE.md` (sección del módulo) y `SITE.md` del sitio.
+2. Declarar en una línea: módulo + qué harás + qué NO tocarás.
+3. Si falta claridad → preguntar. No asumir.
+
+## Un módulo por tarea
+| Módulo | Ámbito | Credenciales |
+|--------|--------|--------------|
+| Tracker | `inventory.db`, scanner, panel inventario | Solo `network_credentials` / overrides Tracker |
+| Protector | `backup_devices`, Restic, B2, panel backups | Solo credenciales Protector por equipo |
+| Hunter | Suricata/Wazuh, `hunter.*` | Solo `hunter.firewall_*` |
+| Guardian / Infra | nodos, `devices`, poller, NOC | Solo tabla `devices` / infra |
+
+Prohibido cruzar credenciales o “aprovechar” pass de otro módulo para enriquecer o probar otro.
+
+## Prohibido sin pedido explícito
+- Scripts “de ayuda”, enriquecimientos, limpiezas o “ya que estoy…”
+- Cambiar JWT, credenciales, UFW, snapshots, restore
+- Deploy / rsync / push GitHub / `systemctl restart` / SQL de escritura en **producción Ópera** sin la palabra **adelante**
+- Mezclar lab (`.205`) y producción en el mismo paso
+
+## Si no está en el mensaje del usuario
+Preguntar. No hacer.
+
+## Ejemplo
+```
+❌ BAD: Usar pass de Protector Zeus para WMI del Tracker / APs de Guardian.
+✅ GOOD: Fallo WMI Tracker → revisar solo Credenciales Tracker (CLAUDE §AI.3); no tocar Protector.
+```

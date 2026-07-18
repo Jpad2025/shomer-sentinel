@@ -1472,9 +1472,16 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
     .then(d => {
       const c = d.credentials || {};
       document.getElementById('cred-user').value   = c.user            || '';
-      document.getElementById('cred-pass').value   = c.password        || '';
       document.getElementById('cred-domain').value = c.domain          || '';
       document.getElementById('cred-snmp').value   = c.snmp_community  || '';
+      const passEl = document.getElementById('cred-pass');
+      if (c.has_password) {
+        passEl.value = '';
+        passEl.placeholder = '•••••••• (guardada — dejar vacío para no cambiar)';
+      } else {
+        passEl.value = '';
+        passEl.placeholder = '••••••••';
+      }
       document.getElementById('credentials-modal').classList.add('active');
     })
     .catch(() => {
@@ -1487,9 +1494,11 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
   }
 
   function saveCredentials() {
+    const passRaw = document.getElementById('cred-pass').value;
     const payload = {
       user:           document.getElementById('cred-user').value.trim(),
-      password:       document.getElementById('cred-pass').value,
+      // vacío o *** → API conserva la pass ya guardada
+      password:       passRaw.trim() === '' ? '***' : passRaw,
       domain:         document.getElementById('cred-domain').value.trim(),
       snmp_community: document.getElementById('cred-snmp').value.trim() || 'public',
     };

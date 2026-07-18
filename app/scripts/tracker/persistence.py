@@ -260,9 +260,7 @@ def merge_quick_scan_assets(assets: List[Dict[str, Any]], conn: sqlite3.Connecti
                 vendor     = CASE WHEN excluded.vendor     != '' THEN excluded.vendor     ELSE vendor     END,
                 hostname   = CASE WHEN excluded.hostname   != '' THEN excluded.hostname   ELSE hostname   END,
                 asset_type = CASE WHEN excluded.asset_type != '' THEN excluded.asset_type ELSE asset_type END,
-                wmi_status  = 'NOT_ATTEMPTED',
-                snmp_status = 'NOT_ATTEMPTED',
-                ssh_status  = 'NOT_ATTEMPTED',
+                -- Quick scan no toca WMI/SSH/SNMP: preserva resultado del deep scan.
                 last_seen  = excluded.last_seen,
                 last_audit = excluded.last_audit
             """,

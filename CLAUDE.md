@@ -8,6 +8,21 @@ Los manuales de instalación detallados (cableado, modelo por modelo) y las tabl
 
 ---
 
+## ⛔ Disciplina modular (OBLIGATORIA — agentes Cursor / técnicos)
+
+Regla espejo: `.cursor/rules/shomer-modulos-disciplina.mdc` (`alwaysApply: true`).
+
+1. **Leer primero** este `CLAUDE.md` (sección del módulo) + `SITE.md` del sitio **antes** de tocar código, BD o servicios.
+2. **Un módulo por tarea:** Tracker · Protector · Hunter · Guardian/Infra — no mezclar en el mismo paso.
+3. **Credenciales solo del módulo:** Tracker → `network_credentials`; Protector → `backup_devices`; Hunter → `hunter.firewall_*`; Guardian → `devices`. **Prohibido cruzar** (p. ej. pass Zeus/Protector para WMI Tracker o APs).
+4. **Prohibido** scripts “de ayuda”, limpiezas o “ya que estoy…” no pedidos.
+5. **Producción (Hotel Ópera):** deploy / rsync / restart / SQL de escritura **solo** con autorización explícita (**adelante**). Preferir lab `.205` para experimentos.
+6. Si **no está en el pedido** → preguntar; no hacer.
+
+Detalle credenciales Tracker AD: §AI.3 · Usuario servicio sitio: §D.2 · Protector Zeus (cuenta local distinta): §AV.
+
+---
+
 # Parte A — Estado del sistema (realidad cotidiana)
 
 ## A.1 Servicios que debe tener el appliance

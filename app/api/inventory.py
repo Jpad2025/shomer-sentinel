@@ -159,7 +159,16 @@ async def get_credentials(_user: Dict[str, Any] = Depends(get_current_user)) -> 
         creds = fetch_network_credentials(conn)
     if creds is None:
         return {"success": True, "credentials": None}
-    return {"success": True, "credentials": creds}
+    # No devolver password en claro; el panel usa *** + has_password (como Protector).
+    safe = {
+        "id": creds.get("id"),
+        "user": creds.get("user") or "",
+        "domain": creds.get("domain") or "",
+        "snmp_community": creds.get("snmp_community") or "",
+        "has_password": bool((creds.get("password") or "").strip()),
+        "password": "***" if (creds.get("password") or "").strip() else "",
+    }
+    return {"success": True, "credentials": safe}
 
 
 @router.post("/credentials")
@@ -173,7 +182,7 @@ async def save_credentials(
 
 
 @router.get("/list")
-async def list_assets() -> Dict[str, Any]:
+async def list_assets(_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     with get_connection_inventory(timeout=30) as conn:
         assets = fetch_all_assets_normalized(conn)
     enrich_assets_with_suricata_alerts(assets)
@@ -181,7 +190,10 @@ async def list_assets() -> Dict[str, Any]:
 
 
 @export_router.get("/inventory/excel/{ip}")
-async def export_inventory_excel(ip: str) -> StreamingResponse:
+async def export_inventory_excel(
+    ip: str,
+    _user: Dict[str, Any] = Depends(get_current_user),
+) -> StreamingResponse:
     with get_connection_inventory(timeout=30) as conn:
         asset = fetch_asset_by_ip_normalized(conn, ip)
     if not asset:
@@ -196,7 +208,10 @@ async def export_inventory_excel(ip: str) -> StreamingResponse:
 
 
 @export_router.get("/asset/pdf/{ip}")
-async def export_asset_pdf(ip: str) -> Response:
+async def export_asset_pdf(
+    ip: str,
+    _user: Dict[str, Any] = Depends(get_current_user),
+) -> Response:
     with get_connection_inventory(timeout=30) as conn:
         a = fetch_asset_by_ip_normalized(conn, ip)
     if not a:
@@ -211,7 +226,9 @@ async def export_asset_pdf(ip: str) -> Response:
 
 
 @export_router.get("/labels/sheet")
-async def export_labels_sheet_pdf() -> Response:
+async def export_labels_sheet_pdf(
+    _user: Dict[str, Any] = Depends(get_current_user),
+) -> Response:
     """Hoja carta con 18 etiquetas (3×6) de 52×30 mm para todos los activos."""
     with get_connection_inventory(timeout=30) as conn:
         assets = fetch_all_assets_normalized(conn)
@@ -318,7 +335,10 @@ async def update_asset(
 
 
 @snapshot_router.post("/close")
-async def close_and_archive(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+async def close_and_archive(
+    payload: Dict[str, Any] = Body(...),
+    _admin: Dict[str, Any] = Depends(require_admin),
+) -> Dict[str, Any]:
     name = (payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="El campo 'name' es requerido")
@@ -329,7 +349,7 @@ async def close_and_archive(payload: Dict[str, Any] = Body(...)) -> Dict[str, An
 
 
 @snapshot_router.get("/list")
-async def list_snapshots() -> Dict[str, Any]:
+async def list_snapshots(_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     with get_connection_inventory(timeout=30) as conn:
         snapshots = list_snapshot_metadata(conn)
     return {"success": True, "snapshots": snapshots}
@@ -367,7 +387,10 @@ async def rescan_single_asset(
 
 
 @snapshot_router.get("/{snapshot_id}/excel")
-async def export_snapshot_excel(snapshot_id: int) -> Response:
+async def export_snapshot_excel(
+    snapshot_id: int,
+    _user: Dict[str, Any] = Depends(get_current_user),
+) -> Response:
     with get_connection_inventory(timeout=30) as conn:
         loaded = load_snapshot_assets(conn, snapshot_id)
     if not loaded:

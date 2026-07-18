@@ -537,7 +537,22 @@ def _update_device_status(
 
 
 def _telegram(msg: str) -> None:
+    """Envía alerta Protector a Telegram (HTML). Escapa basura tipo <index/...> de Restic."""
     try:
+        import html as _html
+        import re as _re
+        _allowed = _re.compile(
+            r"</?(?:b|i|u|code|pre|a|strong|em|br)\b[^>]*>",
+            _re.IGNORECASE,
+        )
+        parts = _re.split(r"(<[^>]+>)", msg or "")
+        safe = []
+        for p in parts:
+            if _allowed.fullmatch(p):
+                safe.append(p)
+            else:
+                safe.append(_html.escape(p, quote=False))
+        msg = "".join(safe)
         from app.scripts.alerts import send_telegram_alert
         result = send_telegram_alert(msg)
         if not result:

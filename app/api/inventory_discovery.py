@@ -35,6 +35,8 @@ def _write_scan_status(mode: str, started_at: float, pid: int) -> None:
     try:
         with open(SCAN_STATUS_FILE, "w") as f:
             json.dump({"mode": mode, "started_at": started_at, "pid": pid}, f)
+        with open(SCAN_LOCK_FILE, "w") as f:
+            f.write(str(pid))
     except Exception:
         pass
 
@@ -48,6 +50,8 @@ def _clear_scan_status() -> None:
 
 
 def _pid_alive(pid: int) -> bool:
+    if not pid or pid <= 1:
+        return False
     try:
         os.kill(pid, 0)
         return True
@@ -55,81 +59,144 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+def _pid_is_scanner(pid: int) -> bool:
+    """True si el PID es el script scanner.py (no el worker uvicorn)."""
+    if not _pid_alive(pid):
+        return False
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmd = f.read().replace(b"\x00", b" ").decode("utf-8", errors="ignore")
+        return "scanner.py" in cmd
+    except OSError:
+        return False
+
+
+def _find_scanner_pid() -> Optional[int]:
+    """PID real de scanner.py en ejecución, si existe."""
+    try:
+        out = subprocess.run(
+            ["pgrep", "-f", r"app/scripts/scanner\.py"],
+            capture_output=True, text=True, timeout=3,
+        ).stdout.strip()
+        for line in out.splitlines():
+            try:
+                pid = int(line.strip())
+            except ValueError:
+                continue
+            if _pid_is_scanner(pid):
+                return pid
+    except Exception:
+        pass
+    return None
+
+
 def _acquire_scan_lock(mode: str) -> bool:
-    """Escribe PID en lock file. Retorna False si ya hay un scan activo."""
+    """Reserva escaneo. Retorna False si ya hay scanner.py o lock válido activo."""
+    live = _find_scanner_pid()
+    if live:
+        return False
     if os.path.exists(SCAN_LOCK_FILE):
         try:
             with open(SCAN_LOCK_FILE) as f:
                 old_pid = int(f.read().strip())
-            if _pid_alive(old_pid):
+            # Solo bloquear si el PID del lock es scanner real (evita trabarse
+            # con PID del worker uvicorn que vive siempre).
+            if _pid_is_scanner(old_pid):
                 return False
+            if _pid_alive(old_pid) and not _pid_is_scanner(old_pid):
+                # Lock viejo/incorrecto: limpiar y continuar
+                _clear_scan_status()
         except (ValueError, OSError):
             pass
-    pid = os.getpid()
-    try:
-        with open(SCAN_LOCK_FILE, "w") as f:
-            f.write(str(pid))
-        _write_scan_status(mode, time.time(), pid)
-    except Exception:
-        pass
+    # PID provisional 0 hasta que Popen lance scanner.py
+    _write_scan_status(mode, time.time(), 0)
     return True
+
+
+def _register_scan_process(mode: str, started_at: float, pid: int) -> None:
+    """Registra el PID real de scanner.py (hijo), no el del worker API."""
+    _write_scan_status(mode, started_at, pid)
 
 
 def get_scan_status() -> Dict[str, Any]:
     """Retorna estado del scan activo o {'running': False} si no hay ninguno."""
-    if not os.path.exists(SCAN_STATUS_FILE):
+    # Fuente de verdad: proceso scanner.py vivo (corrige PID erróneo del worker).
+    scanner_pid = _find_scanner_pid()
+    mode = "unknown"
+    started_at = time.time()
+    if os.path.exists(SCAN_STATUS_FILE):
+        try:
+            with open(SCAN_STATUS_FILE) as f:
+                data = json.load(f)
+            mode = data.get("mode", "unknown")
+            started_at = float(data.get("started_at") or started_at)
+            stored = int(data.get("pid") or 0)
+            if scanner_pid and stored != scanner_pid:
+                _register_scan_process(mode, started_at, scanner_pid)
+            elif not scanner_pid and _pid_is_scanner(stored):
+                scanner_pid = stored
+        except Exception:
+            pass
+    if not scanner_pid:
+        if os.path.exists(SCAN_STATUS_FILE) or os.path.exists(SCAN_LOCK_FILE):
+            # Sin scanner.py: limpiar basura (p.ej. PID de uvicorn)
+            stored_alive = False
+            try:
+                with open(SCAN_STATUS_FILE) as f:
+                    stored_alive = _pid_is_scanner(int(json.load(f).get("pid") or 0))
+            except Exception:
+                pass
+            if not stored_alive:
+                _clear_scan_status()
         return {"running": False}
-    try:
-        with open(SCAN_STATUS_FILE) as f:
-            data = json.load(f)
-        pid = data.get("pid", 0)
-        if not _pid_alive(pid):
-            _clear_scan_status()
-            return {"running": False}
-        elapsed = int(time.time() - data.get("started_at", time.time()))
-        return {
-            "running": True,
-            "mode": data.get("mode", "unknown"),
-            "pid": pid,
-            "elapsed_sec": elapsed,
-            "elapsed_label": "%dm %ds" % (elapsed // 60, elapsed % 60),
-        }
-    except Exception:
-        return {"running": False}
+    elapsed = max(0, int(time.time() - started_at))
+    return {
+        "running": True,
+        "mode": mode or "unknown",
+        "pid": scanner_pid,
+        "elapsed_sec": elapsed,
+        "elapsed_label": "%dm %ds" % (elapsed // 60, elapsed % 60),
+    }
 
 
 def kill_scan() -> bool:
     """Termina el scan activo y todos sus hijos (nmap). Retorna True si mató algo."""
     status = get_scan_status()
-    if not status.get("running"):
-        return False
-    pid = status.get("pid", 0)
+    pid = int(status.get("pid") or 0) if status.get("running") else 0
     if not pid:
+        pid = _find_scanner_pid() or 0
+    if not pid:
+        _clear_scan_status()
         return False
     killed = False
-    # Matar árbol de procesos hijos (nmap, python scanner.py)
+
+    def _kill_tree(root: int) -> None:
+        nonlocal killed
+        try:
+            children = subprocess.run(
+                ["pgrep", "-P", str(root)],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.split()
+            for cpid in children:
+                try:
+                    _kill_tree(int(cpid))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            os.kill(root, signal.SIGTERM)
+            killed = True
+        except Exception:
+            pass
+
+    _kill_tree(pid)
+    # nmap huérfano del escaneo
     try:
-        children = subprocess.run(
-            ["pgrep", "-P", str(pid)],
-            capture_output=True, text=True, timeout=3,
-        ).stdout.split()
-        for cpid in children:
-            try:
-                os.kill(int(cpid), signal.SIGTERM)
-                killed = True
-            except Exception:
-                pass
-    except Exception:
-        pass
-    # Matar el proceso principal
-    try:
-        os.kill(pid, signal.SIGTERM)
-        killed = True
-    except Exception:
-        pass
-    # Matar cualquier nmap zombie suelto
-    try:
-        subprocess.run(["pkill", "-f", "nmap.*shomer\|scanner.py"], timeout=3, check=False)
+        subprocess.run(
+            ["pkill", "-f", r"nmap.*192\.168\."],
+            timeout=3, check=False,
+        )
     except Exception:
         pass
     _clear_scan_status()
@@ -276,19 +343,31 @@ def run_inventory_quick_scan_background() -> None:
     env = os.environ.copy()
     env["INVENTORY_SCAN_MODE"] = "quick"
     os.makedirs(os.path.dirname(TRACKER_LOG), exist_ok=True)
+    started = time.time()
+    proc = None
     try:
         with open(TRACKER_LOG, "a", encoding="utf-8") as log_file:
-            subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
                 env=env,
                 cwd=_REPO_ROOT,
                 stdout=log_file,
                 stderr=log_file,
                 text=True,
-                timeout=300,
             )
+            _register_scan_process("quick", started, proc.pid)
+            try:
+                proc.wait(timeout=300)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
     except Exception as e:
         logger.debug("quick scan background: %s", e)
+        if proc and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
     finally:
         _clear_scan_status()
 
@@ -302,19 +381,31 @@ def run_inventory_deep_scan_background(env: Dict[str, str]) -> None:
     merged = os.environ.copy()
     merged.update(env)
     os.makedirs(os.path.dirname(SCANNER_LOG), exist_ok=True)
+    started = time.time()
+    proc = None
     try:
         with open(SCANNER_LOG, "a", encoding="utf-8") as log_file:
-            subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
                 env=merged,
                 cwd=_REPO_ROOT,
                 stdout=log_file,
                 stderr=log_file,
                 text=True,
-                timeout=3600,
             )
+            _register_scan_process("deep", started, proc.pid)
+            try:
+                proc.wait(timeout=3600)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
     except Exception as e:
         logger.debug("deep scan background: %s", e)
+        if proc and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
     finally:
         _clear_scan_status()
 

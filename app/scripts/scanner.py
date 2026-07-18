@@ -217,14 +217,22 @@ def _process_one_host(h: Dict[str, Any], idx: int, ctx: Dict[str, Any]) -> Dict[
     wmi_data = {}
     if wmi_candidate:
         try:
+            # Primero credenciales Tracker (BD / override); .env solo fallback.
             wmi_data = extractor.phase3_wmi(
-                ip, WMI_DEFAULT_USER, WMI_DEFAULT_PASSWORD, "", timeout_sec=t_sec
+                ip, eff_user, eff_pass, wmi_domain, timeout_sec=t_sec
             )
-            if not wmi_data.get("wmi_status") or wmi_data.get("wmi_status") != "OK" or (
-                not wmi_data.get("cpu") and not wmi_data.get("ram")
+            env_u = (WMI_DEFAULT_USER or "").strip()
+            env_p = (WMI_DEFAULT_PASSWORD or "").strip()
+            need_fallback = (
+                not wmi_data.get("wmi_status")
+                or wmi_data.get("wmi_status") != "OK"
+                or (not wmi_data.get("cpu") and not wmi_data.get("ram"))
+            )
+            if need_fallback and env_u and env_p and (
+                env_u != (eff_user or "").strip() or env_p != (eff_pass or "").strip()
             ):
                 wmi_data = extractor.phase3_wmi(
-                    ip, eff_user, eff_pass, wmi_domain, timeout_sec=t_sec
+                    ip, env_u, env_p, "", timeout_sec=t_sec
                 )
         except Exception as e:
             import logging

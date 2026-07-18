@@ -748,8 +748,9 @@ def phase3_wmi(ip: str, user: str, password: str, domain: str, timeout_sec: Opti
             import logging as _logging
             _logging.getLogger("impacket").setLevel(_logging.CRITICAL)
 
+            # §AI.3: dominio vacío → cuenta local "."
             dcom = DCOMConnection(
-                ip, username=user, password=password, domain=domain,
+                ip, username=user, password=password, domain=(domain or "."),
                 lmhash="", nthash="", aesKey=None,
                 oxidResolver=True, doKerberos=False,
             )
