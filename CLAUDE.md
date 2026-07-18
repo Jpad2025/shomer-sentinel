@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 8 jul 2026 (Sesión 66 §BI — host health blips/RX dropped, VPN solo conexiones, auditoría estado; Sesión 65 §BH Pulse; Sesión 64 §BF) · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 18 jul 2026 (Sesión 67 §BJ — Protector auditoría + recuperación Zeus 17 jul; Sesión 66 §BI; Sesión 65 §BH; Sesión 64 §BF) · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -4512,12 +4512,13 @@ Bucket compartido de la empresa (`shomer-backups`, mismo account_id que `.205`),
 
 **Antes de esta sesión no existía ningún borrado automático en B2** — `restic copy` solo agrega snapshots, nunca los quita. Sin intervención, B2 crece sin límite (~4GB/día → ~1.4TB/año por equipo).
 
-**Decisión:** 30 días de retención, tanto local como en B2.
+**Decisión producto (20 jun 2026):** 30 días de retención, tanto local como en B2.  
+**Ópera en vivo (18 jul 2026):** `protector.retention_days=5` / `protector.b2_retention_days=3` — ver `SITE.md` §Protector. No subir a 30 sin pedido explícito del hotel.
 
-| Config (`system_state`) | Valor | Efecto |
+| Config (`system_state`) | Valor (decisión 20 jun) | Efecto |
 |---|---|---|
-| `protector.retention_days` | `30` | `_prune_local()` — sin cambios, ya existía |
-| `protector.b2_retention_days` | `30` | **Nuevo** — `_prune_b2()`, no existía nada similar antes |
+| `protector.retention_days` | `30` (Ópera hoy: **5**) | `_prune_local()` — sin cambios, ya existía |
+| `protector.b2_retention_days` | `30` (Ópera hoy: **3**) | **Nuevo** — `_prune_b2()`, no existía nada similar antes |
 | `protector.b2_sync_enabled` | `1` | Activa el sync global nocturno (antes solo corría el sync por equipo) |
 | `protector.b2_sync_time` | `05:30` | Media hora después del backup de Zeus (05:00) |
 
@@ -5070,6 +5071,39 @@ Ver listado maestro en `SITE.md` §Pendientes activos (8 jul 2026).
 ## BI.3 Pendientes activos
 
 Ver `SITE.md` y `docs/campo/REVISION-EN-SITIO-OPERA.md` (actualizados 8 jul 2026).
+
+---
+
+# Sesión 67 — 17–18 jul 2026 (Hotel Ópera) — §BJ — Protector
+
+## BJ.1 Auditoría Protector (solo módulo)
+
+| Tema | Hallazgo |
+|------|----------|
+| Equipo | Zeus PMS `.5` — SMB → Restic local → B2 `hotel-opera` |
+| Fallo 17 jul ~05:00 | Restic índice/permiso + lock huérfano; sin snapshot del día |
+| Panel | `verified_ready` sin `last_snapshot_id` (falso verde) |
+| Auth `/backups/*` | 401 sin JWT — OK |
+| Retención viva Ópera | 5 local / 3 B2 (divergente de decisión 30/30 §BA.2) |
+
+## BJ.2 Recuperación (adelante 18 jul)
+
+| Paso | Resultado |
+|------|-----------|
+| `restic unlock` staging | OK |
+| Backup one-shot dumps `*_2026_07_17_*` | Local **`195e55af`** (9 archivos, ~38 s) |
+| Sync B2 | **`fb25f703`** (mismos paths) |
+| Panel | `last_status=ok`, `last_snapshot_id=195e55af` |
+| Patrón schedule | sin cambio: `*_{today}_*` |
+
+**Nota operativa:** `backup_now` tras medianoche Bogotá busca dumps del día nuevo; Zeus genera ~03:00. Si hace falta recuperar el día anterior, override puntual del patrón (no persistir en BD).
+
+## BJ.3 Docs
+
+- `SITE.md` Ópera: sección **Protector** (config viva + último OK) — **no va a git**
+- Canvas local: `protector-auditoria.canvas.tsx`
+
+**Sin código de producto en esta sesión** (solo operación + docs). Sync GitHub = este `CLAUDE.md` §BJ.
 
 ---
 
