@@ -7,9 +7,12 @@ from typing import Any, Dict, Optional
 
 _log = logging.getLogger("shomer.casador")
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.api.auth_api import get_current_user
+from app.api.auth_api import get_current_user, verify_token
+
+_security_optional = HTTPBearer(auto_error=False)
 
 from app.api.casador_support import (
     _cb_record_success,
@@ -312,13 +315,18 @@ async def execute_hunter_block(
 
 @router.post("/block")
 async def block_ip(
+    request: Request,
     body: Dict[str, Any] = Body(...),
     x_shomer_integration_key: Optional[str] = Header(default=None, alias="X-Shomer-Integration-Key"),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security_optional),
 ):
     """
     Bloquea una IP en el firewall y la registra en BD.
-    Wazuh → Shomer: `blocked_by: "wazuh"` + cabecera `X-Shomer-Integration-Key` (misma clave que
-    `hunter.integration_key` en BD o variable `SHOMER_WAZUH_INTEGRATION_KEY`).
+
+    Auth HTTP:
+    - `blocked_by=wazuh` → cabecera `X-Shomer-Integration-Key` (Wazuh en localhost).
+    - `manual` / `auto` vía HTTP → sesión JWT (Bearer o cookie). El poller interno
+      llama `execute_hunter_block` en proceso, no este endpoint.
     """
     _require_hunter()
     ip = (body.get("ip") or "").strip()
@@ -329,9 +337,28 @@ async def block_ip(
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Formato de IP inválido: {ip}")
 
+    blocked_by = (body.get("blocked_by") or "manual").strip().lower()
+    if blocked_by not in ("manual", "auto", "wazuh"):
+        blocked_by = "manual"
+
+    if blocked_by == "wazuh":
+        # Confianza solo por integration key (validada en execute_hunter_block)
+        pass
+    else:
+        token = (
+            credentials.credentials
+            if credentials and credentials.credentials
+            else None
+        ) or request.cookies.get("access_token")
+        if not verify_token(token):
+            raise HTTPException(
+                status_code=401,
+                detail="Token requerido para bloqueo manual/auto por API",
+            )
+
     result = await execute_hunter_block(
         ip,
-        blocked_by=(body.get("blocked_by") or "manual"),
+        blocked_by=blocked_by,
         alert_sid=body.get("alert_sid"),
         alert_signature=body.get("alert_signature", ""),
         severity=body.get("severity", 3),

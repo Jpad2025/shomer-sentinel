@@ -65,7 +65,10 @@ async def add_suricata_rule(body: Dict[str, Any] = Body(...), user=Depends(get_c
 
 
 @router.delete("/rules/{sid}")
-async def delete_suricata_rule(sid: int) -> Dict[str, Any]:
+async def delete_suricata_rule(
+    sid: int,
+    user=Depends(get_current_user),
+) -> Dict[str, Any]:
     if not os.path.isfile(SURICATA_LOCAL_RULES):
         raise HTTPException(status_code=404, detail="Archivo de reglas no encontrado")
     try:
@@ -84,7 +87,11 @@ async def delete_suricata_rule(sid: int) -> Dict[str, Any]:
 
 
 @router.patch("/rules/{sid}")
-async def toggle_suricata_rule(sid: int, body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+async def toggle_suricata_rule(
+    sid: int,
+    body: Dict[str, Any] = Body(...),
+    user=Depends(get_current_user),
+) -> Dict[str, Any]:
     enabled = bool(body.get("enabled", True))
     if not os.path.isfile(SURICATA_LOCAL_RULES):
         raise HTTPException(status_code=404, detail="Archivo de reglas no encontrado")
