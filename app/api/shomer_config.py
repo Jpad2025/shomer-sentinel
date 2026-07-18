@@ -78,6 +78,7 @@ async def get_system_config(user=Depends(require_admin)):
             "monitor_enabled": get_config("guardian.monitor_enabled", True),
             "fail_threshold": get_config("guardian.fail_threshold", 3),
             "cooldown_sec": get_config("guardian.cooldown_sec", 360),
+            "fail_retry_sec": get_config("guardian.fail_retry_sec", 150),
             "telegram_token": get_config("guardian.telegram_token", ""),
             "telegram_chat_id": get_config("guardian.telegram_chat_id", ""),
             "check_dns_enabled": get_config("guardian.check_dns_enabled", True),
@@ -164,7 +165,7 @@ async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(g
 
     guardian = payload.get("guardian", {})
     for field in [
-        "subnets", "monitor_enabled", "fail_threshold", "cooldown_sec",
+        "subnets", "monitor_enabled", "fail_threshold", "cooldown_sec", "fail_retry_sec",
         "telegram_token", "telegram_chat_id",
         "check_dns_enabled", "check_http_enabled", "check_latency_enabled",
         "dns_probe_host", "dns_probe_server",

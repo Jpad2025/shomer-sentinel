@@ -35,6 +35,7 @@ from app.api.shomer_guardian_health_checks import (
 from app.api.shomer_guardian_lib import (
     ALLOWED_IP_PATTERN,
     FAILURES_KEY_PREFIX,
+    LAST_REBOOT_ATTEMPT_KEY_PREFIX,
     LAST_REBOOT_KEY_PREFIX,
     MAINTENANCE_KEY,
     NODE_MAINTENANCE_PREFIX,
@@ -42,6 +43,7 @@ from app.api.shomer_guardian_lib import (
     NODE_DATA_PREFIX,
     log_event,
     send_telegram_safe,
+    _get_fail_retry_sec,
     _get_guardian_thresholds,
     _normalize_success,
     _redis_bool,
@@ -203,7 +205,8 @@ def _cleanup_orphan_guardian_keys(r, all_ips: set) -> None:
             ip = key.replace("status:", "", 1)
             if ip not in all_ips:
                 for prefix in (
-                    "status:", "failures:", "last_reboot:", "node_maintenance:",
+                    "status:", "failures:", "last_reboot:", "last_reboot_attempt:",
+                    "node_maintenance:",
                     "degraded_notified:", "degraded_streak:", "offline_streak:",
                 ):
                     r.delete(f"{prefix}{ip}")
@@ -224,6 +227,7 @@ def _batch_read_redis_state(r, ips: List[str]) -> Dict[str, Any]:
         pipe.get(f"{DEGRADED_NOTIFY_KEY_PREFIX}{ip}")
         pipe.get(f"{NODE_MAINTENANCE_PREFIX}{ip}")
         pipe.get(f"{LAST_REBOOT_KEY_PREFIX}{ip}")
+        pipe.get(f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}")
     pipe.get(MAINTENANCE_KEY)
     raw = pipe.execute()
     per_ip: Dict[str, Dict[str, Any]] = {}
@@ -237,8 +241,9 @@ def _batch_read_redis_state(r, ips: List[str]) -> Dict[str, Any]:
             "notify": raw[idx + 4],
             "node_maint": raw[idx + 5] == "1",
             "last_reboot": raw[idx + 6],
+            "last_reboot_attempt": raw[idx + 7],
         }
-        idx += 7
+        idx += 8
     return {"global_maintenance": raw[idx] == "1", "per_ip": per_ip}
 
 
@@ -248,6 +253,7 @@ def _load_guardian_poll_read() -> Optional[Dict[str, Any]]:
     with get_db() as conn:
         all_ips = {row[0] for row in conn.execute("SELECT ip_address FROM devices").fetchall()}
     threshold, cooldown = _get_guardian_thresholds()
+    fail_retry = _get_fail_retry_sec()
     health_cfg = _get_health_config()
     wan_snapshot, maintenance = _context_snapshots()
     r = _get_redis_guardian_client()
@@ -262,6 +268,7 @@ def _load_guardian_poll_read() -> Optional[Dict[str, Any]]:
         "all_ips": all_ips,
         "threshold": threshold,
         "cooldown": cooldown,
+        "fail_retry": fail_retry,
         "health_cfg": health_cfg,
         "wan_snapshot": wan_snapshot,
         "maintenance": maintenance,
@@ -293,6 +300,7 @@ def _build_node_outcome(
     *,
     threshold: int,
     cooldown: int,
+    fail_retry: int,
     health_cfg: Dict[str, Any],
     redis_snap: Dict[str, Any],
     global_maint: bool,
@@ -444,10 +452,19 @@ def _build_node_outcome(
 
     now_ts = int(datetime.utcnow().timestamp())
     lr_key = f"{LAST_REBOOT_KEY_PREFIX}{ip}"
+    # Cooldown largo: solo tras reboot OK (AP arrancando — anti-bucle)
     last_raw = redis_snap.get("last_reboot")
     if last_raw:
         try:
             if now_ts - int(last_raw) < cooldown:
+                return outcome
+        except Exception:
+            pass
+    # Espera corta: tras intento fallido (anti-spam SSH/Telegram; no usa los 5 min)
+    last_attempt = redis_snap.get("last_reboot_attempt")
+    if last_attempt:
+        try:
+            if now_ts - int(last_attempt) < fail_retry:
                 return outcome
         except Exception:
             pass
@@ -460,7 +477,9 @@ def _build_node_outcome(
         "count": new_failures,
         "reboot_via": reboot_via,
         "lr_key": lr_key,
+        "attempt_key": f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}",
         "now_ts": now_ts,
+        "fail_retry": fail_retry,
     }
     return outcome
 
@@ -502,8 +521,13 @@ def _persist_guardian_tick(
         if not reboot:
             continue
         ok, msg = _run_ssh_reboot(reboot["ip"])
-        r.set(reboot["lr_key"], str(reboot["now_ts"]))
         if ok:
+            # 5 min (cooldown_sec): AP recibió reboot y está arrancando
+            r.set(reboot["lr_key"], str(reboot["now_ts"]))
+            try:
+                r.delete(reboot["attempt_key"])
+            except Exception:
+                pass
             send_telegram_safe(
                 f"⚡ <b>REINICIO EN PROGRESO</b> SHOMER\n"
                 f"<b>Equipo:</b> {reboot['dev_name']} ({reboot['ip']})\n"
@@ -517,6 +541,16 @@ def _persist_guardian_tick(
                 f"motivo: {reboot['reason']}, {reboot['count']} fallos",
             )
         else:
+            # No tocar last_reboot (esos 5 min). Solo espera corta anti-spam.
+            retry_sec = int(reboot.get("fail_retry") or 60)
+            try:
+                r.setex(
+                    reboot["attempt_key"],
+                    retry_sec,
+                    str(reboot["now_ts"]),
+                )
+            except Exception:
+                pass
             send_telegram_safe(
                 f"🚨 <b>PÉRDIDA DE SERVICIO</b> SHOMER\n"
                 f"<b>Equipo:</b> {reboot['dev_name']} ({reboot['ip']})\n"
@@ -714,6 +748,7 @@ async def _poller_tick() -> None:
                 probe,
                 threshold=threshold,
                 cooldown=cooldown,
+                fail_retry=ctx.get("fail_retry") or _get_fail_retry_sec(),
                 health_cfg=health_cfg,
                 redis_snap=per_ip.get(ip, {}),
                 global_maint=global_maint,
@@ -944,6 +979,8 @@ async def heartbeat(request: Request, user=Depends(get_current_user)):
         if not maintenance_on and count >= _threshold:
             now_ts = int(datetime.utcnow().timestamp())
             lr_key = f"{LAST_REBOOT_KEY_PREFIX}{node_id}"
+            attempt_key = f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{node_id}"
+            fail_retry = _get_fail_retry_sec()
             last_ts_raw = r.get(lr_key)
             if last_ts_raw is not None:
                 try:
@@ -961,10 +998,26 @@ async def heartbeat(request: Request, user=Depends(get_current_user)):
                         }
                 except Exception:
                     pass
+            attempt_raw = r.get(attempt_key)
+            if attempt_raw is not None:
+                try:
+                    if now_ts - int(attempt_raw) < fail_retry:
+                        return {
+                            "success": True,
+                            "node_id": node_id,
+                            "failures": count,
+                            "message": f"Reintento tras fallo en {fail_retry}s — esperando.",
+                        }
+                except Exception:
+                    pass
 
             ok, msg = await asyncio.to_thread(_run_ssh_reboot, node_id)
             if ok:
                 r.set(LAST_REBOOT_KEY_PREFIX + node_id, str(now_ts))
+                try:
+                    r.delete(attempt_key)
+                except Exception:
+                    pass
                 logger.info("[AUTO-REBOOT] Nodo %s: %s", node_id, msg)
                 send_telegram_safe(
                     f"⚡ <b>REINICIO EN PROGRESO</b> SHOMER: Nodo {node_id} reiniciado automáticamente — {count} fallos detectados"
@@ -981,6 +1034,10 @@ async def heartbeat(request: Request, user=Depends(get_current_user)):
                     "failures": count,
                     "message": "Reboot automático enviado",
                 }
+            try:
+                r.setex(attempt_key, fail_retry, str(now_ts))
+            except Exception:
+                pass
             logger.warning("[AUTO-REBOOT-ERROR] Nodo %s: %s", node_id, msg)
             send_telegram_safe(f"🚨 <b>PÉRDIDA DE SERVICIO</b> SHOMER: Fallo al reiniciar {node_id} — {msg}")
             log_event(r, "error", "AUTO-REBOOT", f"Fallo al reiniciar {node_id}: {msg}")

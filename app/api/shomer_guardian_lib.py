@@ -18,8 +18,11 @@ MONITOR_RECENT_SEC = 120
 FAILURES_KEY_PREFIX = "failures:"
 NODE_DATA_PREFIX = "node:"
 LAST_REBOOT_KEY_PREFIX = "last_reboot:"
+# Tras intento fallido: espera corta anti-spam SSH/Telegram (no sustituye cooldown 5 min de éxito)
+LAST_REBOOT_ATTEMPT_KEY_PREFIX = "last_reboot_attempt:"
 ALERT_THRESHOLD = int(os.environ.get("SHOMER_ALERT_THRESHOLD", "2"))
 AUTO_REBOOT_COOLDOWN_SEC = int(os.environ.get("SHOMER_REBOOT_COOLDOWN_SEC", "360"))
+FAIL_RETRY_SEC_DEFAULT = int(os.environ.get("SHOMER_REBOOT_FAIL_RETRY_SEC", "150"))
 # Override en instalación no estándar: export SHOMER_SSH_KEY_PATH=/ruta/id_rsa
 SSH_KEY_PATH = (os.environ.get("SHOMER_SSH_KEY_PATH") or "").strip() or (
     "/home/usb_admin/.ssh/id_ed25519_shomer"
@@ -57,6 +60,15 @@ def _get_guardian_thresholds() -> Tuple[int, int]:
         return threshold, cooldown
     except Exception:
         return ALERT_THRESHOLD, AUTO_REBOOT_COOLDOWN_SEC
+
+
+def _get_fail_retry_sec() -> int:
+    """Espera tras reboot fallido (anti-spam). Por defecto 60 s; éxito sigue usando cooldown_sec."""
+    try:
+        v = int(get_config("guardian.fail_retry_sec") or FAIL_RETRY_SEC_DEFAULT)
+        return max(15, min(v, 600))
+    except Exception:
+        return FAIL_RETRY_SEC_DEFAULT
 
 
 def log_event(r, level: str, source: str, message: str) -> None:

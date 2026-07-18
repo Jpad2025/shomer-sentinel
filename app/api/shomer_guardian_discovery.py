@@ -11,6 +11,7 @@ from app.api.shomer_common import get_db, get_redis
 from app.api.shomer_guardian_lib import (
     ALLOWED_IP_PATTERN,
     FAILURES_KEY_PREFIX,
+    LAST_REBOOT_ATTEMPT_KEY_PREFIX,
     LAST_REBOOT_KEY_PREFIX,
     NODE_DATA_PREFIX,
     NODE_MAINTENANCE_PREFIX,
@@ -64,6 +65,7 @@ def _clean_redis_for_ip(ip: str) -> None:
         f"status:{ip}",
         f"{FAILURES_KEY_PREFIX}{ip}",
         f"{LAST_REBOOT_KEY_PREFIX}{ip}",
+        f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}",
         f"{NODE_MAINTENANCE_PREFIX}{ip}",
         f"{NODE_DATA_PREFIX}{ip}",
         f"degraded_notified:{ip}",

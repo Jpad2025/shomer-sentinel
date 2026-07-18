@@ -8,6 +8,7 @@ from app.api.shomer_common import get_db, get_redis
 from app.api.shomer_guardian_discovery import _sync_nodos_gl_from_devices
 from app.api.shomer_guardian_lib import (
     FAILURES_KEY_PREFIX,
+    LAST_REBOOT_ATTEMPT_KEY_PREFIX,
     LAST_REBOOT_KEY_PREFIX,
     NODE_MAINTENANCE_PREFIX,
 )
@@ -98,6 +99,7 @@ async def delete_router_device(
                 f"status:{ip}",
                 f"{FAILURES_KEY_PREFIX}{ip}",
                 f"{LAST_REBOOT_KEY_PREFIX}{ip}",
+                f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}",
                 f"{NODE_MAINTENANCE_PREFIX}{ip}",
                 f"degraded_notified:{ip}",
                 f"degraded_streak:{ip}",
@@ -114,6 +116,7 @@ def _clean_redis_for_ip(ip: str) -> None:
             f"status:{ip}",
             f"{FAILURES_KEY_PREFIX}{ip}",
             f"{LAST_REBOOT_KEY_PREFIX}{ip}",
+            f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}",
             f"{NODE_MAINTENANCE_PREFIX}{ip}",
             f"degraded_notified:{ip}",
             f"degraded_streak:{ip}",
