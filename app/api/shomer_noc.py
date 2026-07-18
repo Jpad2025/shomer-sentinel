@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from app.api.auth_api import require_admin
+from app.api.auth_api import get_current_user, require_admin
 from app.api.shomer_common import get_config, get_db, set_config
 
 logger = logging.getLogger(__name__)
@@ -848,9 +848,8 @@ async def noc_ack_problem(body: NocAckBody, token: str = ""):
 
 
 @router.get("/noc/token")
-async def noc_token_info():
-    """Muestra el token NOC actual (requiere acceso al backend)."""
-    from app.api.auth_api import get_current_user
+async def noc_token_info(_user=Depends(get_current_user)):
+    """Muestra el token NOC actual. Requiere sesión (JWT/cookie)."""
     token = _get_or_create_token()
     return {"token": token, "hint": f"URL: /noc?token={token}"}
 

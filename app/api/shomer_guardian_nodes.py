@@ -894,10 +894,11 @@ async def get_nodes(user=Depends(get_current_user)):
 
 
 @router.post("/heartbeat")
-async def heartbeat(request: Request):
+async def heartbeat(request: Request, user=Depends(get_current_user)):
     """
     Recibe JSON con node_id, success, clients, uptime, point_a/b/c. Redis: contador de fallos y hash con datos.
     Si success es true -> reset contador. Si fallos llegan a ALERT_THRESHOLD -> reinicio automático por SSH.
+    Requiere JWT (panel / integración autenticada). El poller interno no usa esta ruta.
     """
     try:
         try:

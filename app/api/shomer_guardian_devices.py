@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from app.api.auth_api import get_current_user, require_admin
 from app.api.shomer_common import get_db, get_redis
+from app.api.shomer_guardian_discovery import _sync_nodos_gl_from_devices
 from app.api.shomer_guardian_lib import (
     FAILURES_KEY_PREFIX,
     LAST_REBOOT_KEY_PREFIX,
@@ -83,6 +84,10 @@ async def delete_router_device(
         conn.execute(
             "DELETE FROM infra_nodes WHERE ip_address=?", (row["ip_address"],)
         ) if row else None
+        try:
+            _sync_nodos_gl_from_devices(conn)
+        except Exception:
+            pass
         conn.commit()
 
     if row:
@@ -130,6 +135,10 @@ async def deactivate_device(
             "UPDATE devices SET is_active=0, updated_at=datetime('now') WHERE ip_address=?", (ip,)
         )
         conn.execute("DELETE FROM infra_nodes WHERE ip_address=?", (ip,))
+        try:
+            _sync_nodos_gl_from_devices(conn)
+        except Exception:
+            pass
         conn.commit()
     _clean_redis_for_ip(ip)
     return {"success": True, "message": f"{ip} quitado del monitoreo"}
@@ -148,5 +157,9 @@ async def activate_device(
         conn.execute(
             "UPDATE devices SET is_active=1, updated_at=datetime('now') WHERE ip_address=?", (ip,)
         )
+        try:
+            _sync_nodos_gl_from_devices(conn)
+        except Exception:
+            pass
         conn.commit()
     return {"success": True, "message": f"{ip} agregado al monitoreo"}
