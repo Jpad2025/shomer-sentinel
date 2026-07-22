@@ -171,6 +171,17 @@ async def execute_hunter_block(
                 "skipped": True,
                 "detail": "IP en lista de excepciones (hunter.auto_block_exceptions)",
             }
+        # "Solo externas" también aplica a la cadena Wazuh (antes SOLO lo aplicaba el
+        # camino 'auto'). Los equipos internos del sitio (LAN del cliente en hunter.subnets)
+        # NO se autobloquean aunque una regla POLICY de Suricata/Wazuh dispare sobre ellos
+        # (p. ej. "ET POLICY ... pin= in cleartext"): evita cortar equipos del hotel por
+        # falsos positivos. El bloqueo manual desde el panel sigue disponible si es intencional.
+        if policy["only_external"] and not _is_external_ip(ip):
+            return {
+                "success": False,
+                "skipped": True,
+                "detail": "IP interna del sitio; Hunter solo autobloquea externas (política only_external). Use bloqueo manual si es intencional.",
+            }
 
     # Defensa en backend: el autobloqueo NO depende solo del frontend.
     if blocked_by == "auto":

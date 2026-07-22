@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 18 jul 2026 (Sesión 67 §BJ — Protector auditoría + recuperación Zeus 17 jul; Sesión 66 §BI; Sesión 65 §BH; Sesión 64 §BF) · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 21 jul 2026 (Sesión 68 §BK — Hunter Wazuh respeta only_external; Protector permisos repo; bot watch_groq; Sesión 67 §BJ; Sesión 66 §BI; Sesión 65 §BH) · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -5104,6 +5104,48 @@ Ver `SITE.md` y `docs/campo/REVISION-EN-SITIO-OPERA.md` (actualizados 8 jul 2026
 - Canvas local: `protector-auditoria.canvas.tsx`
 
 **Sin código de producto en esta sesión** (solo operación + docs). Sync GitHub = este `CLAUDE.md` §BJ.
+
+---
+
+# Sesión 68 — 21 jul 2026 (Hotel Ópera) — §BK — Hunter + Protector + bot
+
+## BK.1 Hunter — la cadena Wazuh ahora respeta `only_external`
+
+**Bug real:** `execute_hunter_block()` (`app/api/casador_blocking.py`) aplicaba `only_external`
+**solo** en el camino `blocked_by=auto`. El camino `blocked_by=wazuh` únicamente miraba
+`hunter.auto_block_exceptions` → **bloqueaba IPs internas** del sitio que no estuvieran
+listadas explícitamente (p. ej. `192.168.0.28` por firma `ET POLICY ... pin= in cleartext`,
+sev 1). En Ópera 66/72 bloqueos venían por Wazuh, así que la regla "solo externas" no se
+cumplía en la práctica para esa vía.
+
+**Fix:** en el bloque `if blocked_by == "wazuh"`, tras la comprobación de excepciones se añadió:
+
+```python
+if policy["only_external"] and not _is_external_ip(ip):
+    return {"success": False, "skipped": True,
+            "detail": "IP interna del sitio; Hunter solo autobloquea externas (only_external)..."}
+```
+
+Ahora una IP interna (en `hunter.subnets`) **no** se autobloquea por Wazuh aunque una regla
+POLICY dispare sobre ella. El **bloqueo manual** desde el panel sigue disponible.
+Diferencia vs camino `auto`: aquí **no** hay excepción por severidad crítica (1) — en la LAN
+del hotel esas alertas eran falsos positivos. Verificado: internas `→ skip`, externas `→ block`.
+
+## BK.2 Protector — permisos del repo Restic
+
+La recuperación del 17 jul (§BJ) se corrió con `sudo` → dejó ~808 archivos `root` en
+`/srv/shomer_backups/staging`. Como `shomer-tools` corre **como `usb_admin`**, los backups
+programados del 19–21 jul fallaron con `Load(<index/...>) ... permission denied`.
+**Fix (21 jul):** `chown -R usb_admin:usb_admin /srv/shomer_backups/staging` → backup Zeus
+OK (`d628f1df`, 9 archivos) + sync B2. **Regla:** nunca correr backup/restore Protector con
+`sudo`; siempre por el servicio o como `usb_admin`.
+
+## BK.3 Bot — mensaje `watch_groq` corregido
+
+`storage/shomer-agent/core/monitor.py`: la alerta decía siempre "Groq sin conexión" aunque
+la causa real fuera **cuota/rate-limit del plan free** (TCP abría, la API rechazaba). Ahora
+distingue `limite` / `sobrecargado` / `sin_conexion` y aclara "No es caída del hotel".
+(Agente = repo aparte `/storage/shomer-agent`, no entra en el sync de `/opt/network_monitor`.)
 
 ---
 
