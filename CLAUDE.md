@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 21 jul 2026 (Sesión 68 §BK — Hunter Wazuh respeta only_external; Protector permisos repo; bot watch_groq + auditoría IA/Groq §BK.4; Sesión 67 §BJ; Sesión 66 §BI; Sesión 65 §BH) · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 26 jul 2026 (Bot `624cc88` — TZ Bogotá, horarios laborales, `knowledge_decision`; sync labs; token Ópera exclusivo / lab en .245) · Sesión 68 §BK · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -50,7 +50,7 @@ Detalle credenciales Tracker AD: §AI.3 · Usuario servicio sitio: §D.2 · Prot
 - **Hunter**: bloqueo IPs en MikroTik. `only_external` se respeta **también** en la cadena Wazuh (internas de `hunter.subnets` no se autobloquean). Bloqueo manual siempre disponible.
 - **Protector**: 1 equipo (Zeus PMS `.5`) → Restic local `/srv/shomer_backups/staging` → B2. Retención **5 local / 3 B2** (decisión del sitio; **no** subir a 30 sin pedido del hotel). Backup 05:00 / sync B2 05:30.
 - **Tracker**: inventario en `inventory.db` (assets + snapshots). Solo credenciales Tracker.
-- **Bot/IA**: 2 IAs — **Groq** (fondo/monitores, plan **FREE**) + **OpenAI** gpt-4o-mini (chat, con topes). 28 monitores. Presupuesto diario global de tokens.
+- **Bot/IA**: 2 IAs — **Groq** (fondo/monitores, plan **FREE**) + **OpenAI** gpt-4o-mini (chat, con topes). Contenedor **`TZ=America/Bogota`**. Briefing **08:00** (resumen + puertos); mant. nocturno **sin Telegram si OK**. `/guardar` → `knowledge_decision()` (consejo en alertas/IA, no piloto auto). Token prod **solo Ópera**; lab bot activo en **.245** (token distinto). `.205`/`.243` bot off hasta token propio.
 
 ## Lecciones vivas (bugs cerrados que importan)
 - **sudo/root**: tras cualquier `sudo restic` o correr módulos como root → revisar dueño del **repo** Y de `~/.cache/restic` Y de `__pycache__`; fix `chown -R usb_admin`. (Causó panel Protector "sin snapshots" y `.pyc` de Hunter en root.)
