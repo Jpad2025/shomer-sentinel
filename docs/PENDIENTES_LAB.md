@@ -41,3 +41,10 @@ Mejoras posibles (priorizar cuando digas adelante):
 
 Commit `16be896` metió BDs/backups por error; `de79dcd` los quitó del árbol actual.
 ⏳ Pendiente (requiere tu OK + force-push): `git filter-repo` para borrarlos del historial remoto.
+
+## Push seguro (git)
+
+- **Nunca** `git add -A` en labs: puede meter `*.db` / backups locales.
+- Antes de push: `git status` — solo código/docs; 0 archivos `.db` / `.tar.gz`.
+- `SITE.md` y `.env` no van a git.
+- HEAD actual sin BDs trackeados. Historial antiguo (`16be896`) aún tiene blobs hasta filter-repo (requiere OK + force-push; no urgente para operar).
