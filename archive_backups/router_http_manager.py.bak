@@ -1,0 +1,145 @@
+"""
+router_http_manager.py
+Gestor de reinicio de routers via HTTP/HTTPS
+Desarrollado por USB Ingeniería SAS y USB Engineers LLC
+Versión 2.0 - Octubre 2025
+"""
+import requests, base64, hashlib, time, logging, json, re, socket, subprocess
+from typing import Tuple, Dict, Optional
+from urllib.parse import urljoin
+
+logger = logging.getLogger(__name__)
+
+class RouterHTTPManager:
+    def __init__(self, timeout=10, authorization_level=2):
+        self.timeout = timeout
+        self.authorization_level = authorization_level
+        self.session = requests.Session()
+        self.session.verify = False
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        logger.info(f"RouterHTTPManager inicializado (auth_level: {authorization_level})")
+
+    def detect_admin_port(self, ip, ports=[80, 2222, 8080, 8443]):
+    """Detecta automáticamente el puerto de administración del router"""
+    logger.info(f"Detectando puerto de administración para {ip}")
+    for port in ports:
+        try:
+            url = f"http://{ip}:{port}/"
+            response = self.session.get(url, timeout=2)
+            if response.status_code == 200:
+                logger.info(f"Puerto de administración detectado: {port}")
+                return port
+        except Exception as e:
+            logger.debug(f"Puerto {port} no disponible: {str(e)}")
+    logger.warning(f"No se pudo detectar puerto de administración para {ip}")
+    return None
+
+    def reboot_device(self, ip, username, password, brand="auto"):
+        brand = brand.lower() if brand else "auto"
+        logger.info(f"Intentando reiniciar {ip} (marca: {brand})")
+        if brand in ["tplink", "tp-link"]:
+            return self.reboot_tplink_archer_c54(ip, password)
+        elif brand == "netgear":
+            return self.reboot_netgear_ac1000(ip, username, password)
+        elif brand == "auto":
+            logger.info(f"Modo auto-detección para {ip}")
+            methods = [
+                ("TP-Link Archer C54", lambda: self.reboot_tplink_archer_c54(ip, password)),
+                ("Netgear AC1000", lambda: self.reboot_netgear_ac1000(ip, username, password))
+            ]
+            for name, method in methods:
+                try:
+                    logger.info(f"Intentando método específico: {name}")
+                    success, msg = method()
+                    if success:
+                        return True, f"Reiniciado con {name}: {msg}"
+                except Exception as e:
+                    logger.debug(f"Método {name} falló: {e}")
+            if self.authorization_level >= 2:
+                logger.info(f"Intentando métodos avanzados para {ip}")
+                return self._try_advanced_methods(ip, username, password)
+            return False, "Ningún método funcionó"
+        return False, f"Marca no soportada: {brand}"
+
+    def reboot_tplink_archer_c54(self, ip, password):
+    """
+    Reiniciar TP-Link Archer C54
+    """
+    try:
+        # Detectar puerto de administración
+        admin_port = self.detect_admin_port(ip) or 2222  # Usar 2222 como fallback
+        logger.info(f"Usando puerto {admin_port} para {ip}")
+        
+        # Crear URL base con el puerto correcto
+        base_url = f"http://{ip}:{admin_port}"
+        login_url = f"{base_url}/cgi-bin/luci/;stok=/login?form=login"
+        
+        # Resto del código de login y reinicio...
+        # ...
+
+    def reboot_netgear_ac1000(self, ip, username, password):
+        try:
+            base_url = f"http://{ip}"
+            auth = (username, password)
+            response = self.session.get(base_url, auth=auth, timeout=self.timeout)
+            if response.status_code == 401: return False, "Error de autenticación"
+            reboot_urls = ["/setup.cgi?todo=reboot", "/reboot.cgi"]
+            for path in reboot_urls:
+                try:
+                    reboot_url = f"{base_url}{path}"
+                    logger.info(f"Intentando Netgear reboot con {reboot_url}")
+                    response = self.session.get(reboot_url, auth=auth, timeout=self.timeout)
+                    if response.status_code in [200, 302]: return True, f"Reinicio exitoso con {path}"
+                except requests.exceptions.Timeout: return True, f"Reinicio iniciado (timeout en {path})"
+                except Exception: continue
+            return False, "Ningún método de reinicio Netgear funcionó"
+        except Exception as e: return False, f"Error en Netgear: {e}"
+
+    def _try_advanced_methods(self, ip, username, password):
+        if self.authorization_level < 2: return False, "Métodos avanzados no autorizados"
+        methods = [self._try_tcp_connection_flood, self._try_http_flood]
+        for method in methods:
+            name = method.__name__.replace('_try_', '')
+            logger.info(f"Intentando método avanzado: {name} para {ip}")
+            try:
+                success, message = method(ip)
+                if success: return True, f"Reiniciado con {name}: {message}"
+            except Exception as e: logger.error(f"Error en {name}: {e}")
+        return False, "Todos los métodos avanzados fallaron"
+
+    def _try_tcp_connection_flood(self, ip):
+        try:
+            ports = [80, 443, 22, 23, 8080]
+            sockets = []
+            for _ in range(50):
+                for port in ports:
+                    try:
+                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        s.settimeout(0.5)
+                        s.connect((ip, port))
+                        sockets.append(s)
+                    except socket.error: pass
+            time.sleep(5)
+            for s in sockets: s.close()
+            time.sleep(10)
+            if not self._ping_device(ip): return True, "Reinicio por sobrecarga TCP"
+            return False, "Sobrecarga TCP no provocó reinicio"
+        except Exception as e: return False, f"Error en TCP flood: {e}"
+
+    def _try_http_flood(self, ip):
+        try:
+            urls = ["/", "/index.html", "/status.html"]
+            for _ in range(100):
+                for url in urls:
+                    try: self.session.get(f"http://{ip}{url}", timeout=0.5, stream=False)
+                    except requests.exceptions.RequestException: pass
+            time.sleep(10)
+            if not self._ping_device(ip): return True, "Reinicio por HTTP flood"
+            return False, "HTTP flood no provocó reinicio"
+        except Exception as e: return False, f"Error en HTTP flood: {e}"
+
+    def _ping_device(self, ip):
+        try:
+            return subprocess.run(f"ping -c 1 -W 2 {ip}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        except: return False
