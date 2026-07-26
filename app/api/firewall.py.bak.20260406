@@ -1,0 +1,6 @@
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/firewall", tags=["Firewall"])
+
+# Endpoints del módulo Firewall se implementarán en futuras versiones.
+

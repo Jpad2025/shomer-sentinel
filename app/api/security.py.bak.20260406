@@ -1,0 +1,155 @@
+"""
+Hunter - Módulo Seguridad. Endpoints en puerto 8000.
+
+Lee alertas recientes de Suricata desde los logs locales
+sin tocar el puerto 8001 (Tracker).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from collections import deque
+from typing import Any, Deque, Dict, List
+
+from fastapi import APIRouter
+
+
+SURICATA_EVE_PATH = os.environ.get("SURICATA_EVE_PATH", "/var/log/suricata/eve.json")
+SURICATA_FAST_PATH = os.environ.get("SURICATA_FAST_PATH", "/var/log/suricata/fast.log")
+
+router = APIRouter(prefix="/security", tags=["Hunter - Seguridad"])
+
+
+def _tail_lines(path: str, limit: int) -> List[str]:
+    """
+    Devuelve hasta `limit` líneas finales de un archivo de texto.
+    Usa deque para evitar cargar archivos grandes en memoria.
+    """
+    dq: Deque[str] = deque(maxlen=max(limit, 1))
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if line.strip():
+                    dq.append(line.rstrip("\n"))
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return []
+    return list(dq)
+
+
+def _parse_eve_json(lines: List[str], limit: int) -> List[Dict[str, Any]]:
+    """
+    Parsea líneas JSON de Suricata eve.json en una lista de alertas estructuradas.
+    """
+    alerts: List[Dict[str, Any]] = []
+    for line in reversed(lines):
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        alert = obj.get("alert")
+        if not alert:
+            continue
+
+        ts = obj.get("timestamp") or obj.get("flow", {}).get("start")
+        src_ip = obj.get("src_ip") or obj.get("source_ip")
+        dest_ip = obj.get("dest_ip") or obj.get("destination_ip")
+        signature = alert.get("signature") or alert.get("category") or ""
+        severity = alert.get("severity")
+
+        alerts.append(
+            {
+                "timestamp": ts,
+                "source_ip": src_ip,
+                "dest_ip": dest_ip,
+                "alert": signature,
+                "severity": severity,
+            }
+        )
+        if len(alerts) >= limit:
+            break
+    return alerts
+
+
+_FASTLOG_RE = re.compile(
+    r"^(?P<ts>\S+)\s+"
+    r"(?:\S+\s+){0,5}"
+    r".*?\[Priority:\s*(?P<prio>\d+)\]"
+    r".*?\{\w+\}\s+"
+    r"(?P<src_ip>[0-9a-fA-F\.:]+):\d+\s*->\s*(?P<dest_ip>[0-9a-fA-F\.:]+):\d+"
+)
+
+
+def _parse_fast_log(lines: List[str], limit: int) -> List[Dict[str, Any]]:
+    """
+    Parsea líneas de fast.log de Suricata en una lista de alertas estructuradas.
+    El mensaje de alerta se deja como el texto completo de la línea.
+    """
+    alerts: List[Dict[str, Any]] = []
+    for line in reversed(lines):
+        m = _FASTLOG_RE.search(line)
+        if not m:
+            continue
+        ts = m.group("ts")
+        prio = m.group("prio")
+        src_ip = m.group("src_ip")
+        dest_ip = m.group("dest_ip")
+
+        alerts.append(
+            {
+                "timestamp": ts,
+                "source_ip": src_ip,
+                "dest_ip": dest_ip,
+                "alert": line.strip()[:300],
+                "severity": int(prio) if prio.isdigit() else prio,
+            }
+        )
+        if len(alerts) >= limit:
+            break
+    return alerts
+
+
+@router.get("/alerts")
+async def get_security_alerts(limit: int = 50) -> Dict[str, Any]:
+    """
+    Devuelve las alertas recientes de Suricata en formato estructurado.
+
+    Estructura:
+        {
+            "success": true,
+            "alerts": [
+                {
+                    "timestamp": "...",
+                    "source_ip": "...",
+                    "dest_ip": "...",
+                    "alert": "...",
+                    "severity": "..."
+                },
+                ...
+            ],
+            "count": N
+        }
+    """
+    limit = max(1, min(limit, 200))
+
+    alerts: List[Dict[str, Any]] = []
+
+    if os.path.exists(SURICATA_EVE_PATH):
+        lines = _tail_lines(SURICATA_EVE_PATH, limit * 2)
+        alerts = _parse_eve_json(lines, limit)
+    elif os.path.exists(SURICATA_FAST_PATH):
+        lines = _tail_lines(SURICATA_FAST_PATH, limit * 2)
+        alerts = _parse_fast_log(lines, limit)
+    else:
+        # Archivo no existe: devolver lista vacía, sin error.
+        alerts = []
+
+    if len(alerts) > limit:
+        alerts = alerts[:limit]
+
+    return {"success": True, "alerts": alerts, "count": len(alerts)}
+

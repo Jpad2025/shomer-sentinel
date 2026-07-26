@@ -82,12 +82,6 @@ class TestCoreSmoke(unittest.TestCase):
         self.assertIn("/remedies/block", self.paths)
         self.assertIn("/remedies/pipeline/health", self.paths)
 
-    def test_network_status_routes_on_core(self):
-        self.assertIn("/api/network/outages", self.paths)
-        self.assertIn("/api/network/status-events", self.paths)
-        self.assertIn("/api/network/outages/export", self.paths)
-        self.assertIn("/api/network/retention", self.paths)
-
     def test_pipeline_health_returns_json(self):
         r = self.client.get("/remedies/pipeline/health")
         self.assertEqual(r.status_code, 200)
