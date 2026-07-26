@@ -7,3 +7,23 @@ logs/
 *.db-journal
 *.db-wal
 *.db-shm
+# ── Nunca versionar (sync 26 jul — limpieza) ──
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+SITE.md
+.env
+.env.*
+*.bak
+*.bak.*
+*.backup*
+backups/
+archive_backups/
+app/backend/*.db
+database/*.db
+inventory.db
+network_monitor.db
+*.tar.gz
+__pycache__/
+.pytest_cache/
