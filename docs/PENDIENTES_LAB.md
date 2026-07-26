@@ -48,3 +48,15 @@ Commit `16be896` metió BDs/backups por error; `de79dcd` los quitó del árbol a
 - Antes de push: `git status` — solo código/docs; 0 archivos `.db` / `.tar.gz`.
 - `SITE.md` y `.env` no van a git.
 - HEAD actual sin BDs trackeados. Historial antiguo (`16be896`) aún tiene blobs hasta filter-repo (requiere OK + force-push; no urgente para operar).
+
+## Pruebas pendientes (dejar correr; recordar)
+
+Cuando pruebes a mano (Ópera / Telegram):
+
+1. **Tags memoria:** tras reboot o alerta → botones Reinicio resolvió / Cable/PoE / Falso positivo
+2. **Chat IA:** preguntar por una IP y verificar que use `consultar_memoria` (antecedente/consejo)
+3. **Horarios Bogotá:** mañana ~08:00 — resumen diario + informe puertos (mismo briefing)
+4. **Noche sin spam:** mant. logs / preventivo / backup semanal — Telegram solo si fallan
+5. **Tokens lab (más tarde):** BotFather propio para .205 y .243; hasta entonces bot OFF
+
+No es urgente. Sistema en marcha.
