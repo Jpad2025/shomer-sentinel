@@ -199,12 +199,35 @@ def _hunter_stats() -> dict:
             today = conn.execute(
                 "SELECT COUNT(*) FROM blocked_ips WHERE blocked_at >= datetime('now','-1 day')"
             ).fetchone()[0]
+            month = conn.execute(
+                """SELECT COUNT(*) FROM blocked_ips
+                   WHERE blocked_at >= datetime('now', 'start of month')"""
+            ).fetchone()[0]
+            days30 = conn.execute(
+                """SELECT COUNT(*) FROM blocked_ips
+                   WHERE blocked_at >= datetime('now', '-30 days')"""
+            ).fetchone()[0]
             last = conn.execute(
                 "SELECT alert_signature, severity, blocked_at FROM blocked_ips ORDER BY blocked_at DESC LIMIT 1"
             ).fetchone()
+        # Etiqueta del mes actual en español (America/Bogota)
+        try:
+            from zoneinfo import ZoneInfo
+            now_local = datetime.now(ZoneInfo("America/Bogota"))
+        except Exception:
+            now_local = datetime.now()
+        _meses = (
+            "enero", "febrero", "marzo", "abril", "mayo", "junio",
+            "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+        )
+        month_label = f"{_meses[now_local.month - 1]} {now_local.year}"
         return {
             "active_blocks": active,
             "blocks_24h": today,
+            "blocks_month": month,
+            "blocks_30d": days30,
+            "period_label": month_label,
+            "period_days": 30,
             "last_alert": {
                 "signature": last["alert_signature"] if last else None,
                 "severity": SEVERITY_LABEL.get(last["severity"], "?") if last else None,
@@ -213,7 +236,15 @@ def _hunter_stats() -> dict:
         }
     except Exception as e:
         logger.error("noc hunter_stats: %s", e)
-        return {"active_blocks": 0, "blocks_24h": 0, "last_alert": {}}
+        return {
+            "active_blocks": 0,
+            "blocks_24h": 0,
+            "blocks_month": 0,
+            "blocks_30d": 0,
+            "period_label": "este mes",
+            "period_days": 30,
+            "last_alert": {},
+        }
 
 
 def _risk_findings() -> dict:
@@ -648,8 +679,8 @@ def _outage_history(limit: int = 15) -> List[Dict[str, Any]]:
         return []
 
 
-def _ia_log(limit: int = 8) -> list:
-    """Lee las últimas acciones IA desde Redis noc:ia_log."""
+def _ia_log(limit: int = 12) -> list:
+    """Lee las últimas entradas IA / espejo Telegram desde Redis noc:ia_log."""
     try:
         import redis as _redis
         import json as _json
@@ -736,6 +767,16 @@ async def noc_page(request: Request, token: str = ""):
     _validate_token(token)
     return templates.TemplateResponse(
         "noc.html",
+        {"request": request, "token": token, "site_name": _site_name()},
+    )
+
+
+@router.get("/noc/cliente", response_class=HTMLResponse, include_in_schema=False)
+async def noc_cliente_page(request: Request, token: str = ""):
+    """Vista PREVIA orientada a hotel/TV (comparar vs /noc). Misma data."""
+    _validate_token(token)
+    return templates.TemplateResponse(
+        "noc_cliente.html",
         {"request": request, "token": token, "site_name": _site_name()},
     )
 

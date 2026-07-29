@@ -1,6 +1,6 @@
 # Pendientes lab (recordatorio operativo)
 
-Actualizado: 26 jul 2026 · Dueño: Juan Pablo (único operador)
+Actualizado: **28 jul 2026** · Dueño: Juan Pablo (único operador)
 
 ## Tokens Telegram lab (SIN conflicto ahora)
 
@@ -36,6 +36,13 @@ Mejoras posibles (priorizar cuando digas adelante):
 - Agente: git `shomer-agent` (push desde Ópera OK)
 - Core `/opt/network_monitor`: sync rsync **sin** `--delete`, **sin** SITE.md / .env / *.db
 - Nunca `git add -A` a ciegas en labs (puede meter BDs locales)
+- **28 jul:** sync NOC (`noc.html`, `shomer_noc.py`, `alerts.py`) + bloque IA + tipografía soporte USB + docs Ópera → `.205` / `.245` / `.243` + push GitHub (`shomer-sentinel` / `shomer-agent`)
+
+## NOC (pantalla)
+
+- `/noc` = TV / operaciones (misma plantilla en labs; token local por sitio)
+- No inventar alertas Telegram nuevas desde el NOC (Guardian/Infra/Hunter ya alertan)
+- No reintroducir vista “semáforo rojo” / `/noc/tecnico` sin pedido explícito
 
 ## Limpieza git (seguridad)
 
