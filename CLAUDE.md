@@ -169,6 +169,14 @@ Mezclar config de un sitio con otro **puede ser fatal**. Detalle: `docs/REGLAS_D
 
 Rutas lógicas: importar rutas físicas sólo desde `app.backend.db` (evita rutas tipo `/opt/network_monitor/hardcoded` dispersas).
 
+## D.0 NOC — pantalla TV (Guardian/Infra)
+
+- **URL:** `/noc?token=` + valor `system_state.noc.display_token` (por sitio).
+- **API:** `/noc/data`, ACK opcional `/noc/problems/ack` — `app/api/shomer_noc.py` · plantilla `app/templates/noc.html`.
+- **Rol:** display visual. **No** es canal de operación: Telegram (Guardian/Infra/Hunter) ya avisa con cooldowns existentes; no inventar alertas ni ACK Telegram desde el NOC.
+- **28 jul 2026 (Ópera):** KPI Hunter “amenazas externas contenidas”; bloque **Shomer IA** (logo eyes + feed `noc:ia_log` espejo Telegram); soporte USB tipografía TV; sin logo en header; sin pill IA. Ver `docs/NOC.md`.
+- Preview legado: `/noc/cliente`. Sync labs: rsync core **sin** `--delete`, **sin** `SITE.md` / `.env` / `*.db` (ver `docs/PENDIENTES_LAB.md`).
+
 **Restic Protector:** `RESTIC_REPOSITORY` + `RESTIC_PASSWORD` o `RESTIC_PASSWORD_FILE`.  
 `RESTIC_PASSWORD_FILE` en lab: `/home/usb_admin/.restic-local-pass`. El repo B2 usa la misma contraseña que el local — dejar `b2_password` vacío en el panel para que el código haga fallback automático.
 

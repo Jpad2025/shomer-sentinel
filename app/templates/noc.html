@@ -54,25 +54,25 @@
     color: var(--cyan);
   }
   .header-logo span { color: var(--text); }
-  .header-eyes-logo { height: 50px; width: auto; border-radius: 6px; }
+  .header-eyes-logo { height: 64px; width: auto; border-radius: 8px; }
   .header-site-name { font-size: 1.6rem; font-weight: 800; letter-spacing: 0.5px; color: var(--text); line-height: 1.15; }
   .header-verse { font-size: 0.72rem; letter-spacing: 0.5px; color: var(--cyan); font-weight: 500; opacity: 0.85; margin-top: 2px; }
-  .header-brand-logo { height: 46px; width: auto; opacity: 0.92; border-radius: 6px; }
+  .header-brand-logo { height: 56px; width: auto; opacity: 0.92; border-radius: 8px; }
   .header-center { text-align: center; }
   .header-title { font-size: 1.1rem; color: var(--muted); }
-  .header-clock { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .header-clock { font-size: 1.95rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .header-date { font-size: 0.85rem; color: var(--muted); }
   .live-badge {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     color: var(--green);
     font-weight: 600;
     letter-spacing: 2px;
   }
   .live-dot {
-    width: 10px; height: 10px;
+    width: 12px; height: 12px;
     border-radius: 50%;
     background: var(--green);
     animation: pulse 1.5s ease-in-out infinite;
@@ -94,38 +94,204 @@
     border: 1px solid var(--border);
     border-left: 3px solid var(--border);
     border-radius: 10px;
-    padding: 16px 20px;
+    padding: 14px 18px;
     display: flex;
     flex-direction: column;
     gap: 4px;
+    position: relative;
   }
   .kpi-card.kpi-ok  { border-left-color: var(--green); }
   .kpi-card.kpi-warn { border-left-color: var(--yellow); }
   .kpi-card.kpi-err  { border-left-color: var(--red); }
-  .kpi-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
-  .kpi-value { font-size: 2.2rem; font-weight: 800; line-height: 1.1; }
-  .kpi-value .kpi-denom { font-size: 1.2rem; font-weight: 400; color: var(--muted); }
-  .kpi-sub   { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  .kpi-icon {
+    font-size: 2.35rem;
+    line-height: 1;
+    margin-bottom: 2px;
+    filter: drop-shadow(0 0 8px rgba(148,163,184,.25));
+  }
+  .kpi-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .kpi-label .kpi-ico {
+    font-size: 1.55rem;
+    line-height: 1;
+    filter: drop-shadow(0 0 6px rgba(148,163,184,.3));
+  }
+  .kpi-value { font-size: 2.35rem; font-weight: 800; line-height: 1.1; }
+  .kpi-value .kpi-denom { font-size: 1.25rem; font-weight: 400; color: var(--muted); }
+  .kpi-sub   { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
 
   /* ── ALERT BAND ── */
   .alert-band {
     display: none;
     align-items: center;
-    gap: 14px;
+    gap: 18px;
     background: rgba(255,77,109,.1);
     border: 1px solid rgba(255,77,109,.5);
     border-radius: 10px;
-    padding: 12px 20px;
+    padding: 16px 22px;
     margin-bottom: 14px;
     animation: blink-border 2s ease-in-out infinite;
   }
+  .alert-band.band-ok {
+    background: rgba(0,255,157,.08);
+    border-color: rgba(0,255,157,.45);
+    animation: blink-border-ok 2s ease-in-out infinite;
+  }
+  .alert-band.band-ok .alert-band-text { color: var(--green); }
   @keyframes blink-border {
     0%,100% { border-color: rgba(255,77,109,.4); }
     50%      { border-color: rgba(255,77,109,.9); }
   }
-  .alert-band-icon { font-size: 1.4rem; flex-shrink: 0; }
-  .alert-band-text { font-weight: 700; color: var(--red); font-size: 1rem; }
-  .alert-band-sub  { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+  @keyframes blink-border-ok {
+    0%,100% { border-color: rgba(0,255,157,.35); }
+    50%      { border-color: rgba(0,255,157,.85); }
+  }
+  .alert-band-icon {
+    font-size: 3.4rem;
+    flex-shrink: 0;
+    line-height: 1;
+    filter: drop-shadow(0 0 12px rgba(0,255,157,.4));
+  }
+  .alert-band.band-ok .alert-band-icon {
+    font-size: 3.8rem;
+    filter: drop-shadow(0 0 16px rgba(0,255,157,.6));
+  }
+  .alert-band-text { font-weight: 700; color: var(--red); font-size: 1.15rem; }
+  .alert-band-sub  { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+
+  /* ── CEREBRO IA (avisos = espejo Telegram) ── */
+  .ia-brain {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 20px;
+    align-items: stretch;
+    background: linear-gradient(135deg, rgba(8,18,36,.95), rgba(15,30,55,.9));
+    border: 1px solid rgba(34,211,238,.28);
+    border-radius: 14px;
+    padding: 18px 22px;
+    margin-bottom: 14px;
+    box-shadow: 0 0 28px rgba(34,211,238,.08);
+    min-height: 220px;
+  }
+  .ia-brain-visual {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    padding-top: 4px;
+  }
+  .ia-brain-img-wrap {
+    position: relative;
+    width: 100px;
+    height: 100px;
+  }
+  .ia-brain-img {
+    width: 100px;
+    height: 100px;
+    border-radius: 14px;
+    object-fit: contain;
+    background: rgba(0,0,0,.35);
+    border: 2px solid rgba(34,211,238,.45);
+    box-shadow: 0 0 16px rgba(34,211,238,.3);
+    animation: ia-glow 3.2s ease-in-out infinite;
+  }
+  .ia-brain-ring {
+    position: absolute;
+    inset: -5px;
+    border-radius: 16px;
+    border: 1px dashed rgba(0,255,157,.35);
+    animation: ia-spin 18s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes ia-glow {
+    0%,100% { box-shadow: 0 0 12px rgba(34,211,238,.28); }
+    50%     { box-shadow: 0 0 22px rgba(34,211,238,.5); }
+  }
+  @keyframes ia-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  .ia-brain-status {
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #22d3ee;
+    text-align: center;
+  }
+  .ia-brain-status.off { color: var(--red); }
+  .ia-brain-body { min-width: 0; display: flex; flex-direction: column; }
+  .ia-brain-title {
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: #e2e8f0;
+    margin-bottom: 12px;
+  }
+  .ia-brain-sub { display: none; }
+  .ia-brain .ia-log-stream {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    max-height: none;
+    min-height: 140px;
+    overflow: hidden;
+  }
+  .ia-brain .ia-log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(0,0,0,.28);
+    border: 1px solid rgba(51,65,85,.7);
+    border-radius: 8px;
+    border-left: 3px solid #22d3ee;
+  }
+  .ia-brain .ia-log-time {
+    color: #94a3b8;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    font-weight: 600;
+  }
+  .ia-brain .ia-log-msg {
+    color: #f1f5f9;
+    font-size: 1.05rem;
+    line-height: 1.35;
+    white-space: normal;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .ia-brain .ia-engine-tag {
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .ia-engine-openai { background: rgba(168,85,247,0.2); color: #c084fc; }
+  .ia-engine-groq { background: rgba(16,185,129,0.2); color: #34d399; }
+  .ia-engine-telegram, .ia-engine-monitor {
+    background: rgba(34,211,238,0.18); color: #22d3ee;
+  }
+  @media (max-width: 900px) {
+    .ia-brain { grid-template-columns: 1fr; min-height: 0; }
+    .ia-brain-visual { flex-direction: row; justify-content: flex-start; }
+  }
 
   /* ── PROBLEMAS ACTIVOS (núcleo operativo) ── */
   .problems-panel {
@@ -287,10 +453,10 @@
   .svc-dot-ok   { background: var(--green); }
   .svc-dot-fail { background: var(--red);   }
 
-  /* ── GRID PRINCIPAL ── */
+  /* ── GRID PRINCIPAL (hotel: infra a ancho completo) ── */
   .main-grid {
     display: grid;
-    grid-template-columns: 1.7fr 1fr;
+    grid-template-columns: 1fr;
     gap: 14px;
     margin-bottom: 14px;
   }
@@ -300,6 +466,118 @@
   .server-compact-grid .gauge-value { font-size: 1.05rem; }
   .server-compact-grid .gauge-label { font-size: 0.65rem; margin-top: 2px; }
   .server-mini-label { font-size: 0.62rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+
+  /* ── SOPORTE USB (compacto, no compite con el hotel) ── */
+  .support-panel {
+    background: var(--bg2);
+    border: 1px dashed #334155;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .support-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 0.92rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 10px 14px 4px;
+  }
+  .support-head .head-ico {
+    font-size: 1.35rem;
+    margin-right: 4px;
+    vertical-align: -2px;
+  }
+  .support-head .hint {
+    font-weight: 500; text-transform: none; letter-spacing: 0;
+    opacity: 0.95; font-size: 0.88rem; flex: 1; text-align: right;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .support-body { display: block; padding: 6px 14px 12px; }
+  .support-strip {
+    display: grid;
+    grid-template-columns: 1.2fr 0.85fr 1.1fr;
+    gap: 10px 14px;
+    align-items: start;
+  }
+  @media (max-width: 1100px) {
+    .support-strip { grid-template-columns: 1fr 1fr; }
+  }
+  .support-cell {
+    min-width: 0;
+    padding: 4px 0;
+  }
+  .support-cell h3 {
+    font-size: 0.78rem;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .support-panel .services-row {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .support-panel .svc-pill {
+    font-size: 0.82rem;
+    padding: 4px 10px;
+  }
+  .support-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-top: 8px;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+  .support-metrics b { color: var(--text); font-weight: 700; font-size: 1.05rem; }
+  .support-panel .disk-list {
+    margin-top: 8px;
+    gap: 6px;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .support-panel .disk-list > div {
+    flex: 1 1 100px;
+    min-width: 90px;
+  }
+  .support-panel .disk-header { font-size: 0.82rem; margin-bottom: 2px; }
+  .support-panel .disk-free { display: none; }
+  .support-panel .disk-bar-bg { height: 5px; }
+  .support-hunter-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    align-items: baseline;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .support-hunter-line b { font-size: 1.35rem; font-weight: 700; }
+  .support-hunter-line .muted { color: var(--muted); font-size: 0.82rem; }
+  .support-panel .last-alert-box {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: transparent;
+    border: 0;
+  }
+  .support-panel .last-alert-title { display: none; }
+  .support-panel .last-alert-sig { font-size: 0.9rem; }
+  .support-panel .last-alert-meta { font-size: 0.8rem; }
+  .support-ia-line {
+    font-size: 0.95rem;
+    line-height: 1.4;
+    color: var(--text);
+  }
+  .support-ia-line .muted { color: var(--muted); font-size: 0.85rem; }
 
   /* ── CARDS ── */
   .card {
@@ -317,11 +595,19 @@
     border-bottom: 1px solid var(--border);
   }
   .card-title {
-    font-size: 0.75rem;
+    font-size: 0.9rem;
     font-weight: 700;
-    letter-spacing: 2px;
+    letter-spacing: 1.5px;
     color: var(--muted);
     text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card-title .card-ico {
+    font-size: 1.55rem;
+    line-height: 1;
+    filter: drop-shadow(0 0 6px rgba(148,163,184,.35));
   }
   .card-badge {
     font-size: 0.75rem;
@@ -336,39 +622,44 @@
 
   /* ── STATUS DOTS ── */
   .device-status-dot {
-    width: 9px; height: 9px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .dot-online   { background: var(--green);  box-shadow: 0 0 6px var(--green); }
-  .dot-offline  { background: var(--red);    box-shadow: 0 0 6px var(--red);   }
-  .dot-degraded { background: var(--yellow); box-shadow: 0 0 6px var(--yellow);}
+  .dot-online   { background: var(--green);  box-shadow: 0 0 8px var(--green); }
+  .dot-offline  { background: var(--red);    box-shadow: 0 0 8px var(--red);   }
+  .dot-degraded { background: var(--yellow); box-shadow: 0 0 8px var(--yellow);}
   .dot-unknown  { background: var(--muted);  }
 
   /* ── AP VISUAL GRID ── */
   .ap-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 10px;
     margin-bottom: 4px;
   }
   .ap-box {
     position: relative;
     background: var(--bg3);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border-radius: 10px;
+    padding: 12px 14px;
     cursor: default;
     transition: border-color 0.2s;
   }
   .ap-box:hover { border-color: var(--cyan); }
   .ap-box.ap-offline  { border-color: rgba(255,77,109,.45); background: rgba(255,77,109,.06); }
   .ap-box.ap-degraded { border-color: rgba(255,214,10,.45); background: rgba(255,214,10,.06); }
-  .ap-box-top  { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; }
-  .ap-box-icon { font-size: 1rem; }
-  .ap-box-name { font-size: 0.82rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ap-box-status  { font-size: 0.7rem; margin-top: 1px; }
-  .ap-box-latency { font-size: 0.72rem; color: var(--cyan); font-variant-numeric: tabular-nums; }
+  .ap-box-top  { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .ap-box-icon {
+    font-size: 1.85rem;
+    line-height: 1;
+    filter: drop-shadow(0 0 6px rgba(56,189,248,.25));
+  }
+  .ap-box-name { font-size: 0.88rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ap-box-status  { font-size: 0.75rem; margin-top: 2px; }
+  .ap-box-latency { font-size: 0.78rem; color: var(--cyan); font-variant-numeric: tabular-nums; }
   /* Tooltip */
   .ap-tooltip {
     position: absolute;
@@ -391,14 +682,22 @@
 
   /* ── SECTION DIVIDERS (within left card) ── */
   .section-title {
-    font-size: 0.68rem;
+    font-size: 0.85rem;
     font-weight: 700;
-    letter-spacing: 2px;
+    letter-spacing: 1.5px;
     text-transform: uppercase;
     color: var(--muted);
-    padding: 12px 0 7px;
+    padding: 14px 0 8px;
     border-top: 1px solid var(--border);
     margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title .sec-ico {
+    font-size: 1.45rem;
+    line-height: 1;
+    filter: drop-shadow(0 0 5px rgba(148,163,184,.3));
   }
 
   /* ── DEVICE LIST (infra sections) ── */
@@ -406,7 +705,7 @@
   .device-row {
     background: #1e293b;
     border-radius: 8px;
-    padding: 13px 16px;
+    padding: 14px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -417,7 +716,7 @@
   .row-left {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
     flex: 1;
     min-width: 0;
   }
@@ -427,7 +726,14 @@
     gap: 8px;
     flex-shrink: 0;
   }
-  .device-icon { font-size: 1.15rem; flex-shrink: 0; }
+  .device-icon {
+    font-size: 1.85rem;
+    flex-shrink: 0;
+    width: 2.2rem;
+    text-align: center;
+    line-height: 1;
+    filter: drop-shadow(0 0 6px rgba(56,189,248,.2));
+  }
   .device-info { min-width: 0; }
   .device-name {
     font-size: 0.95rem;
@@ -673,48 +979,7 @@
   /* ── LAST UPDATE ── */
   .last-update { font-size: 0.7rem; color: var(--muted); text-align: right; margin-top: 4px; }
 
-  /* ── AGENTE IA — HEADER PILL ── */
-  .ia-header-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: rgba(56,189,248,0.08);
-    border: 1px solid rgba(56,189,248,0.22);
-    padding: 8px 16px;
-    border-radius: 8px;
-  }
-  .ia-brain-glow {
-    font-size: 1.5rem;
-    animation: ia-pulse 2.4s ease-in-out infinite;
-  }
-  @keyframes ia-pulse {
-    0%,100% { transform: scale(1);    filter: drop-shadow(0 0 3px rgba(56,189,248,0.35)); }
-    50%      { transform: scale(1.12); filter: drop-shadow(0 0 14px rgba(56,189,248,0.85)); }
-  }
-  .ia-title-status {
-    font-size: 0.75rem;
-    font-weight: 800;
-    letter-spacing: 1.5px;
-    color: #38bdf8;
-    text-transform: uppercase;
-  }
-  .ia-model-badge {
-    font-size: 0.68rem;
-    color: #64748b;
-    font-family: 'Courier New', monospace;
-    margin-top: 1px;
-  }
-  .ia-header-brand.ia-stopped {
-    background: rgba(255,77,109,0.08);
-    border-color: rgba(255,77,109,0.22);
-  }
-  .ia-header-brand.ia-stopped .ia-title-status { color: #ef4444; }
-  .ia-header-brand.ia-stopped .ia-brain-glow {
-    animation: none;
-    filter: grayscale(1) opacity(0.5);
-  }
-
-  /* ── AGENTE IA — TERMINAL CARD ── */
+  /* ── AGENTE IA — TERMINAL CARD (solo en soporte) ── */
   .ia-terminal-card {
     background: #020617;
     border: 1px solid #1e293b;
@@ -777,10 +1042,9 @@
 <!-- HEADER -->
 <div class="header">
   <div class="header-logo">
-    <img src="/static/img/shomer-eyes.png" alt="Shomer" class="header-eyes-logo" onerror="this.style.display='none'">
     <div>
       {% if site_name %}<div class="header-site-name">{{ site_name }}</div>{% endif %}
-      <div style="font-size:0.8rem; letter-spacing:1px; color:var(--muted); font-weight:500;">Shomer Sentinel — Centro de Operaciones</div>
+      <div style="font-size:0.85rem; letter-spacing:1px; color:var(--muted); font-weight:500;">Shomer Sentinel — NOC</div>
       <div class="header-verse">He Shomer, El Que Te Cuida Nunca Duerme · Salmo 121:4</div>
     </div>
   </div>
@@ -789,14 +1053,6 @@
     <div class="header-date" id="date-str"></div>
   </div>
   <div style="display:flex; align-items:center; gap:16px;">
-    <!-- IA pill — visible solo cuando activa -->
-    <div id="ia-header-brand" class="ia-header-brand" style="display:none;">
-      <div class="ia-brain-glow">🤖</div>
-      <div>
-        <div class="ia-title-status" id="ia-header-status">AGENTE IA ACTIVO</div>
-        <div class="ia-model-badge" id="ia-header-model">—</div>
-      </div>
-    </div>
     <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
       <div class="live-badge"><div class="live-dot"></div> EN VIVO</div>
       <div id="summary-bar" class="summary-bar"></div>
@@ -809,19 +1065,37 @@
 
 <!-- KPI ROW -->
 <div class="kpi-row" id="kpi-row">
-  <div class="kpi-card"><div class="kpi-label">📶 Access Points</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
-  <div class="kpi-card"><div class="kpi-label">🔀 Infraestructura</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
-  <div class="kpi-card"><div class="kpi-label">🎯 Amenazas activas</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
-  <div class="kpi-card"><div class="kpi-label">🌐 Internet WAN</div><div class="kpi-value" style="font-size:1.6rem;">—</div><div class="kpi-sub">cargando…</div></div>
-  <div class="kpi-card"><div class="kpi-label">🛡️ Riesgos de Red</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
+  <div class="kpi-card"><div class="kpi-label"><span class="kpi-ico">📶</span> Access Points</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
+  <div class="kpi-card"><div class="kpi-label"><span class="kpi-ico">🔀</span> Infraestructura</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
+  <div class="kpi-card"><div class="kpi-label"><span class="kpi-ico">🛡️</span> Amenazas externas</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
+  <div class="kpi-card"><div class="kpi-label"><span class="kpi-ico">🌐</span> Internet WAN</div><div class="kpi-value" style="font-size:1.75rem;">—</div><div class="kpi-sub">cargando…</div></div>
+  <div class="kpi-card"><div class="kpi-label"><span class="kpi-ico">⚠️</span> Riesgos de Red</div><div class="kpi-value">—</div><div class="kpi-sub">cargando…</div></div>
 </div>
 
 <!-- ALERT BAND -->
 <div class="alert-band" id="alert-band">
-  <span class="alert-band-icon">🚨</span>
+  <span class="alert-band-icon" id="alert-band-icon">🛡️</span>
   <div>
     <div class="alert-band-text" id="alert-band-text"></div>
     <div class="alert-band-sub"  id="alert-band-sub"></div>
+  </div>
+</div>
+
+<!-- CEREBRO IA — mismos avisos que Telegram (visual TV) -->
+<div class="ia-brain" id="ia-brain">
+  <div class="ia-brain-visual">
+    <div class="ia-brain-img-wrap">
+      <div class="ia-brain-ring" aria-hidden="true"></div>
+      <img class="ia-brain-img" src="/static/img/shomer-eyes.png" alt="Shomer IA"
+           onerror="this.style.display='none'">
+    </div>
+    <div class="ia-brain-status" id="ia-brain-live">Vigilando</div>
+  </div>
+  <div class="ia-brain-body">
+    <div class="ia-brain-title">Shomer IA · canal operativo</div>
+    <div class="ia-log-stream" id="ia-log-stream">
+      <span style="color:var(--muted);font-size:0.85rem;">Esperando próximo aviso…</span>
+    </div>
   </div>
 </div>
 
@@ -846,115 +1120,72 @@
   </div>
 </div>
 
-<!-- SERVICES ROW -->
-<div class="services-row" id="services-row">
-  <span class="services-label">Servicios</span>
-  <span style="color:var(--muted); font-size:0.8rem;">Cargando…</span>
-</div>
-
-<!-- MAIN GRID -->
+<!-- MAIN GRID — hotel (infra) -->
 <div class="main-grid">
-
-  <!-- LEFT: APs grid + Infra sections -->
   <div class="card">
     <div class="card-header">
-      <span class="card-title">👁️ Infraestructura de Red</span>
+      <span class="card-title"><span class="card-ico">👁️</span> Infraestructura de Red</span>
       <span class="card-badge badge-blue" id="device-badge">— equipos</span>
     </div>
-
-    <!-- AP visual grid (Guardian) -->
     <div id="ap-section">
-      <div class="section-title" id="ap-section-title" style="border-top:none;padding-top:0;">📶 Access Points — Guardian</div>
+      <div class="section-title" id="ap-section-title" style="border-top:none;padding-top:0;"><span class="sec-ico">📶</span> Access Points — Guardian</div>
       <div class="ap-grid" id="ap-grid">
         <div style="color:var(--muted);font-size:0.85rem;">Cargando…</div>
       </div>
     </div>
-
-    <!-- Infra sections by type -->
     <div id="infra-sections"></div>
   </div>
+</div>
 
-  <!-- RIGHT: Security + Resources + Agent -->
-  <div style="display:flex; flex-direction:column; gap:14px;">
-
-    <!-- Security -->
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">🎯 Seguridad — Hunter</span>
-        <span class="card-badge" id="hunter-badge" style="background:rgba(168,85,247,.15);color:var(--purple);">Hunter</span>
-      </div>
-      <div class="security-stats">
-        <div class="stat-box">
-          <div class="stat-value" id="active-blocks" style="color:var(--red);">—</div>
-          <div class="stat-label">IPs bloqueadas</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-value" id="blocks-24h" style="color:var(--orange);">—</div>
-          <div class="stat-label">Eventos 24h</div>
-        </div>
-      </div>
-      <div class="last-alert-box" id="last-alert-box">
-        <div class="last-alert-title">Último evento</div>
-        <div class="last-alert-sig" id="last-alert-sig">Sin datos</div>
-        <div class="last-alert-meta" id="last-alert-meta"></div>
-      </div>
-    </div>
-
-    <!-- Servidor Shomer (compacto — info de soporte, secundaria frente al equipo del cliente) -->
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">🖥️ Servidor Shomer</span>
-        <span class="card-badge badge-blue" id="res-uptime"></span>
-      </div>
-      <div class="server-compact-grid">
-        <div class="gauge-wrap">
-          <svg class="gauge-svg" width="100" height="60" viewBox="0 0 100 60">
-            <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#1a2235" stroke-width="10" stroke-linecap="round"/>
-            <path id="cpu-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#3b82f6" stroke-width="10" stroke-linecap="round"
-                  stroke-dasharray="0 125.6" style="transition:stroke-dasharray 0.8s ease;"/>
-          </svg>
-          <div class="gauge-value" id="cpu-val" style="color:var(--blue);">—%</div>
-          <div class="gauge-label">CPU</div>
-        </div>
-        <div class="gauge-wrap">
-          <svg class="gauge-svg" width="100" height="60" viewBox="0 0 100 60">
-            <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#1a2235" stroke-width="10" stroke-linecap="round"/>
-            <path id="ram-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#a855f7" stroke-width="10" stroke-linecap="round"
-                  stroke-dasharray="0 125.6" style="transition:stroke-dasharray 0.8s ease;"/>
-          </svg>
-          <div class="gauge-value" id="ram-val" style="color:var(--purple);">—%</div>
-          <div class="gauge-label">RAM</div>
-        </div>
-      </div>
-      <div class="disk-list" id="disk-list" style="margin-top:14px;"></div>
-    </div>
-
-    <!-- AGENTE IA — Terminal -->
-    <div class="ia-terminal-card" id="ia-terminal-card">
-      <div class="ia-terminal-top">
-        <div class="dot-blink-blue" id="ia-term-dot"></div>
-        <strong>SHOMER COGNITIVE CORE</strong>
-      </div>
-      <div class="ia-terminal-body">
-        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Estado</span><span class="ia-val ia-ok" id="ia-term-state">INICIANDO…</span></div>
-        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Motor</span><span class="ia-val" id="ia-term-provider">—</span></div>
-        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Modelo</span><span class="ia-val" id="ia-term-model">—</span></div>
-        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Uptime</span><span class="ia-val" id="ia-term-uptime">—</span></div>
-        <div class="ia-log-line"><span class="ia-prompt">&gt;</span><span class="ia-key">Monitor</span><span class="ia-val" id="ia-term-nodes">Conectando…</span></div>
-      </div>
-    </div>
-
-  </div><!-- /right col -->
-</div><!-- /main-grid -->
-
-<!-- SHOMER COGNITIVE CORE — LOG DE DECISIONES IA -->
-<div class="ia-log-bar">
-  <div class="ia-log-header">
-    <span class="ia-log-label">🤖 SHOMER COGNITIVE CORE — LOG DE DECISIONES IA</span>
-    <span class="ia-log-live"><span class="dot-blink-blue"></span>EN VIVO</span>
+<!-- SOPORTE USB — siempre visible (pantalla TV, sin clic) -->
+<div class="support-panel" id="support-panel">
+  <div class="support-head">
+    <span><span class="head-ico">🔧</span> Shomer — soporte USB</span>
+    <span class="hint" id="support-toggle-hint">cargando…</span>
   </div>
-  <div class="ia-log-stream" id="ia-log-stream">
-    <span style="color:var(--muted);font-size:0.78rem;font-family:monospace;">Esperando primera acción del agente…</span>
+  <div class="support-body" id="support-body">
+    <div class="support-strip">
+      <div class="support-cell">
+        <h3>Servicios · servidor</h3>
+        <div class="services-row" id="services-row">
+          <span style="color:var(--muted);font-size:0.7rem;">…</span>
+        </div>
+        <div class="support-metrics" id="server-metrics">
+          <span>CPU <b id="cpu-val">—%</b></span>
+          <span>RAM <b id="ram-val">—%</b></span>
+        </div>
+        <svg width="0" height="0" style="position:absolute;opacity:0;pointer-events:none;" aria-hidden="true">
+          <path id="cpu-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#3b82f6" stroke-width="10" stroke-dasharray="0 125.6"/>
+          <path id="ram-arc" d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#a855f7" stroke-width="10" stroke-dasharray="0 125.6"/>
+        </svg>
+        <div class="disk-list" id="disk-list"></div>
+        <div id="res-uptime" style="display:none;"></div>
+      </div>
+
+      <div class="support-cell">
+        <h3>Protección</h3>
+        <div class="support-hunter-line">
+          <span><b id="active-blocks" style="color:var(--green);">—</b> <span class="muted" id="active-blocks-lbl">mes</span></span>
+          <span><b id="blocks-24h" style="color:var(--cyan);">—</b> <span class="muted">hoy</span></span>
+          <span class="card-badge" id="hunter-badge" style="background:rgba(0,255,157,.12);color:var(--green);">—</span>
+        </div>
+        <div class="last-alert-box" id="last-alert-box">
+          <div class="last-alert-title">Última</div>
+          <div class="last-alert-sig" id="last-alert-sig">—</div>
+          <div class="last-alert-meta" id="last-alert-meta"></div>
+        </div>
+      </div>
+
+      <div class="support-cell">
+        <h3>Asistente IA</h3>
+        <div class="support-ia-line" id="ia-compact">
+          <span id="ia-term-state">…</span>
+          <span class="muted"> · <span id="ia-term-provider">—</span> · <span id="ia-term-model">—</span> · up <span id="ia-term-uptime">—</span></span>
+          <div class="muted" id="ia-term-nodes">—</div>
+        </div>
+        <div id="ia-terminal-card" style="display:none;"><div id="ia-term-dot"></div></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1039,8 +1270,20 @@ function renderKpi(d) {
   const infClass   = inf.total === 0 ? 'kpi-ok' : infOffline === 0 ? 'kpi-ok' : infOffline < inf.total ? 'kpi-warn' : 'kpi-err';
   const infColor   = infOffline === 0 ? 'var(--green)' : infOffline < inf.total ? 'var(--yellow)' : 'var(--red)';
 
-  const hunterClass = h.active_blocks === 0 ? 'kpi-ok' : 'kpi-err';
-  const hunterColor = h.active_blocks === 0 ? 'var(--green)' : 'var(--red)';
+  // Hunter = amenazas externas contenidas (con periodo: mes / últimos días)
+  const contained = h.active_blocks || 0;
+  const new24 = h.blocks_24h || 0;
+  const monthN = h.blocks_month != null ? h.blocks_month : contained;
+  const days30 = h.blocks_30d != null ? h.blocks_30d : monthN;
+  const periodLabel = h.period_label || 'este mes';
+  const showN = Math.max(monthN, contained);
+  const hunterOleada = new24 > 8;
+  const hunterClass = hunterOleada ? 'kpi-err' : 'kpi-ok';
+  const hunterColor = hunterOleada ? 'var(--red)' : 'var(--green)';
+  const hunterLabel = 'Amenazas externas';
+  const hunterSub = showN > 0
+    ? `contenidas en ${periodLabel} · últimos 30 días: ${days30}`
+    : `sin bloqueos en ${periodLabel}`;
 
   const wanClass = wan.ok ? 'kpi-ok' : wan.status === 'unknown' ? '' : 'kpi-err';
   const wanColor = wan.ok ? 'var(--green)' : wan.status === 'unknown' ? 'var(--muted)' : 'var(--red)';
@@ -1060,44 +1303,54 @@ function renderKpi(d) {
 
   document.getElementById('kpi-row').innerHTML =
     `<div class="kpi-card ${apClass}">
-       <div class="kpi-label">📶 Access Points</div>
+       <div class="kpi-label"><span class="kpi-ico">📶</span> Access Points</div>
        <div class="kpi-value" style="color:${apColor}">${g.online}<span class="kpi-denom">/${g.total}</span></div>
        <div class="kpi-sub">${apOffline > 0 ? `${apOffline} offline` : g.total === 0 ? 'sin equipos' : 'todos online'}</div>
      </div>
      <div class="kpi-card ${infClass}">
-       <div class="kpi-label">🔀 Infraestructura</div>
+       <div class="kpi-label"><span class="kpi-ico">🔀</span> Infraestructura</div>
        <div class="kpi-value" style="color:${infColor}">${inf.online}<span class="kpi-denom">/${inf.total}</span></div>
        <div class="kpi-sub">${(inf.outages_24h||0) > 0 ? `${inf.outages_24h} caídas 24h` : inf.total === 0 ? 'sin equipos' : 'sin incidencias 24h'}</div>
      </div>
      <div class="kpi-card ${hunterClass}">
-       <div class="kpi-label">🎯 Amenazas activas</div>
-       <div class="kpi-value" style="color:${hunterColor}">${h.active_blocks}</div>
-       <div class="kpi-sub">${h.blocks_24h} bloqueos en 24h</div>
+       <div class="kpi-label"><span class="kpi-ico">🛡️</span> ${hunterLabel}</div>
+       <div class="kpi-value" style="color:${hunterColor}">${showN}</div>
+       <div class="kpi-sub">${hunterSub}</div>
      </div>
      <div class="kpi-card ${wanClass}">
-       <div class="kpi-label">🌐 Internet WAN</div>
-       <div class="kpi-value" style="font-size:1.6rem;color:${wanColor}">${wanVal}</div>
+       <div class="kpi-label"><span class="kpi-ico">🌐</span> Internet WAN</div>
+       <div class="kpi-value" style="font-size:1.75rem;color:${wanColor}">${wanVal}</div>
        <div class="kpi-sub">${wanSub}</div>
      </div>
      <div class="kpi-card ${riskClass}">
-       <div class="kpi-label">🛡️ Riesgos de Red</div>
+       <div class="kpi-label"><span class="kpi-ico">⚠️</span> Riesgos de Red</div>
        <div class="kpi-value" style="color:${riskColor}">${r.total}</div>
        <div class="kpi-sub">${riskSub}</div>
      </div>`;
 
-  // Alert band
+  // Banda con escudo grande: amenazas externas contenidas + periodo
   const band = document.getElementById('alert-band');
-  if (h.active_blocks > 0) {
+  const bandIcon = document.getElementById('alert-band-icon');
+  if (showN > 0 || hunterOleada) {
     band.style.display = 'flex';
-    const n = h.active_blocks;
-    document.getElementById('alert-band-text').textContent =
-      `⚠️ ${n} IP${n !== 1 ? 's' : ''} bloqueada${n !== 1 ? 's' : ''} actualmente`;
-    document.getElementById('alert-band-sub').textContent =
-      h.last_alert && h.last_alert.signature
-        ? `Último: ${h.last_alert.signature.substring(0, 70)}`
-        : '';
+    if (hunterOleada) {
+      band.classList.remove('band-ok');
+      bandIcon.textContent = '🛡️';
+      document.getElementById('alert-band-text').textContent =
+        `Amenazas externas detectadas — la red del hotel está protegida`;
+      document.getElementById('alert-band-sub').textContent =
+        `${new24} intentos bloqueados hoy · ${showN} en ${periodLabel} · sin impacto en WiFi de huéspedes`;
+    } else {
+      band.classList.add('band-ok');
+      bandIcon.textContent = '🛡️';
+      document.getElementById('alert-band-text').textContent =
+        `${showN} amenaza${showN !== 1 ? 's' : ''} externa${showN !== 1 ? 's' : ''} contenida${showN !== 1 ? 's' : ''} en ${periodLabel}`;
+      document.getElementById('alert-band-sub').textContent =
+        `Últimos 30 días: ${days30} · hoy: ${new24 === 0 ? 'sin actividad nueva' : new24 + ' bloqueadas'} · red del hotel protegida`;
+    }
   } else {
     band.style.display = 'none';
+    band.classList.remove('band-ok');
   }
 }
 
@@ -1140,11 +1393,11 @@ function renderApGrid(devices) {
 
 // ── Infra sections by device type ──
 const TYPE_GROUPS = [
-  { types: ['switch', 'router'],      label: '🔀 Switches / Routers'  },
-  { types: ['server', 'nas'],         label: '🖥️ Servidores / NAS'    },
-  { types: ['printer', 'pos'],        label: '🖨️ Impresoras / POS'    },
-  { types: ['camera'],                label: '📷 Cámaras'              },
-  { types: ['ups', 'controller', 'generic'], label: '📡 Otros equipos' },
+  { types: ['switch', 'router'],      label: '<span class="sec-ico">🔀</span> Switches / Routers'  },
+  { types: ['server', 'nas'],         label: '<span class="sec-ico">🖥️</span> Servidores / NAS'    },
+  { types: ['printer', 'pos'],        label: '<span class="sec-ico">🖨️</span> Impresoras / POS'    },
+  { types: ['camera'],                label: '<span class="sec-ico">📷</span> Cámaras'              },
+  { types: ['ups', 'controller', 'generic'], label: '<span class="sec-ico">📡</span> Otros equipos' },
 ];
 
 function renderInfraSections(devices) {
@@ -1263,22 +1516,26 @@ function renderIaLog(entries) {
   const el = document.getElementById('ia-log-stream');
   if (!el) return;
   if (!entries || entries.length === 0) {
-    el.innerHTML = '<span style="color:var(--muted);font-size:0.78rem;font-family:monospace;">Esperando primera acción del agente…</span>';
+    el.innerHTML = '<span style="color:var(--muted);font-size:0.85rem;">Red en calma · el próximo aviso de Telegram aparecerá aquí</span>';
     return;
   }
-  const engCls = e => e === 'OpenAI' ? 'ia-engine-openai' : e === 'Groq' ? 'ia-engine-groq' : 'ia-engine-monitor';
+  const engCls = e => {
+    const x = e || '';
+    if (x === 'OpenAI') return 'ia-engine-openai';
+    if (x === 'Groq') return 'ia-engine-groq';
+    return 'ia-engine-telegram';
+  };
   let html = '';
   const show = Math.min(entries.length, 5);
   for (let i = 0; i < show; i++) {
     const e = entries[i];
-    const cls = engCls(e.engine || 'IA');
-    const msg = (e.msg || '').substring(0, 88);
-    if (i > 0) html += '<span class="ia-log-sep">·</span>';
-    html += `<span class="ia-log-entry">`;
-    html += `<span class="ia-log-time">[${e.at || '--:--:--'}]</span>`;
-    html += `<span class="${cls}">${e.engine || 'IA'}</span>`;
+    const cls = engCls(e.engine);
+    const msg = escHtml((e.msg || '').substring(0, 160));
+    html += `<div class="ia-log-entry">`;
+    html += `<span class="ia-log-time">${escHtml(e.at || '--:--')}</span>`;
+    html += `<span class="ia-engine-tag ${cls}">${escHtml(e.engine || 'Aviso')}</span>`;
     html += `<span class="ia-log-msg">${msg}</span>`;
-    html += `</span>`;
+    html += `</div>`;
   }
   el.innerHTML = html;
 }
@@ -1384,8 +1641,9 @@ function render(d) {
     `<div class="sum-item"><span style="color:var(--muted);font-size:.75rem;">${sum.total_devices} total</span></div>`;
 
   // Services
-  const svcs = d.services;
-  document.getElementById('services-row').innerHTML = '<span class="services-label">Servicios</span>' +
+  const svcs = d.services || [];
+  const svcFail = svcs.filter(s => !s.active).length;
+  document.getElementById('services-row').innerHTML =
     svcs.map(s => `<div class="svc-pill ${s.active ? 'svc-ok' : 'svc-fail'}"><div class="svc-dot ${s.active ? 'svc-dot-ok' : 'svc-dot-fail'}"></div>${s.name}</div>`).join('');
 
   // Device badge
@@ -1403,20 +1661,32 @@ function render(d) {
   // Infra sections
   document.getElementById('infra-sections').innerHTML = renderInfraSections(d.inframonitor.devices);
 
-  // Hunter
+  // Hunter — lenguaje para gerencia / personal del hotel
   const h = d.hunter;
-  document.getElementById('active-blocks').textContent = h.active_blocks;
-  document.getElementById('blocks-24h').textContent    = h.blocks_24h;
+  const containedN = h.blocks_month != null ? h.blocks_month : (h.active_blocks || 0);
+  const new24n = h.blocks_24h || 0;
+  const days30n = h.blocks_30d != null ? h.blocks_30d : containedN;
+  const periodLbl = h.period_label || 'este mes';
+  document.getElementById('active-blocks').textContent = containedN;
+  document.getElementById('active-blocks').style.color = 'var(--green)';
+  document.getElementById('blocks-24h').textContent    = new24n;
   if (h.last_alert && h.last_alert.signature) {
-    const sev      = h.last_alert.severity || '';
-    const sevColor = SCOLORS[sev] || 'var(--muted)';
-    document.getElementById('last-alert-sig').textContent = h.last_alert.signature;
+    document.getElementById('last-alert-sig').textContent =
+      'Amenaza externa bloqueada automáticamente';
     document.getElementById('last-alert-meta').innerHTML  =
-      `<span style="color:${sevColor};font-weight:600;">${sev}</span>` +
-      (h.last_alert.blocked_at ? ` · ${relTime(h.last_alert.blocked_at)} atrás` : '');
+      `<span style="color:var(--green);font-weight:600;">Contenida</span>` +
+      (h.last_alert.blocked_at ? ` · ${relTime(h.last_alert.blocked_at)} atrás` : '') +
+      ` · en ${periodLbl}`;
+  } else {
+    document.getElementById('last-alert-sig').textContent = 'Sin actividad reciente';
+    document.getElementById('last-alert-meta').innerHTML = '';
   }
-  document.getElementById('hunter-badge').textContent = h.active_blocks > 0 ? `${h.active_blocks} bloqueadas` : 'sin amenazas';
-  document.getElementById('hunter-badge').className   = 'card-badge ' + (h.active_blocks > 0 ? 'badge-red' : 'badge-green');
+  document.getElementById('hunter-badge').textContent =
+    containedN > 0 ? `${periodLbl}` : 'en calma';
+  document.getElementById('hunter-badge').className =
+    'card-badge ' + (new24n > 8 ? 'badge-red' : 'badge-green');
+  const activeLbl = document.getElementById('active-blocks-lbl');
+  if (activeLbl) activeLbl.textContent = periodLbl;
 
   // Resources
   const srv = d.server;
@@ -1449,21 +1719,7 @@ function render(d) {
   const nodesCount = (d.guardian && d.guardian.devices ? d.guardian.devices.length : 0)
                    + (d.inframonitor && d.inframonitor.devices ? d.inframonitor.devices.length : 0);
 
-  // Header pill
-  const pill = document.getElementById('ia-header-brand');
-  if (pill) {
-    pill.style.display = 'flex';
-    if (isOk) {
-      pill.classList.remove('ia-stopped');
-      document.getElementById('ia-header-status').textContent = 'AGENTE IA ACTIVO';
-    } else {
-      pill.classList.add('ia-stopped');
-      document.getElementById('ia-header-status').textContent = 'AGENTE IA DETENIDO';
-    }
-    document.getElementById('ia-header-model').textContent = provider + ' · ' + model;
-  }
-
-  // Terminal card
+  // Estado IA solo en soporte USB (sin pill en header)
   const termState    = document.getElementById('ia-term-state');
   const termProvider = document.getElementById('ia-term-provider');
   const termModel    = document.getElementById('ia-term-model');
@@ -1481,10 +1737,27 @@ function render(d) {
       if (termDot) { termDot.style.background = '#ef4444'; termDot.style.animation = 'none'; }
     }
   }
+  const brainLive = document.getElementById('ia-brain-live');
+  if (brainLive) {
+    brainLive.textContent = isOk ? 'Vigilando' : 'Pausado';
+    brainLive.className = 'ia-brain-status' + (isOk ? '' : ' off');
+  }
   if (termProvider) termProvider.textContent = provider;
   if (termModel)    termModel.textContent    = model;
   if (termUptime)   termUptime.textContent   = ag.uptime ? ag.uptime : '—';
   if (termNodes)    termNodes.textContent    = nodesCount > 0 ? `Vigilando ${nodesCount} nodos` : 'Sin nodos';
+
+  // Resumen en la barra de soporte (ocupa poco; detalle al expandir)
+  const hint = document.getElementById('support-toggle-hint');
+  if (hint) {
+    const cpu = (d.server && d.server.cpu_percent != null) ? Math.round(d.server.cpu_percent) + '%' : '—';
+    const ram = (d.server && d.server.ram_percent != null) ? Math.round(d.server.ram_percent) + '%' : '—';
+    const month = (d.hunter && d.hunter.blocks_month != null) ? d.hunter.blocks_month : (d.hunter && d.hunter.active_blocks) || 0;
+    const period = (d.hunter && d.hunter.period_label) || 'mes';
+    const ia = isOk ? 'IA OK' : 'IA off';
+    const svcTxt = svcFail ? (svcFail + ' svc↓') : 'svc OK';
+    hint.textContent = `${svcTxt} · CPU ${cpu} · RAM ${ram} · ${month} en ${period} · ${ia}`;
+  }
 
   // Last update
   document.getElementById('last-update').textContent = 'Act. ' + new Date().toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
