@@ -13,8 +13,11 @@ logs/
 *.sqlite
 *.sqlite3
 SITE.md
+docs/SITE-*.md
+config/nodos_gl.json
 .env
 .env.*
+!.env.example
 *.bak
 *.bak.*
 *.backup*

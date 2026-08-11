@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920">
+<title>NOC Cliente — {{ site_name }}</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --card: #1a222d;
+    --line: #2a3544;
+    --text: #e8eef4;
+    --muted: #8b9aab;
+    --ok: #3dd68c;
+    --warn: #e6b84d;
+    --bad: #e85d6a;
+    --calm: #5b9fd4;
+    --win: #2bb673;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+    padding: 18px 22px;
+  }
+  .compare {
+    position: fixed; top: 10px; right: 14px; z-index: 20;
+    background: rgba(0,0,0,.55); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; font-size: 0.72rem; color: var(--muted);
+  }
+  .compare a { color: var(--calm); text-decoration: none; margin-left: 8px; }
+  .hero {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 22px 28px;
+    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: 1.6fr auto;
+    gap: 16px;
+    align-items: center;
+  }
+  .hero.st-ok { border-left: 6px solid var(--ok); }
+  .hero.st-warn { border-left: 6px solid var(--warn); }
+  .hero.st-bad { border-left: 6px solid var(--bad); }
+  .hero-label { font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .hero-title { font-size: 2.4rem; font-weight: 800; line-height: 1.1; }
+  .hero-sub { margin-top: 10px; font-size: 1.05rem; color: var(--muted); }
+  .hero-clock { text-align: right; }
+  .hero-clock .t { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .hero-clock .d { font-size: 0.85rem; color: var(--muted); }
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .kpi {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .kpi .l { font-size: 0.72rem; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .kpi .v { font-size: 2rem; font-weight: 800; margin-top: 4px; }
+  .kpi .s { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+  .kpi.ok .v { color: var(--ok); }
+  .kpi.warn .v { color: var(--warn); }
+  .kpi.bad .v { color: var(--bad); }
+  .kpi.win { border-color: rgba(43,182,115,.45); background: linear-gradient(180deg, rgba(43,182,115,.08), var(--card)); }
+  .kpi.win .v { color: var(--win); font-size: 1.45rem; }
+  .grid {
+    display: grid;
+    grid-template-columns: 1.55fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    min-height: 280px;
+  }
+  .card h2 {
+    font-size: 0.8rem; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 12px; font-weight: 700;
+  }
+  .ap-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+  }
+  .ap {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 11px;
+    background: #121820;
+  }
+  .ap.on { border-top: 3px solid var(--ok); }
+  .ap.off { border-top: 3px solid var(--bad); }
+  .ap.deg { border-top: 3px solid var(--warn); }
+  .ap .n { font-weight: 700; font-size: 0.88rem; line-height: 1.2; }
+  .ap .m { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+  .attn { display: flex; flex-direction: column; gap: 8px; }
+  .attn-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+    background: #121820;
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--bad);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .attn-row.warn { border-left-color: var(--warn); }
+  .attn-row.acked { opacity: 0.55; border-left-color: var(--muted); }
+  .attn-name { font-weight: 700; }
+  .attn-msg { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+  .attn-age { font-weight: 700; color: var(--warn); font-variant-numeric: tabular-nums; }
+  .empty {
+    color: var(--ok); font-weight: 700; padding: 24px 8px; text-align: center; font-size: 1.1rem;
+  }
+  .bottom {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr 1fr;
+    gap: 12px;
+  }
+  .ia-line { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+  .ia-sub { font-size: 0.88rem; color: var(--muted); line-height: 1.4; }
+  .chip {
+    display: inline-block; margin-top: 10px; padding: 4px 10px; border-radius: 999px;
+    background: rgba(91,159,212,.15); color: var(--calm); font-size: 0.75rem; font-weight: 700;
+  }
+  .hist { font-size: 0.82rem; color: var(--muted); }
+  .hist div { padding: 4px 0; border-bottom: 1px solid rgba(42,53,68,.6); }
+  .note {
+    margin-top: 12px; text-align: center; color: var(--muted); font-size: 0.75rem;
+  }
+  #loading {
+    position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center;
+    justify-content: center; font-size: 1.2rem; color: var(--muted); z-index: 30;
+  }
+</style>
+</head>
+<body>
+<div id="loading">Cargando vista cliente…</div>
+<div class="compare">Vista PREVIA · misma data
+  <a id="link-classic" href="#">NOC clásico</a>
+</div>
+
+<section class="hero st-ok" id="hero">
+  <div>
+    <div class="hero-label" id="site">{{ site_name }}</div>
+    <div class="hero-title" id="hero-title">—</div>
+    <div class="hero-sub" id="hero-sub">—</div>
+  </div>
+  <div class="hero-clock">
+    <div class="t" id="clock">--:--</div>
+    <div class="d" id="date-str"></div>
+  </div>
+</section>
+
+<section class="kpis" id="kpis"></section>
+
+<section class="grid">
+  <div class="card">
+    <h2>WiFi del hotel — Access Points</h2>
+    <div class="ap-grid" id="ap-grid"></div>
+  </div>
+  <div class="card">
+    <h2>Atención — solo equipos del hotel</h2>
+    <div class="attn" id="attn"></div>
+  </div>
+</section>
+
+<section class="bottom">
+  <div class="card" style="min-height:180px">
+    <h2>Protección Hunter</h2>
+    <div class="ia-line" id="hunt-title">—</div>
+    <div class="ia-sub" id="hunt-sub">—</div>
+    <div class="chip" id="hunt-chip">Protección</div>
+  </div>
+  <div class="card" style="min-height:180px">
+    <h2>Asistente Shomer</h2>
+    <div class="ia-line" id="ia-title">—</div>
+    <div class="ia-sub" id="ia-sub">—</div>
+  </div>
+  <div class="card" style="min-height:180px">
+    <h2>Recuperaciones recientes</h2>
+    <div class="hist" id="hist"></div>
+  </div>
+</section>
+
+<p class="note">Versión de comparación — no reemplaza el NOC actual. Misma API <code>/noc/data</code>.</p>
+
+<script>
+const TOKEN = {{ token | tojson }};
+const DATA_API = `/noc/data?token=${encodeURIComponent(TOKEN)}`;
+document.getElementById('link-classic').href = `/noc?token=${encodeURIComponent(TOKEN)}`;
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function tickClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleTimeString('es-CO', {hour12:false});
+  document.getElementById('date-str').textContent = now.toLocaleDateString('es-CO', {
+    weekday:'long', year:'numeric', month:'long', day:'numeric'
+  });
+}
+setInterval(tickClock, 1000); tickClock();
+
+function siteStatus(d) {
+  const g = d.guardian || {online:0,total:0};
+  const inf = d.inframonitor || {online:0,total:0};
+  const wanOk = !!(d.wan && d.wan.ok);
+  const apDown = (g.total || 0) - (g.online || 0);
+  const infDown = (inf.total || 0) - (inf.online || 0);
+  const hotelDown = apDown + infDown;
+
+  if (!wanOk) {
+    return {
+      level: 'bad',
+      title: 'Internet del hotel afectado',
+      sub: `WAN sin respuesta · WiFi ${g.online}/${g.total} · Infra ${inf.online}/${inf.total}`,
+    };
+  }
+  if (hotelDown >= 5 || apDown >= 4) {
+    return {
+      level: 'bad',
+      title: 'Varios equipos del hotel sin servicio',
+      sub: `WiFi ${g.online}/${g.total} · Infra ${inf.online}/${inf.total} · Internet OK`,
+    };
+  }
+  if (hotelDown > 0) {
+    return {
+      level: 'warn',
+      title: 'Operación con atención',
+      sub: `WiFi ${g.online}/${g.total} · Infra ${inf.online}/${inf.total} · Internet OK · ${hotelDown} equipo(s) en seguimiento`,
+    };
+  }
+  return {
+    level: 'ok',
+    title: 'Operación normal',
+    sub: `WiFi ${g.online}/${g.total} · Infra ${inf.online}/${inf.total} · Internet OK · Protección activa`,
+  };
+}
+
+function hotelProblems(d) {
+  const list = ((d.problems || {}).active) || [];
+  return list.filter(p => p.source === 'guardian' || p.source === 'inframonitor' || p.source === 'pulse');
+}
+
+function render(d) {
+  document.getElementById('site').textContent = d.site_name || 'Shomer';
+  const st = siteStatus(d);
+  const hero = document.getElementById('hero');
+  hero.className = 'hero st-' + st.level;
+  document.getElementById('hero-title').textContent = st.title;
+  document.getElementById('hero-sub').textContent = st.sub;
+
+  const g = d.guardian || {online:0,total:0,devices:[]};
+  const inf = d.inframonitor || {online:0,total:0};
+  const wanOk = !!(d.wan && d.wan.ok);
+  const h = d.hunter || {active_blocks:0, blocks_24h:0};
+  const newBlocks = h.blocks_24h || 0;
+  const contained = h.active_blocks || 0;
+
+  const apCls = (g.total - g.online) === 0 ? 'ok' : (g.total - g.online) < 3 ? 'warn' : 'bad';
+  const infCls = (inf.total - inf.online) === 0 ? 'ok' : (inf.total - inf.online) < 3 ? 'warn' : 'bad';
+
+  let huntHtml = '';
+  if (newBlocks > 8) {
+    huntHtml = `<div class="kpi bad"><div class="l">Protección Hunter</div><div class="v">Oleada</div><div class="s">${newBlocks} eventos nuevos (24h)</div></div>`;
+  } else {
+    huntHtml = `<div class="kpi win"><div class="l">Protección Hunter</div><div class="v">${newBlocks === 0 ? 'Conteniendo' : 'Activa'}</div><div class="s">${newBlocks} nuevas (24h) · ${contained} IPs contenidas</div></div>`;
+  }
+
+  document.getElementById('kpis').innerHTML =
+    `<div class="kpi ${apCls}"><div class="l">WiFi APs</div><div class="v">${g.online}<span style="font-size:1rem;color:var(--muted)">/${g.total}</span></div><div class="s">${g.total-g.online? (g.total-g.online)+' offline':'todos online'}</div></div>` +
+    `<div class="kpi ${infCls}"><div class="l">Infra hotel</div><div class="v">${inf.online}<span style="font-size:1rem;color:var(--muted)">/${inf.total}</span></div><div class="s">${inf.outages_24h||0} caídas 24h</div></div>` +
+    `<div class="kpi ${wanOk?'ok':'bad'}"><div class="l">Internet</div><div class="v">${wanOk?'OK':'CAÍDO'}</div><div class="s">${wanOk?'WAN operativa':'sin salida'}</div></div>` +
+    huntHtml;
+
+  // AP grid
+  const aps = g.devices || [];
+  document.getElementById('ap-grid').innerHTML = aps.map(a => {
+    const s = a.status || 'unknown';
+    const cls = s === 'online' ? 'on' : (s === 'offline' ? 'off' : 'deg');
+    const label = s === 'online' ? 'online' : (s === 'offline' ? 'sin respuesta' : s);
+    const lat = a.latency_ms != null ? `${Number(a.latency_ms).toFixed(0)} ms` : '';
+    return `<div class="ap ${cls}"><div class="n">${esc(a.name)}</div><div class="m">${esc(label)}${lat? ' · '+lat:''}${a.location? '<br>'+esc(a.location):''}</div></div>`;
+  }).join('') || '<div class="empty">Sin APs</div>';
+
+  // Atención solo hotel
+  const probs = hotelProblems(d);
+  const box = document.getElementById('attn');
+  if (!probs.length) {
+    box.innerHTML = '<div class="empty">✓ Nada pendiente en equipos del hotel</div>';
+  } else {
+    box.innerHTML = probs.slice(0, 8).map(p => {
+      const acked = !!p.acknowledged;
+      const warn = p.severity === 'WARNING' || p.severity === 'HIGH';
+      return `<div class="attn-row ${warn?'warn':''} ${acked?'acked':''}">
+        <div><div class="attn-name">${esc(p.name)}</div><div class="attn-msg">${esc(p.message)}</div></div>
+        <div class="attn-age">${esc(p.time_active || '—')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Hunter card
+  if (newBlocks > 8) {
+    document.getElementById('hunt-title').textContent = 'Actividad alta — revisando';
+    document.getElementById('hunt-sub').textContent = `${newBlocks} eventos nuevos en 24h. Shomer está bloqueando; conviene mirar Hunter.`;
+    document.getElementById('hunt-chip').textContent = 'Atención seguridad';
+  } else if (contained > 0) {
+    document.getElementById('hunt-title').textContent = 'Amenazas contenidas';
+    document.getElementById('hunt-sub').textContent =
+      `${contained} IPs externas bloqueadas. ${newBlocks === 0 ? 'Sin eventos nuevos hoy — victoria silenciosa.' : newBlocks + ' nuevas en 24h, ya contenidas.'}`;
+    document.getElementById('hunt-chip').textContent = 'Victoria · protección activa';
+  } else {
+    document.getElementById('hunt-title').textContent = 'Sin bloqueos activos';
+    document.getElementById('hunt-sub').textContent = 'Hunter en vigilancia. Sin IPs contenidas en este momento.';
+    document.getElementById('hunt-chip').textContent = 'En calma';
+  }
+
+  // IA como valor
+  const ag = d.agent || {};
+  if (ag.ok || ag.state === 'running') {
+    document.getElementById('ia-title').textContent = 'Listo para el equipo técnico';
+    document.getElementById('ia-sub').textContent =
+      'Ayuda a diagnosticar caídas y recuerda soluciones guardadas (/guardar). No inventa alarmas: aporta contexto cuando hace falta.';
+  } else {
+    document.getElementById('ia-title').textContent = 'Asistente en pausa';
+    document.getElementById('ia-sub').textContent = 'El monitoreo del hotel sigue; el chat IA no está activo ahora.';
+  }
+
+  // Historial recuperaciones
+  const hist = (d.outage_history || []).filter(x => x.event === 'online').slice(0, 6);
+  document.getElementById('hist').innerHTML = hist.length
+    ? hist.map(h => `<div>✔ ${esc(h.name)} · hace ${esc(h.ago)}</div>`).join('')
+    : '<div>Sin recuperaciones recientes</div>';
+}
+
+async function fetchData() {
+  try {
+    const res = await fetch(DATA_API);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    render(d);
+    document.getElementById('loading').style.display = 'none';
+  } catch (e) {
+    document.getElementById('loading').textContent = 'Error cargando: ' + e.message;
+  }
+}
+fetchData();
+setInterval(fetchData, 15000);
+</script>
+</body>
+</html>
