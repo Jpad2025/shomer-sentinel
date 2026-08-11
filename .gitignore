@@ -30,3 +30,6 @@ network_monitor.db
 *.tar.gz
 __pycache__/
 .pytest_cache/
+
+# Producto separado (repo propio: shomer-agent) — nunca meterlo acá
+shomer-agent/
