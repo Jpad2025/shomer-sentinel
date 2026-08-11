@@ -1,6 +1,40 @@
 # Pendientes lab (recordatorio operativo)
 
-Actualizado: **28 jul 2026** · Dueño: Juan Pablo (único operador)
+Actualizado: **5 ago 2026** · Dueño: Juan Pablo (único operador)
+
+## Sesión 69 — pendientes de investigación (no resueltos, solo documentados)
+
+Salieron de un análisis de `memoria_alertas.db` (1535 msgs Telegram, 40 días).
+Los fixes de ruido (VPN digest + alertas compactas para flappers) ya están en
+`CLAUDE.md` §Sesión 69 y desplegados. Estos tres NO se tocaron:
+
+1. **Bixolon POS `.60`/`.243`** — 94 caídas c/u en 40 días. Confirmado como
+   patrón crónico en `patrones_detectados`, no es bug de software. **Acción:
+   revisión física de campo** (cable/PoE/firmware) — agregado a `SITE.md`
+   Pendientes → Campo #3.
+2. **DNS intermitente del contenedor `shomer-agent`** — `Telegram send error:
+   httpx.ConnectError: [Errno -3] Temporary failure in name resolution`, visto
+   en journalctl el 1, 2 y 5 de agosto. Causa mensajes con `sent_ok=0` en
+   `memoria_alertas` (27 en 40 días) — alertas generadas que nunca llegaron a
+   Telegram. No se investigó causa raíz (¿resolv.conf del contenedor?
+   ¿systemd-resolved del host bajo carga? ¿DNS del hotel intermitente?).
+3. **Reinicios del contenedor `shomer-agent`** — 42 reinicios en 40 días, no
+   uniformes: ráfagas concentradas (20 entre 29-30 jun, 6 el 30 jun entre
+   00h-05h, otras el 8 jul y 17 jul). No se investigó si es OOM, watchdog,
+   Docker restart policy reaccionando a un crash, o reinicios manuales de
+   sesiones de desarrollo previas — journalctl no distingue el motivo.
+
+## Sync pendiente — labs .245 / .243 (Sesión 69)
+
+Al sincronizar el fix de Sesión 69 se encontró que `.245` y `.243` tienen
+`core/` con cambios **sin commitear** que van más allá de su propio HEAD de git
+(`1cc8222` — varios commits atrás de `main`): diffs en `bot.py`,
+`groq_helper.py`, `monitor.py` (307 líneas), `pattern_analysis.py`,
+`pulse_correlate.py`, `shomer_api.py`, `tools.py`, `ui_notify.py`,
+`docker-compose.yml`. No se tocó ninguno de los dos para no arriesgar ese
+trabajo en progreso sin entender qué es. **Antes de sincronizar Sesión 69 ahí:**
+revisar con Juan Pablo qué es ese WIP, commitearlo (o descartarlo a propósito),
+y recién entonces hacer `git pull` limpio como se hizo en `.205`.
 
 ## Tokens Telegram lab (SIN conflicto ahora)
 

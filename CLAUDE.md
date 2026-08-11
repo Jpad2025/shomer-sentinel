@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 26 jul 2026 (Bot `624cc88` — TZ Bogotá, horarios laborales, `knowledge_decision`; sync labs; token Ópera exclusivo / lab en .245) · Sesión 68 §BK · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 5 ago 2026 (Bot `e936ae2` — digest VPN + alertas compactas para flappers crónicos, ver Sesión 69 abajo) · Sesión 69 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -58,6 +58,40 @@ Detalle credenciales Tracker AD: §AI.3 · Usuario servicio sitio: §D.2 · Prot
 - **Groq "caído"**: es límite del plan **FREE** (RPM/TPM/RPD), no una caída. `watch_groq` chequea con `models.list()` (sin gastar tokens); un 429 de fondo **no** pausa el bot; alerta máx **1/día**.
 - **Guardian mantenimiento**: revisar que solo los APs que deben estén en `node_maintenance` (TTL −1 = permanente y silencioso).
 - **BD symlink**: `/opt/network_monitor/*.db` deben apuntar a `/storage/db/*.db` reales (no a archivos vacíos).
+
+## Sesión 69 (5 ago 2026) — reducción de ruido Telegram
+
+Análisis de `memoria_alertas.db` (1535 mensajes, 40 días) mostró que VPN (267 msgs,
+17% del total) y ~10 APs/impresoras crónicamente flapping (AP REST SCALA 29
+críticos, Bixolon .60/.243 con 94 c/u) concentraban más de la mitad del volumen
+reciente de alertas. Cambios en `/storage/shomer-agent/core/monitor.py`
+(commits `e516bf7`, `ca02017`, merge `e936ae2` — pusheados a GitHub, desplegados
+en Ópera y en lab `.205`):
+
+- **VPN → digest agrupado**: conexiones/desconexiones ya no mandan un mensaje
+  por evento; se acumulan y se envían en un solo mensaje cada
+  `VPN_DIGEST_INTERVAL_SEC` (default 1800s/30 min). No se pierde información
+  (sigue en `memoria_alertas`), solo baja la frecuencia de interrupciones.
+- **Guardian/Inframonitor → alerta compacta para flappers crónicos**: cuando
+  `pattern_analysis` (`patrones_detectados`) ya tiene a la entidad con
+  `ocurrencias >= BOT_CHRONIC_ALERT_MIN_OCURRENCIAS` (default 5), la caída se
+  avisa con una línea corta ("caída #N de un patrón ya conocido") en vez de
+  repetir el bloque completo impacto/acción/sugerencia. **No suprime nada** —
+  sigue avisando cada caída real, solo deja de repetir texto ya sabido de un
+  problema físico ya reportado a campo.
+
+**Deliberadamente NO tocado esta sesión** (documentado, no resuelto — ver
+`docs/PENDIENTES_LAB.md`):
+- Impresoras Bixolon POS `.60`/`.243` — 94 caídas c/u en 40 días: es un problema
+  físico (cable/PoE/firmware), no de software. Pendiente de campo.
+- Reinicios del contenedor `shomer-agent` (42 veces en 40 días, con ráfagas) y
+  errores DNS intermitentes del contenedor (`Temporary failure in name
+  resolution`, causando alertas con `sent_ok=0`) — sin causa raíz confirmada
+  todavía, requieren investigación antes de un fix.
+
+**Pendiente de sincronizar:** labs `.245` y `.243` tienen trabajo local sin
+commitear en `core/` (más features que su propio HEAD de git) — no se tocaron
+para no arriesgar ese WIP. `.205` sí quedó al día (`git pull` limpio).
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
