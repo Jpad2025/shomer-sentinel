@@ -156,6 +156,26 @@ cada blip aunque la caída correspondiente ya estuviera silenciada.
 **Pendiente de confirmar con datos:** aún no se verificó con tráfico real posterior al fix
 que bajó el conteo de mensajes de OFC-COCINA — revisar `memoria.db` en unas horas.
 
+### Addendum — `eno1` re-verificado en vivo, causa del "dropped" identificada
+
+Juan Pablo pidió revisar de nuevo la interfaz `eno1` (la tarjeta que en Sesión 70 se había
+descartado como causa de las caídas sincronizadas). Re-verificado en vivo, 3 días después:
+
+- **Hardware sigue limpio, sin cambios:** `rx_errors=0`, `tx_errors=0`, `rx_crc_errors=0`,
+  `rx_no_buffer_count=17` (idéntico al de Sesión 70, no subió), `promiscuity 0`, `tc -s qdisc`
+  0 drops de salida.
+- **Tasa de "dropped" medida en vivo:** 5.19 pkt/s (delta real de 78 paquetes en 15.0s) —
+  igual que los "~5-6/s" de hace 3 días, estable, no empeora.
+- **Nuevo — identificado con qué tráfico coincide** (captura `tcpdump -e` de 20s en `eno1`):
+  **97 tramas RRCP** (ethertype `0x8899`, protocolo propietario Realtek de detección de loop
+  entre switches en cascada — Linux no tiene manejador para ese ethertype, se cuentan como
+  drop siempre) desde **5 switches distintos** (OUI `00:9e:1e:16:*`, ~1/s cada uno) + 195
+  tramas 802.1Q sin ninguna interfaz VLAN configurada en este host (`ip -br link` no tiene
+  `eno1.X`) que tampoco tienen a dónde entregarse.
+- **Conclusión:** el "dropped" de `eno1` es ruido normal de capa 2 entre los switches del
+  hotel (RRCP/VLAN), no una tarjeta fallando ni relacionado con la caída sincronizada de
+  20+ equipos — esa causa raíz sigue sin identificar (ver `PENDIENTES_LAB.md` §Sesión 70).
+
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
 
