@@ -62,11 +62,19 @@ deploy_server() {
     log "→ Desplegando en $name ($ip)..."
 
     # 1. Sincronizar código app/
-    rsync -az --delete \
+    # --no-g: no intentar igualar grupo dueño en el remoto -- algunos labs
+    # tienen backups viejos *.bak.* (gitignored, no son parte del código)
+    # con dueño root, y usb_admin no tiene permiso de chgrp -- eso paraba
+    # rsync (exit 23) y con "set -e" cortaba TODO el deploy ahí mismo, sin
+    # llegar siquiera a los demás servidores (encontrado en Sesión 72).
+    # --exclude='*.bak*' además evita tocarlos del todo, mismo criterio que
+    # el .gitignore del repo.
+    rsync -az --no-g --delete \
         --exclude='*.db' --exclude='*.db-*' \
         --exclude='.env' --exclude='*.env' \
         --exclude='__pycache__' --exclude='*.pyc' \
         --exclude='venv/' --exclude='*.log' \
+        --exclude='*.bak' --exclude='*.bak.*' \
         -e "ssh $opts" \
         "$REPO_DIR/app/" \
         "$REMOTE_USER@$ip:$REMOTE_DIR/app/"
@@ -75,9 +83,9 @@ deploy_server() {
     # abajo -- scripts como analizar_caidas_masivas.py, fleet_sync.sh, etc.
     # se quedaban sin propagar y tocaba copiarlos a mano archivo por archivo,
     # con riesgo real de mandarlos a la carpeta equivocada -- ver Sesión 72).
-    rsync -az \
+    rsync -az --no-g \
         --exclude='__pycache__' --exclude='*.pyc' \
-        --exclude='*.log' \
+        --exclude='*.log' --exclude='*.bak' --exclude='*.bak.*' \
         -e "ssh $opts" \
         "$REPO_DIR/tools/" \
         "$REMOTE_USER@$ip:$REMOTE_DIR/tools/"
@@ -85,12 +93,12 @@ deploy_server() {
     # 1c. Sincronizar docs/ + manuales raíz (CLAUDE.md, PENDIENTES_LAB.md,
     # SISTEMA_SHOMER.md) -- NUNCA SITE.md ni nodos_gl.json (config real del
     # sitio, no debe cruzar servidores).
-    rsync -az \
-        --exclude='__pycache__' \
+    rsync -az --no-g \
+        --exclude='__pycache__' --exclude='*.bak' --exclude='*.bak.*' \
         -e "ssh $opts" \
         "$REPO_DIR/docs/" \
         "$REMOTE_USER@$ip:$REMOTE_DIR/docs/"
-    rsync -az \
+    rsync -az --no-g \
         -e "ssh $opts" \
         "$REPO_DIR/CLAUDE.md" \
         "$REPO_DIR/PENDIENTES_LAB.md" \
@@ -110,9 +118,10 @@ deploy_server() {
         "$REMOTE_USER@$ip:$REMOTE_DIR/etc/"
 
     # 3. Sincronizar código agente (sin data/ ni .env)
-    rsync -az --delete \
+    rsync -az --no-g --delete \
         --exclude='data/' --exclude='.env' \
         --exclude='__pycache__' --exclude='*.pyc' \
+        --exclude='*.bak' --exclude='*.bak.*' \
         -e "ssh $opts" \
         "$AGENT_DIR/" \
         "$REMOTE_USER@$ip:$AGENT_DIR/"
