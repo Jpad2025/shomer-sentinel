@@ -1648,8 +1648,8 @@ async def _poll_fast_once():
         total_ms = int((_time.monotonic() - t_total) * 1000)
         logger.info(
             "infra poll fast: read=%dms ping=%dms mac=%dms write=%dms "
-            "total=%dms devices=%d (persist error)",
-            read_ms, ping_ms, mac_ms, write_ms, total_ms, len(rows),
+            "total=%dms devices=%d batch_id=%s (persist error)",
+            read_ms, ping_ms, mac_ms, write_ms, total_ms, len(rows), batch_id,
         )
         return
 
@@ -1657,15 +1657,15 @@ async def _poll_fast_once():
     total_ms = int((_time.monotonic() - t_total) * 1000)
     logger.info(
         "infra poll fast: read=%dms ping=%dms mac=%dms write=%dms "
-        "total=%dms devices=%d polled=%d",
-        read_ms, ping_ms, mac_ms, write_ms, total_ms, devices_written, len(poll_rows),
+        "total=%dms devices=%d polled=%d batch_id=%s",
+        read_ms, ping_ms, mac_ms, write_ms, total_ms, devices_written, len(poll_rows), batch_id,
     )
     if total_ms > FAST_POLL_INTERVAL_SEC * 1000:
         logger.warning(
             "infra poll fast: ciclo lento read=%dms ping=%dms mac=%dms "
-            "write=%dms total=%dms devices=%d (umbral %ds)",
+            "write=%dms total=%dms devices=%d (umbral %ds) batch_id=%s",
             read_ms, ping_ms, mac_ms, write_ms, total_ms,
-            devices_written, FAST_POLL_INTERVAL_SEC,
+            devices_written, FAST_POLL_INTERVAL_SEC, batch_id,
         )
 
 
