@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 5 ago 2026 (Bot `e936ae2` — digest VPN + alertas compactas para flappers crónicos, ver Sesión 69 abajo) · Sesión 69 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 13 ago 2026 (Bot `2bf8202` v1.1.1 — fix "recuperado" repetido en equipos flapeando, ver Sesión 71 abajo) · Sesión 71 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -92,6 +92,69 @@ en Ópera y en lab `.205`):
 **Pendiente de sincronizar:** labs `.245` y `.243` tienen trabajo local sin
 commitear en `core/` (más features que su propio HEAD de git) — no se tocaron
 para no arriesgar ese WIP. `.205` sí quedó al día (`git pull` limpio).
+
+## Sesión 70 (10-11 ago 2026) — Auditoría Ópera: verificación honesta, causa real de caídas
+
+Auditoría completa del sitio Ópera pedida por Juan Pablo. Primera pasada tuvo errores de
+interpretación (se afirmó "problema físico de red, no de software" sin verificarlo, y que 7
+equipos con >100 caídas —incl. 2 switches y 2 terminales Ingenico— "se replicarían" en otros
+hoteles, cuando son hardware físico de un solo sitio). Corregido tras aviso de Juan Pablo: se
+rehizo la auditoría **solo lectura**, marcando explícitamente VERIFICADO (dato/código real)
+vs. no confirmado.
+
+Hallazgos verificados contra código/datos reales:
+
+- **La duración "180-240s" de caída que aparece en reportes NO es downtime real** — es
+  artefacto de diseño: `INFRA_PULSE_PERSIST_TICKS=6` (config Ópera,
+  `/etc/shomer/shomer-runtime.env`) × sondeo cada 30s (`FAST_POLL_INTERVAL_SEC`) = 6 lecturas
+  malas seguidas para marcar degradado + 6 buenas para marcar recuperado → 180-240s por
+  matemática del contador, sin importar cuánto duró la falla real.
+- **Hallazgo grande, sin resolver:** 20-21 equipos completamente distintos del hotel (switches,
+  cámaras, terminales de pago, etc. — monitoreados por **Inframonitor**, no Guardian) caen
+  exactamente en el mismo segundo, varias veces por semana. No puede ser 20 fallas físicas
+  independientes — hay una causa compartida sin identificar. Ver pendiente en
+  `docs/PENDIENTES_LAB.md`.
+- **Investigado y descartado como causa:** NIC de gestión del servidor (`eno1`) — descarta
+  paquetes activamente (~5-6/s constante, medido en vivo) pero sin ninguna señal de tarjeta
+  fallando: no está en modo promiscuo, Suricata usa su propia NIC USB dedicada
+  (`enx9c69d33bc55f`, 3.300M paquetes con solo 1.367 descartes), `ethtool -S` casi limpio (17
+  eventos de buffer en 26 días), `fq_codel` con 0 descartes. Compatible con ruido normal de
+  tráfico broadcast/multicast del hotel — no explica la caída sincronizada.
+- **Confirmado por separado:** los 7 equipos con >100 caídas (incl. 2 switches y 2 terminales
+  Ingenico) sí son indicio de problema físico de cable/puerto/PoE — pero local a ese hardware
+  específico de Ópera, no algo que "viaje" a otro hotel. Lo que sí es igual en cada instalación
+  es el código/umbrales de **Inframonitor**: si se sospecha falso positivo por sensibilidad,
+  revisar ese umbral (no el de Guardian).
+
+**Sin cambios de código ni de config esta sesión** — solo lectura, por pedido explícito de
+Juan Pablo tras la corrección.
+
+## Sesión 71 (13 ago 2026) — Fix: "Nodo recuperado" repetido en equipos flapeando
+
+Juan Pablo reportó que estaban llegando 70+ mensajes de Telegram. Verificado contra
+`/storage/shomer-agent/data/memoria.db`: **54 mensajes en 24h, 192 en 48h**, y el **81% de
+las 24h (44 de 54) eran el mismo mensaje repetido** — "✅ Nodo recuperado — AP OFC-COCINA
+(192.168.0.113)" — un AP entrando y saliendo de línea cada 4-8 min.
+
+**Causa (verificada leyendo el código):** el lado de las caídas ya está protegido —
+`incident_escalation.py` (Sesión 69→v1.1.0) agrupa fallas repetidas en una ventana de 1h y
+solo manda un resumen/escalamiento. Pero el aviso de **recuperación**, en
+`monitor.py::watch_guardian_nodes` (~línea 1588), se mandaba directo en cada transición a
+`online`, sin pasar por esa misma ventana — por eso el flapping generaba un "recuperado" por
+cada blip aunque la caída correspondiente ya estuviera silenciada.
+
+**Fix (`shomer-agent` v1.1.1, commit `2bf8202`):**
+- `incident_escalation.is_flapping(ip)` — true si el incidente activo de esa IP ya acumuló
+  2+ eventos dentro de la ventana de agregación.
+- `watch_guardian_nodes` suprime "Nodo recuperado" si `is_flapping(ip)` — la primera
+  recuperación de un incidente se sigue avisando normal, solo se calla la repetición.
+
+**Desplegado:** `py_compile` OK · push a GitHub · `docker restart shomer-agent` en Ópera
+(logs limpios, sin tracebacks) · propagado a `shomer205`/`shomer243`/`shomer245` con
+`tools/fleet_sync.sh` (sin stash necesario, salud OK en los 3, sin rollback).
+
+**Pendiente de confirmar con datos:** aún no se verificó con tráfico real posterior al fix
+que bajó el conteo de mensajes de OFC-COCINA — revisar `memoria.db` en unas horas.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
