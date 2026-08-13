@@ -24,6 +24,13 @@ fallando (no promiscua, Suricata en NIC USB aparte, `ethtool -S` casi limpio, `f
 sin descartes). Es más compatible con ruido normal de broadcast/multicast del hotel que
 con el evento sincronizado.
 
+**Re-verificado en vivo 13 ago (addendum `CLAUDE.md` §Sesión 71):** el "dropped" de `eno1`
+(~5.19 pkt/s medido en vivo, igual que antes) coincide con tramas **RRCP** (loop-detection
+propietario Realtek entre switches, sin manejador en Linux → siempre cuenta como drop) desde
+5 switches distintos + tramas 802.1Q sin interfaz VLAN configurada en el host. Es ruido L2
+normal de los switches del hotel, no la tarjeta fallando. Descartada con más detalle, pero
+sigue sin identificarse la causa de la caída sincronizada.
+
 **Sin causa raíz confirmada todavía.** Próximo paso sugerido (no iniciado): revisar si las
 caídas simultáneas coinciden en el tiempo con algún proceso periódico del servidor —
 backup Protector, algún scan, o el propio ciclo del poller Inframonitor — antes de asumir
