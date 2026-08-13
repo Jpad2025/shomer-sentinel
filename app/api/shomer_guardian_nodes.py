@@ -796,17 +796,18 @@ async def _poller_tick() -> None:
 
     write_ms = int((_time.monotonic() - t_write) * 1000)
     total_ms = int((_time.monotonic() - t_total) * 1000)
+    _hora = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     logger.info(
-        "guardian poll: read=%dms checks=%dms ssh=%dms snmp=%dms write=%dms "
-        "total=%dms nodes=%d",
-        read_ms, checks_ms, ssh_ms, snmp_ms, write_ms, total_ms, len(devices),
+        "guardian poll [%s]: read=%dms checks=%dms ssh=%dms snmp=%dms write=%dms "
+        "total=%dms nodes=%d batch_id=%s",
+        _hora, read_ms, checks_ms, ssh_ms, snmp_ms, write_ms, total_ms, len(devices), batch_id,
     )
     if total_ms > GUARDIAN_POLL_INTERVAL_SEC * 1000:
         logger.warning(
-            "guardian poll: ciclo lento read=%dms checks=%dms ssh=%dms snmp=%dms "
-            "write=%dms total=%dms nodes=%d (umbral %ds)",
-            read_ms, checks_ms, ssh_ms, snmp_ms, write_ms, total_ms,
-            len(devices), GUARDIAN_POLL_INTERVAL_SEC,
+            "guardian poll [%s]: ciclo lento read=%dms checks=%dms ssh=%dms snmp=%dms "
+            "write=%dms total=%dms nodes=%d (umbral %ds) batch_id=%s",
+            _hora, read_ms, checks_ms, ssh_ms, snmp_ms, write_ms, total_ms,
+            len(devices), GUARDIAN_POLL_INTERVAL_SEC, batch_id,
         )
 
 

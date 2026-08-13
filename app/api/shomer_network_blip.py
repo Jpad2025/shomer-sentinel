@@ -9,9 +9,14 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _hora() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 BLIP_MIN_DEVICES = int(os.environ.get("INFRA_BLIP_MIN_DEVICES", "8"))
 BLIP_MIN_DEVICES_HIGH = int(os.environ.get("INFRA_BLIP_MIN_DEVICES_HIGH", "20"))
@@ -141,6 +146,22 @@ async def evaluate_host_network_blip_async(
         total_devices,
     )
     if not is_blip:
+        offline_count = sum(1 for s in cycle_status.values() if s == "offline")
+        if mass_outage_threshold_met(offline_count, total_devices):
+            # Muchos equipos offline en el mismo ciclo, pero el gateway no lo
+            # refleja (sano o no evaluado como unhealthy) -> no se suprime como
+            # blip, se avisan como caídas reales una por una. Este log es la
+            # única forma de encontrar estos casos después (no quedan en
+            # infra_blip_events) -- ver PENDIENTES_LAB.md / CLAUDE.md.
+            logger.warning(
+                "%s [%s]: %d/%d equipos offline en el mismo ciclo (batch_id=%s) "
+                "pero gateway %s NO aparece unhealthy (%s, loss=%s, rtt=%s) -> "
+                "NO se trata como blip, se avisan como caídas reales.",
+                log_prefix, _hora(), offline_count, total_devices,
+                batch_id or log_prefix, gateway_ip, gw_status,
+                f"{gw_loss:.0f}%" if gw_loss is not None else "—",
+                f"{gw_rtt:.0f}ms" if gw_rtt is not None else "—",
+            )
         return False, set()
 
     await asyncio.sleep(BLIP_RECHECK_SEC)
@@ -152,8 +173,8 @@ async def evaluate_host_network_blip_async(
 
     if not gateway_unhealthy(gw2_status, gw2_loss, gw2_rtt):
         logger.info(
-            "%s: host_network_blip descartado tras recheck %.0fms — gateway %s recuperado",
-            log_prefix, BLIP_RECHECK_SEC * 1000, gateway_ip,
+            "%s [%s]: host_network_blip descartado tras recheck %.0fms — gateway %s recuperado",
+            log_prefix, _hora(), BLIP_RECHECK_SEC * 1000, gateway_ip,
         )
         return False, set()
 
@@ -164,9 +185,10 @@ async def evaluate_host_network_blip_async(
         else "—"
     )
     logger.warning(
-        "%s: host_network_blip confirmado — gateway %s (%s, loss=%s, rtt=%s) y "
+        "%s [%s]: host_network_blip confirmado — gateway %s (%s, loss=%s, rtt=%s) y "
         "%d/%d equipos offline en el mismo ciclo. Se omiten %d transiciones offline.",
         log_prefix,
+        _hora(),
         gateway_ip,
         gw2_status,
         loss_display,
