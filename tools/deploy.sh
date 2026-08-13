@@ -71,6 +71,32 @@ deploy_server() {
         "$REPO_DIR/app/" \
         "$REMOTE_USER@$ip:$REMOTE_DIR/app/"
 
+    # 1b. Sincronizar tools/ completo (antes solo se copiaba frontpanel/ acá
+    # abajo -- scripts como analizar_caidas_masivas.py, fleet_sync.sh, etc.
+    # se quedaban sin propagar y tocaba copiarlos a mano archivo por archivo,
+    # con riesgo real de mandarlos a la carpeta equivocada -- ver Sesión 72).
+    rsync -az \
+        --exclude='__pycache__' --exclude='*.pyc' \
+        --exclude='*.log' \
+        -e "ssh $opts" \
+        "$REPO_DIR/tools/" \
+        "$REMOTE_USER@$ip:$REMOTE_DIR/tools/"
+
+    # 1c. Sincronizar docs/ + manuales raíz (CLAUDE.md, PENDIENTES_LAB.md,
+    # SISTEMA_SHOMER.md) -- NUNCA SITE.md ni nodos_gl.json (config real del
+    # sitio, no debe cruzar servidores).
+    rsync -az \
+        --exclude='__pycache__' \
+        -e "ssh $opts" \
+        "$REPO_DIR/docs/" \
+        "$REMOTE_USER@$ip:$REMOTE_DIR/docs/"
+    rsync -az \
+        -e "ssh $opts" \
+        "$REPO_DIR/CLAUDE.md" \
+        "$REPO_DIR/PENDIENTES_LAB.md" \
+        "$REPO_DIR/SISTEMA_SHOMER.md" \
+        "$REMOTE_USER@$ip:$REMOTE_DIR/"
+
     # 2. Sincronizar pantalla frontal S1 (tools + units systemd)
     rsync -az \
         --exclude='__pycache__' --exclude='*.pyc' \
