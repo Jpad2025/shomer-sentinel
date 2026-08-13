@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 13 ago 2026 (Bot `2bf8202` v1.1.1 — fix "recuperado" repetido en equipos flapeando, ver Sesión 71 abajo) · Sesión 71 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 13 ago 2026 (`cf500e7` — suprime caída masiva sin gateway unhealthy, tope 600s, ver Sesión 72 abajo) · Sesión 72 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -175,6 +175,43 @@ descartado como causa de las caídas sincronizadas). Re-verificado en vivo, 3 d�
 - **Conclusión:** el "dropped" de `eno1` es ruido normal de capa 2 entre los switches del
   hotel (RRCP/VLAN), no una tarjeta fallando ni relacionado con la caída sincronizada de
   20+ equipos — esa causa raíz sigue sin identificar (ver `PENDIENTES_LAB.md` §Sesión 70).
+
+## Sesión 72 (13 ago 2026) — Caída masiva: se encuentra el patrón, se suprime con tope
+
+Se le preguntó a RRCP si podía causar el falso positivo de caídas sincronizadas (Sesión 70) —
+**descartado, sin evidencia** (ver detalle abajo). Pero investigando el mecanismo se encontró
+algo más útil: revisando `/var/log/shomer/api.log.1` aparecieron **80 "ciclo lento" de
+Guardian en un solo día**, y cruzando `status_events` contra `infra_blip_events` se confirmó
+que **5/5 caídas masivas (8+ equipos) de los últimos 14 días nunca activaron el guardia de
+blip** — el gateway nunca aparecía unhealthy en esos ciclos, así que se avisaron como caídas
+reales, equipo por equipo.
+
+**Nueva herramienta — `tools/analizar_caidas_masivas.py`** (solo lectura): clasifica lotes de
+caída masiva según su firma de recuperación. Corrida contra los 14 días reales: **los 5
+incidentes clasifican como SOSPECHOSO** — 92-100% de los equipos se recuperaron solos en
+<15min, 73-100% de esas recuperaciones cayeron en la misma ventana de 60s. Firma de origen
+host, no de fallas físicas independientes.
+
+**Observabilidad (desplegado):** los logs de ciclo de Guardian (`shomer_guardian_nodes.py`)
+iban a `/var/log/shomer/api.log` sin timestamp (el logger no tiene `basicConfig`, así que solo
+pasan WARNING+, nunca INFO — por diseño de Python, no es un bug a arreglar). Se agregó hora
+Bogotá + `batch_id` a los WARNING de "ciclo lento" y de blip; Inframonitor (ya tenía hora vía
+journald) se le agregó `batch_id`. Nuevo WARNING específico en `shomer_network_blip.py` para
+cuando el umbral de caída masiva se cumple pero el gateway no lo refleja.
+
+**Fix de comportamiento (desplegado, `shomer_network_blip.py`):** ahora una caída masiva
+(8+/20+/50% inventario) se suprime **aunque el gateway se vea sano** — la firma real es la
+recuperación sincronizada, no el estado del gateway. El propio ciclo del poller (10-30s) hace
+de recheck natural. **Tope de seguridad `INFRA_BLIP_MASS_MAX_SEC=600s`** (racha en memoria,
+por poller): si la caída masiva sigue después de 10 min, se deja de suprimir y se avisa como
+real — para no tapar para siempre una falla ancha genuina. Verificado con prueba manual del
+estado (suprime, deja de suprimir pasado el tope, limpia el tracker al recuperarse) antes de
+desplegar. `py_compile` OK, `shomer-guardian` + `shomer-inframonitor-poller` reiniciados,
+`/health` OK, sin errores en los logs tras reiniciar.
+
+**Pendiente:** confirmar con la próxima caída masiva real que el nuevo WARNING aparece y que
+de verdad bajó el volumen de alertas — no se pudo probar en vivo (no se puede forzar una caída
+masiva real de forma segura). Causa raíz de fondo (por qué caen juntos) sigue sin identificar.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)

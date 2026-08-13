@@ -2,6 +2,19 @@
 
 Actualizado: **13 ago 2026** · Dueño: Juan Pablo (único operador)
 
+## Sesión 72 — mitigado: caída masiva se suprime aunque el gateway se vea sano
+
+Los 5 incidentes de caída masiva de Sesión 70 (8-24 equipos a la vez) nunca activaron el
+guardia `host_network_blip` porque exigía que el gateway también se viera mal, y nunca pasaba
+(confirmado cruzando `status_events` contra `infra_blip_events`). `tools/analizar_caidas_masivas.py`
+(nuevo, solo lectura) los clasifica: los 5 tienen firma de falso positivo (recuperación rápida
+y sincronizada). **Fix desplegado:** ahora se suprime igual con umbral puro de caída masiva
+(8+/20+/50%), con tope de seguridad de 10 min (`INFRA_BLIP_MASS_MAX_SEC`) para no tapar una
+falla ancha genuina si sigue después de eso. Ver `CLAUDE.md` §Sesión 72 para el detalle.
+**Falta confirmar en vivo** con la próxima caída masiva real (no se pudo probar sin forzar una).
+Causa raíz de fondo (por qué caen juntos) sigue sin identificar — RRCP de los switches del
+hotel se investigó y se descartó como explicación (ver addendum §Sesión 71 en `CLAUDE.md`).
+
 ## Sesión 71 — resuelto: spam Telegram por AP flapeando (OFC-COCINA)
 
 54 mensajes Telegram en 24h, 44 de ellos "Nodo recuperado — AP OFC-COCINA" repetido (ver
