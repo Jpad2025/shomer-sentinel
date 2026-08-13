@@ -9,14 +9,15 @@ import asyncio
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 def _hora() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    # Servidor en TZ America/Bogota (confirmado con timedatectl) -> hora local
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " Bogotá"
 
 BLIP_MIN_DEVICES = int(os.environ.get("INFRA_BLIP_MIN_DEVICES", "8"))
 BLIP_MIN_DEVICES_HIGH = int(os.environ.get("INFRA_BLIP_MIN_DEVICES_HIGH", "20"))

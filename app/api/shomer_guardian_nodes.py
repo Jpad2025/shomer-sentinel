@@ -796,7 +796,7 @@ async def _poller_tick() -> None:
 
     write_ms = int((_time.monotonic() - t_write) * 1000)
     total_ms = int((_time.monotonic() - t_total) * 1000)
-    _hora = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    _hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " Bogotá"
     logger.info(
         "guardian poll [%s]: read=%dms checks=%dms ssh=%dms snmp=%dms write=%dms "
         "total=%dms nodes=%d batch_id=%s",
