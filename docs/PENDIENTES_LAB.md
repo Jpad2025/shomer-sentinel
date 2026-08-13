@@ -1,6 +1,37 @@
 # Pendientes lab (recordatorio operativo)
 
-Actualizado: **5 ago 2026** · Dueño: Juan Pablo (único operador)
+Actualizado: **13 ago 2026** · Dueño: Juan Pablo (único operador)
+
+## Sesión 71 — resuelto: spam Telegram por AP flapeando (OFC-COCINA)
+
+54 mensajes Telegram en 24h, 44 de ellos "Nodo recuperado — AP OFC-COCINA" repetido (ver
+`CLAUDE.md` §Sesión 71). Causa: el aviso de recuperación no pasaba por la ventana de
+agregación que sí protege el lado de las caídas desde Sesión 69/v1.1.0. **Fix desplegado**
+v1.1.1 (`shomer-agent` commit `2bf8202`) — propagado a Ópera + shomer205/243/245 vía
+`fleet_sync.sh`. Falta confirmar con datos reales (`memoria.db`) que bajó el volumen.
+
+## Sesión 70 — causa de caídas sincronizadas en Ópera (NO resuelto)
+
+Durante la auditoría de Ópera (ver `CLAUDE.md` §Sesión 70) se confirmó, con datos reales
+(no solo conteos), que **20-21 equipos completamente distintos** del hotel — switches,
+cámaras, terminales de pago, etc., todos monitoreados por **Inframonitor** — caen
+**exactamente en el mismo segundo**, varias veces por semana. Eso descarta 20 fallas
+físicas independientes: hay una causa compartida.
+
+**Se investigó y se descartó** la tarjeta de red de gestión del servidor (`eno1`) como
+causa: descarta paquetes en vivo (~5-6/s constante) pero sin ninguna señal de tarjeta
+fallando (no promiscua, Suricata en NIC USB aparte, `ethtool -S` casi limpio, `fq_codel`
+sin descartes). Es más compatible con ruido normal de broadcast/multicast del hotel que
+con el evento sincronizado.
+
+**Sin causa raíz confirmada todavía.** Próximo paso sugerido (no iniciado): revisar si las
+caídas simultáneas coinciden en el tiempo con algún proceso periódico del servidor —
+backup Protector, algún scan, o el propio ciclo del poller Inframonitor — antes de asumir
+causa de red física.
+
+**Separado, y sí confirmado como físico:** 7 equipos con >100 caídas cada uno (incl. 2
+switches y 2 terminales Ingenico) — problema de cable/puerto/PoE local a ese hardware de
+Ópera, no algo que se replique a otro hotel. **Acción: revisión física de campo.**
 
 ## Sesión 69 — pendientes de investigación (no resueltos, solo documentados)
 
