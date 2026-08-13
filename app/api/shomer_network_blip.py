@@ -1,7 +1,10 @@
 """Detección de host_network_blip — corte transitorio de red del propio Shomer.
 
-Compartido entre Inframonitor y Guardian. No cambia estados ni alertas cuando
-el gateway está mal y muchos equipos caen a la vez en el mismo ciclo.
+Compartido entre Inframonitor y Guardian. Suprime avisos individuales de
+caída cuando muchos equipos caen a la vez en el mismo ciclo: por gateway
+unhealthy (detección original), o desde Sesión 72 también por umbral de
+caída masiva puro (8+/20+/50% inventario) aunque el gateway se vea sano —
+ver BLIP_MASS_MAX_SEC. Nunca cambia estados/alertas de una caída aislada.
 """
 from __future__ import annotations
 
@@ -25,6 +28,15 @@ BLIP_PCT_INVENTORY = float(os.environ.get("INFRA_BLIP_PCT_INVENTORY", "0.5"))
 BLIP_GATEWAY_LOSS_PCT = float(os.environ.get("INFRA_BLIP_GATEWAY_LOSS_PCT", "50"))
 BLIP_GATEWAY_RTT_MS = float(os.environ.get("INFRA_BLIP_GATEWAY_RTT_MS", "300"))
 BLIP_RECHECK_SEC = float(os.environ.get("INFRA_BLIP_RECHECK_SEC", "0.3"))
+# Sesión 72: caída masiva (8+/20+/50% inventario) sin que el gateway se vea
+# mal también se trata como blip -- la señal real (ver
+# tools/analizar_caidas_masivas.py) es que casi todos se recuperan solos en
+# minutos, no que el gateway esté caído. Se reevalúa cada ciclo (10-30s), así
+# que el propio poller hace de "recheck". Tope de seguridad: si la racha de
+# caída masiva sigue tras esto, se deja de suprimir y se avisa como real --
+# para no tapar para siempre una falla ancha genuina.
+BLIP_MASS_MAX_SEC = float(os.environ.get("INFRA_BLIP_MASS_MAX_SEC", "600"))
+_mass_blip_since: Dict[str, float] = {}
 
 
 def ping_triplet_to_status(
@@ -148,21 +160,40 @@ async def evaluate_host_network_blip_async(
     )
     if not is_blip:
         offline_count = sum(1 for s in cycle_status.values() if s == "offline")
-        if mass_outage_threshold_met(offline_count, total_devices):
-            # Muchos equipos offline en el mismo ciclo, pero el gateway no lo
-            # refleja (sano o no evaluado como unhealthy) -> no se suprime como
-            # blip, se avisan como caídas reales una por una. Este log es la
-            # única forma de encontrar estos casos después (no quedan en
-            # infra_blip_events) -- ver PENDIENTES_LAB.md / CLAUDE.md.
+        key = log_prefix or "poll"
+        if not mass_outage_threshold_met(offline_count, total_devices):
+            _mass_blip_since.pop(key, None)
+            return False, set()
+
+        now = time.time()
+        since = _mass_blip_since.setdefault(key, now)
+        racha_sec = now - since
+
+        if racha_sec <= BLIP_MASS_MAX_SEC:
+            # Sesión 72: caída masiva sin gateway unhealthy -- se trata como
+            # blip igual (ver comentario junto a BLIP_MASS_MAX_SEC). Se
+            # reevalúa cada ciclo; en cuanto offline_count baje del umbral,
+            # _mass_blip_since se limpia solo arriba.
             logger.warning(
                 "%s [%s]: %d/%d equipos offline en el mismo ciclo (batch_id=%s) "
-                "pero gateway %s NO aparece unhealthy (%s, loss=%s, rtt=%s) -> "
-                "NO se trata como blip, se avisan como caídas reales.",
+                "gateway %s no aparece unhealthy (%s, loss=%s, rtt=%s) -> "
+                "SUPRIMIDO como blip masivo (racha %.0fs / tope %.0fs).",
                 log_prefix, _hora(), offline_count, total_devices,
                 batch_id or log_prefix, gateway_ip, gw_status,
                 f"{gw_loss:.0f}%" if gw_loss is not None else "—",
                 f"{gw_rtt:.0f}ms" if gw_rtt is not None else "—",
+                racha_sec, BLIP_MASS_MAX_SEC,
             )
+            skip_ips = compute_blip_skip_ips(cycle_status, existing_status)
+            return True, skip_ips
+
+        logger.warning(
+            "%s [%s]: %d/%d equipos offline (batch_id=%s) — racha de caída "
+            "masiva lleva %.0fs, supera el tope %.0fs -> se DEJA de suprimir, "
+            "se avisa como caída real (posible falla ancha genuina).",
+            log_prefix, _hora(), offline_count, total_devices,
+            batch_id or log_prefix, racha_sec, BLIP_MASS_MAX_SEC,
+        )
         return False, set()
 
     await asyncio.sleep(BLIP_RECHECK_SEC)
