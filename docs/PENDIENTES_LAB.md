@@ -10,9 +10,13 @@ corregido a mano una vez, y de ahora en adelante el sistema lo hace solo cuando 
 Herramienta manual también disponible: `python3 tools/detectar_cambio_ip.py`. Ver `CLAUDE.md`
 §Sesión 73 para el detalle técnico (por qué no se pudo usar `nmap -sn` directamente).
 
-**Pendiente separado, mismo hallazgo:** el equipo Bixolon `.60` (94 caídas en 40 días, ver
-Sesión 69) no cambió de IP — su MAC no aparece en ningún lado del escaneo. Está realmente
-desconectado. Confirmar en campo si sigue existiendo o si hay que sacarlo del inventario.
+**Resuelto 14 ago:** el equipo Bixolon `.60` (94 caídas en 40 días, ver Sesión 69) no había
+cambiado de IP — su MAC no aparece en ningún lado del escaneo en vivo (ni siquiera vía ARP,
+que no depende de que el equipo responda ping). Confirmado como desconectado de verdad, no un
+falso positivo. **Desactivado** en `infra_devices` (id 27, `active=0`) a pedido de Juan Pablo —
+deja de pingearse y de generar alertas. Nota: al desactivarlo también queda fuera del chequeo
+de reconciliación por MAC (Sesión 73) — si el equipo físico vuelve a conectarse algún día, no
+se va a re-ubicar solo, hay que reactivarlo a mano.
 
 ## Sesión 72 (cont.) — causa real de las caídas masivas GRANDES: gateway del hotel
 
