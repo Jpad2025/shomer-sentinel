@@ -1,6 +1,23 @@
 # Pendientes lab (recordatorio operativo)
 
-Actualizado: **13 ago 2026** · Dueño: Juan Pablo (único operador)
+Actualizado: **14 ago 2026** · Dueño: Juan Pablo (único operador)
+
+## Sesión 72 (cont.) — causa real de las caídas masivas GRANDES: gateway del hotel
+
+**Encontrado 14 ago, en pausa a pedido de Juan Pablo (retomar después):** el gateway del hotel
+(`192.168.0.1`) se cae de verdad con frecuencia — confirmado en el log real (`shomer-inframonitor-poller`,
+13 ago 10:20:26: "gateway offline, 100% pérdida" justo cuando cayeron 22/22 equipos de Inframonitor
+a la vez). **No es un bug de Shomer — es la red física del hotel** (router/ISP). Ya se detecta y
+se silencia bien por `host_network_blip` (mecanismo clásico, no el nuevo de hoy).
+
+**Frecuencia real (tabla `infra_blip_events`):** **509 veces en julio, 125 en lo que va de agosto**
+— ~17/día en julio, bajando en agosto. 36 días distintos con al menos una caída de gateway.
+
+**Pendiente de decidir:** esto ya no es un problema de software para seguir investigando por acá —
+es candidato a revisión física del router/ISP del hotel. Falta: (a) confirmar con Juan Pablo si
+vale la pena escalarlo al hotel/proveedor de internet, (b) separado y sin resolver todavía: el
+grupo más chico de caídas masivas (algunos equipos, no todos, con el gateway viendo sano) —
+ese es el que Sesión 72 mitigó pero cuya causa de fondo sigue sin identificarse.
 
 ## Sesión 72 — mitigado: caída masiva se suprime aunque el gateway se vea sano
 
