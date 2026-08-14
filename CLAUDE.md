@@ -75,9 +75,14 @@ un evento se avisa o se calla, cada uno resolviendo el síntoma que se veía en 
 | 3 | **Blip masivo puro** (Sesión 72) | mismo archivo, mismo función | Caída masiva (8+/20+/50%) aunque el gateway se vea sano — se reevalúa cada ciclo, tope 10 min (`INFRA_BLIP_MASS_MAX_SEC`) | igual que #2, con tope de seguridad |
 | 4 | Umbral por nodo | Guardian: `threshold`/`cooldown` · Infra: `INFRA_OFFLINE_CONFIRM_CHECKS` | N fallos seguidos antes de declarar offline "de verdad" | evita 1 blip aislado por equipo individual |
 | 5 | **Escalamiento crónico** | `incident_escalation.py` (agente) | 1ª falla avisa normal; repetidas en ventana 1h → solo cuenta; al cerrar ventana → 1 digest si hubo repetición | agrupa N caídas del MISMO equipo en 1-2 mensajes en vez de N |
-| 6 | **Recuperación repetida** (Sesión 71) | `incident_escalation.is_flapping` + `watch_guardian_nodes` | Si el incidente activo ya tiene 2+ eventos → no repetir "recuperado" en cada blip | 1ª recuperación avisa, repetidas no |
+| 6 | **Recuperación repetida** (Sesión 71) | `incident_escalation.is_flapping` + `watch_guardian_nodes`/`watch_infra` | Si el incidente activo ya tiene 2+ eventos → no repetir "recuperado" en cada blip | 1ª recuperación avisa, repetidas no |
 | 7 | **Patrón crónico** (Sesión 69) | `pattern_analysis` / `BOT_CHRONIC_ALERT_MIN_OCURRENCIAS` | Si el equipo ya tiene 5+ ocurrencias conocidas → línea corta en vez de bloque completo | acorta el mensaje, no lo suprime |
 | 8 | Digest VPN | `monitor.py`, aparte, solo conexiones/desconexiones VPN | Agrupa cada `VPN_DIGEST_INTERVAL_SEC` (30min) en 1 mensaje | no es por equipo, es por tipo de evento |
+
+**Pasos 5-6, desde `shomer-agent` v1.1.3 (13 ago):** ya cubren tanto `watch_guardian_nodes` (wifi)
+como `watch_infra` (switches/impresoras/cámaras/datáfonos) — antes solo Guardian los tenía, y un
+switch/impresora flapeando podía mandar un mensaje completo por cada caída sin agrupar (el mismo
+problema que tuvo OFC-COCINA, Sesión 71, pero del lado de Inframonitor sin arreglar hasta ahora).
 
 **Aparte, en paralelo, no en esta cadena:** **Pulse EWMA** (`shomer_infra_pulse.py`) manda su propia
 alerta "degradando" por tendencia de latencia, con su propio cooldown (`INFRA_PULSE_ALERT_COOLDOWN_SEC`)
