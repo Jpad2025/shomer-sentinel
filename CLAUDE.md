@@ -59,6 +59,40 @@ Detalle credenciales Tracker AD: §AI.3 · Usuario servicio sitio: §D.2 · Prot
 - **Guardian mantenimiento**: revisar que solo los APs que deben estén en `node_maintenance` (TTL −1 = permanente y silencioso).
 - **BD symlink**: `/opt/network_monitor/*.db` deben apuntar a `/storage/db/*.db` reales (no a archivos vacíos).
 
+## 🗺️ Mapa de decisión de alertas (leer antes de tocar sensibilidad/Telegram)
+
+**Por qué existe esto:** en ~2 meses se agregaron 5-6 mecanismos independientes que deciden si
+un evento se avisa o se calla, cada uno resolviendo el síntoma que se veía en ese momento
+(Sesión 60-72). No hay un solo lugar que decida "¿aviso o no aviso?" — hay que conocer el orden.
+**Antes de agregar un mecanismo nuevo, revisar si alguno de estos ya cubre el caso.**
+
+**Orden real, por ciclo de poll (Guardian ~10s, Inframonitor ~30s), para UN equipo:**
+
+| # | Filtro | Dónde | Qué hace | Si activa |
+|---|--------|-------|----------|-----------|
+| 1 | Ping/pérdida | `_ping` / `_ping_metrics` | 3 paquetes; offline solo si se pierden TODOS | equipo pasa a online/degraded/offline |
+| 2 | **Blip gateway** | `shomer_network_blip.evaluate_host_network_blip_async` | Si gateway también unhealthy (offline, o degraded con pérdida/RTT altos) Y caída masiva (8+/20+/50%) → recheck 300ms → confirma | **silencia TODAS** las transiciones offline nuevas del ciclo |
+| 3 | **Blip masivo puro** (Sesión 72) | mismo archivo, mismo función | Caída masiva (8+/20+/50%) aunque el gateway se vea sano — se reevalúa cada ciclo, tope 10 min (`INFRA_BLIP_MASS_MAX_SEC`) | igual que #2, con tope de seguridad |
+| 4 | Umbral por nodo | Guardian: `threshold`/`cooldown` · Infra: `INFRA_OFFLINE_CONFIRM_CHECKS` | N fallos seguidos antes de declarar offline "de verdad" | evita 1 blip aislado por equipo individual |
+| 5 | **Escalamiento crónico** | `incident_escalation.py` (agente) | 1ª falla avisa normal; repetidas en ventana 1h → solo cuenta; al cerrar ventana → 1 digest si hubo repetición | agrupa N caídas del MISMO equipo en 1-2 mensajes en vez de N |
+| 6 | **Recuperación repetida** (Sesión 71) | `incident_escalation.is_flapping` + `watch_guardian_nodes` | Si el incidente activo ya tiene 2+ eventos → no repetir "recuperado" en cada blip | 1ª recuperación avisa, repetidas no |
+| 7 | **Patrón crónico** (Sesión 69) | `pattern_analysis` / `BOT_CHRONIC_ALERT_MIN_OCURRENCIAS` | Si el equipo ya tiene 5+ ocurrencias conocidas → línea corta en vez de bloque completo | acorta el mensaje, no lo suprime |
+| 8 | Digest VPN | `monitor.py`, aparte, solo conexiones/desconexiones VPN | Agrupa cada `VPN_DIGEST_INTERVAL_SEC` (30min) en 1 mensaje | no es por equipo, es por tipo de evento |
+
+**Aparte, en paralelo, no en esta cadena:** **Pulse EWMA** (`shomer_infra_pulse.py`) manda su propia
+alerta "degradando" por tendencia de latencia, con su propio cooldown (`INFRA_PULSE_ALERT_COOLDOWN_SEC`)
+— no pasa por los filtros de arriba porque no es un evento offline/online, es predictivo.
+
+**Cómo medir si esto realmente funciona (no adivinar):** `python3 tools/reporte_alertas_semanal.py`
+— cuenta mensajes reales enviados + cuántos se suprimieron por cada mecanismo, con datos de
+`memoria_alertas`, `infra_blip_events` y `escalation_incidents`. Correrlo antes/después de tocar
+cualquier umbral para comparar con números, no con la sensación de "parece que bajó".
+
+**Deuda reconocida (no resuelta, no atacar sin plan):** 45+ variables de entorno independientes
+(`INFRA_BLIP_*`, `ESCALATION_*`, `INFRA_PULSE_*`, `SHOMER_*`, `BOT_*`) repartidas en 7+ archivos.
+Funciona, pero no es estandarizable para otro cliente sin que alguien entienda las 8 capas de
+arriba primero. Consolidar en un solo módulo de decisión es un proyecto aparte — no un fix rápido.
+
 ## Sesión 69 (5 ago 2026) — reducción de ruido Telegram
 
 Análisis de `memoria_alertas.db` (1535 mensajes, 40 días) mostró que VPN (267 msgs,
