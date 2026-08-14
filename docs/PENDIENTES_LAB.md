@@ -2,6 +2,18 @@
 
 Actualizado: **14 ago 2026** · Dueño: Juan Pablo (único operador)
 
+## Sesión 73 — resuelto: reconciliación automática de IP por MAC
+
+`app/api/shomer_mac_reconcile.py`, corriendo ya (cada 30 min, junto con `shomer-guardian.service`).
+Caso real que lo motivó: AP LOBBY RECEPCION cambió de `.121` a `.137` sin que nadie lo notara —
+corregido a mano una vez, y de ahora en adelante el sistema lo hace solo cuando pase de nuevo.
+Herramienta manual también disponible: `python3 tools/detectar_cambio_ip.py`. Ver `CLAUDE.md`
+§Sesión 73 para el detalle técnico (por qué no se pudo usar `nmap -sn` directamente).
+
+**Pendiente separado, mismo hallazgo:** el equipo Bixolon `.60` (94 caídas en 40 días, ver
+Sesión 69) no cambió de IP — su MAC no aparece en ningún lado del escaneo. Está realmente
+desconectado. Confirmar en campo si sigue existiendo o si hay que sacarlo del inventario.
+
 ## Sesión 72 (cont.) — causa real de las caídas masivas GRANDES: gateway del hotel
 
 **Encontrado 14 ago, en pausa a pedido de Juan Pablo (retomar después):** el gateway del hotel
