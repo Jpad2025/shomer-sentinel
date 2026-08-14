@@ -184,6 +184,24 @@ async def evaluate_host_network_blip_async(
                 f"{gw_rtt:.0f}ms" if gw_rtt is not None else "—",
                 racha_sec, BLIP_MASS_MAX_SEC,
             )
+            try:
+                # Mismo gateway_status que trae el chequeo (online/degraded,
+                # nunca "offline" aquí) -- así el reporte semanal distingue
+                # esta rama (blip masivo puro) del blip por gateway caído
+                # sin necesitar leer el log.
+                from app.api.shomer_host_health import record_blip_event
+
+                record_blip_event(
+                    gateway_ip=gateway_ip,
+                    gateway_status=gw_status,
+                    gateway_loss=float(gw_loss or 0),
+                    gateway_rtt_ms=gw_rtt,
+                    offline_count=offline_count,
+                    total_devices=total_devices,
+                    batch_id=batch_id or log_prefix,
+                )
+            except Exception as e:
+                logger.debug("blip masivo persist: %s", e)
             skip_ips = compute_blip_skip_ips(cycle_status, existing_status)
             return True, skip_ips
 
