@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 13 ago 2026 (`cf500e7` — suprime caída masiva sin gateway unhealthy, tope 600s, ver Sesión 72 abajo) · Sesión 72 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 14 ago 2026 (reconciliación IP-por-MAC automática + causa raíz del gateway, ver Sesión 73 abajo) · Sesión 73 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -251,6 +251,38 @@ desplegar. `py_compile` OK, `shomer-guardian` + `shomer-inframonitor-poller` rei
 **Pendiente:** confirmar con la próxima caída masiva real que el nuevo WARNING aparece y que
 de verdad bajó el volumen de alertas — no se pudo probar en vivo (no se puede forzar una caída
 masiva real de forma segura). Causa raíz de fondo (por qué caen juntos) sigue sin identificar.
+
+## Sesión 73 (14 ago 2026) — causa raíz del gateway + reconciliación IP-por-MAC
+
+**Investigando la causa de fondo de Sesión 72** se encontró que las caídas masivas GRANDES
+(21-30 de N equipos, no un subconjunto) sí tienen causa identificada: el **gateway del hotel
+(`192.168.0.1`) se cae de verdad, con frecuencia** — confirmado en el log real
+(`shomer-inframonitor-poller`, 13 ago 10:20:26: "gateway offline, 100% pérdida" junto con 22/22
+equipos de Inframonitor cayendo a la vez). **No es un bug de Shomer — es la red física del
+hotel** (router/ISP). Ya se detecta y se silencia bien por el `host_network_blip` clásico.
+Frecuencia real (`infra_blip_events`): **509 veces en julio, 125 en lo que va de agosto**, ~17/día
+en julio. Puesto en pausa como pendiente de campo — ver `PENDIENTES_LAB.md`. El grupo más chico
+de caídas parciales (gateway sano) sigue sin causa identificada, aparte de este hallazgo.
+
+**Hallazgo aparte, mismo día:** al revisar por qué el equipo Bixolon `.60` dejó de reportar
+(9 jul), se armó `tools/detectar_cambio_ip.py` (cruza la MAC guardada de cada equipo Guardian/
+Inframonitor contra el último escaneo de Tracker) — `.60` resultó realmente desconectado (su MAC
+no aparece en ningún lado), pero encontró un caso real distinto: **AP LOBBY RECEPCION** estaba
+configurado en `.121` y ya vivía en `.137` — cambio de IP nunca detectado, causaba una alerta de
+"caído" permanente y falsa.
+
+**Nuevo — `app/api/shomer_mac_reconcile.py`, automático, corriendo ya:** en vez de depender de
+que alguien corra un escaneo de Tracker (son manuales, pueden pasar semanas), hace su propio
+barrido cada `MAC_RECONCILE_INTERVAL_SEC` (default 1800s/30min): pinguea el `/24` en paralelo y
+lee la tabla ARP del kernel (`ip neigh`, sin necesitar root — a diferencia de `nmap -sn`, que
+solo muestra MAC con privilegios; Guardian corre como `usb_admin`, **el primer intento con nmap
+devolvía 0 resultados siempre, en silencio**, se cambió de método antes de desplegar). Si la MAC
+de un equipo **offline** aparece en otra IP, actualiza `devices.ip_address` (Guardian) o
+`infra_devices.ip` (Inframonitor) sola y deja un `WARNING` en el log. No toca equipos que estén
+online. No migra estado de Redis — el siguiente ciclo de poll lo reconstruye solo, con la IP
+correcta. Arranca junto con `shomer-guardian.service` (`main.py::lifespan`, mismo patrón que los
+demás pollers). Aplicado ya a mano una vez: AP LOBBY RECEPCION corregido en ambas tablas,
+verificado con `tools/detectar_cambio_ip.py` (0 discrepancias tras el fix).
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
