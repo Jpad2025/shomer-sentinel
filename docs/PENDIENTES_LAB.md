@@ -2,6 +2,31 @@
 
 Actualizado: **14 ago 2026** · Dueño: Juan Pablo (único operador)
 
+## ⭐ TAREA PENDIENTE 2 — rediseñar cuándo interrumpe Shomer al técnico (sin resolver)
+
+**El problema real, en palabras de Juan Pablo:** el técnico tiene Telegram encima todo el
+tiempo, pero puede tener 2-3 hoteles a la vez con Shomer cada uno — el ruido de todos se suma
+en el mismo chat. "Shomer debe ser una herramienta de ayuda, no de desesperación." Hoy el
+sistema trata cada evento igual (manda mensaje), sin distinguir qué de verdad amerita
+interrumpir a alguien que reparte su atención entre varias propiedades.
+
+**6 opciones propuestas para la regla de "cuándo interrumpe" (con lo que ya existe hoy en el
+sistema), pendientes de que Juan Pablo diga cuáles aplican:**
+
+1. **Por si el auto-reboot de Guardian ya lo intentó arreglar solo** — si funcionó, no
+   interrumpe; si falló, sí (hoy esa información se genera pero no se usa para decidir).
+2. **Por si es arreglable remoto vs. solo en sitio** — cable/fuente/router del hotel = nadie lo
+   arregla desde el teléfono, no interrumpir ya; backup/servicio Shomer/bloqueo de seguridad =
+   sí se puede resolver remoto, interrumpir.
+3. **Por patrón ya diagnosticado** (`pattern_analysis`, 5+ ocurrencias) — nunca más interrumpe
+   en tiempo real, solo aparece en el resumen de la próxima visita.
+4. **Por criticidad de negocio del equipo**, no por "cayó" — datáfono/PMS ≠ AP de pasillo vacío.
+5. **Backup y seguridad, siempre inmediato** — sin excepción (ya es así hoy, no tocar).
+6. **Caída masiva del gateway, un solo mensaje** — ya casi implementado desde Sesión 72/73.
+
+**Estado:** solo conversación/diseño, **nada implementado todavía**. Retomar cuando Juan Pablo
+diga "tarea pendiente 2".
+
 ## Sesión 73 — resuelto: reconciliación automática de IP por MAC
 
 `app/api/shomer_mac_reconcile.py`, corriendo ya (cada 30 min, junto con `shomer-guardian.service`).
