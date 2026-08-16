@@ -57,6 +57,30 @@ def ensure_host_health_tables(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_nic_samples_iface_ts "
         "ON host_nic_samples (iface, recorded_at)"
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS eventos_filtrados (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ip TEXT NOT NULL,
+            fuente TEXT NOT NULL,
+            motivo TEXT NOT NULL,
+            status_real TEXT NOT NULL,
+            gateway_status TEXT,
+            gateway_loss REAL,
+            gateway_rtt_ms REAL,
+            offline_count INTEGER,
+            total_devices INTEGER,
+            batch_id TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_eventos_filtrados_ts ON eventos_filtrados (ts)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_eventos_filtrados_ip_ts ON eventos_filtrados (ip, ts)"
+    )
 
 
 def record_blip_event(
@@ -94,6 +118,52 @@ def record_blip_event(
             conn.commit()
     except Exception as e:
         logger.warning("record_blip_event: %s", e)
+
+
+def record_filtered_events(
+    *,
+    skip_ips: Any,
+    cycle_status: Dict[str, str],
+    fuente: str,
+    motivo: str,
+    gateway_status: Optional[str] = None,
+    gateway_loss: Optional[float] = None,
+    gateway_rtt_ms: Optional[float] = None,
+    offline_count: int = 0,
+    total_devices: int = 0,
+    batch_id: str = "",
+) -> None:
+    """Registra CADA equipo cuya transición se filtró (blip gateway o masivo) --
+    Tarea pendiente 2 (14 ago): separar "qué pasó" (esto) de "si se avisó"
+    (decisión ya tomada antes de llamar acá, sin cambiarla). No sustituye a
+    `infra_blip_events` (ese sigue siendo el resumen agregado del ciclo) --
+    esto es el detalle por equipo para poder auditar después."""
+    if not skip_ips:
+        return
+    try:
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        rows = [
+            (
+                ts, ip, fuente, motivo, cycle_status.get(ip, "offline"),
+                gateway_status, gateway_loss, gateway_rtt_ms,
+                offline_count, total_devices, batch_id or "",
+            )
+            for ip in skip_ips
+        ]
+        with get_db() as conn:
+            ensure_host_health_tables(conn)
+            conn.executemany(
+                """
+                INSERT INTO eventos_filtrados
+                (ts, ip, fuente, motivo, status_real, gateway_status,
+                 gateway_loss, gateway_rtt_ms, offline_count, total_devices, batch_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning("record_filtered_events: %s", e)
 
 
 def _read_sysfs_counter(iface: str, counter: str) -> Optional[int]:
