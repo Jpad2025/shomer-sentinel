@@ -184,12 +184,13 @@ async def evaluate_host_network_blip_async(
                 f"{gw_rtt:.0f}ms" if gw_rtt is not None else "—",
                 racha_sec, BLIP_MASS_MAX_SEC,
             )
+            skip_ips = compute_blip_skip_ips(cycle_status, existing_status)
             try:
                 # Mismo gateway_status que trae el chequeo (online/degraded,
                 # nunca "offline" aquí) -- así el reporte semanal distingue
                 # esta rama (blip masivo puro) del blip por gateway caído
                 # sin necesitar leer el log.
-                from app.api.shomer_host_health import record_blip_event
+                from app.api.shomer_host_health import record_blip_event, record_filtered_events
 
                 record_blip_event(
                     gateway_ip=gateway_ip,
@@ -200,9 +201,23 @@ async def evaluate_host_network_blip_async(
                     total_devices=total_devices,
                     batch_id=batch_id or log_prefix,
                 )
+                # Tarea pendiente 2 -- registro por equipo, no solo el
+                # resumen: separa "qué pasó" de "si se avisó" sin tocar la
+                # decisión de arriba.
+                record_filtered_events(
+                    skip_ips=skip_ips,
+                    cycle_status=cycle_status,
+                    fuente=log_prefix,
+                    motivo="blip_masivo",
+                    gateway_status=gw_status,
+                    gateway_loss=float(gw_loss or 0),
+                    gateway_rtt_ms=gw_rtt,
+                    offline_count=offline_count,
+                    total_devices=total_devices,
+                    batch_id=batch_id or log_prefix,
+                )
             except Exception as e:
                 logger.debug("blip masivo persist: %s", e)
-            skip_ips = compute_blip_skip_ips(cycle_status, existing_status)
             return True, skip_ips
 
         logger.warning(
@@ -248,10 +263,23 @@ async def evaluate_host_network_blip_async(
         len(skip_ips),
     )
     try:
-        from app.api.shomer_host_health import record_blip_event
+        from app.api.shomer_host_health import record_blip_event, record_filtered_events
 
         record_blip_event(
             gateway_ip=gateway_ip,
+            gateway_status=gw2_status,
+            gateway_loss=float(gw2_loss or 0),
+            gateway_rtt_ms=gw2_rtt,
+            offline_count=offline_count,
+            total_devices=total_devices,
+            batch_id=batch_id or log_prefix,
+        )
+        # Tarea pendiente 2 -- registro por equipo, no solo el resumen.
+        record_filtered_events(
+            skip_ips=skip_ips,
+            cycle_status=cycle_status,
+            fuente=log_prefix,
+            motivo="blip_gateway",
             gateway_status=gw2_status,
             gateway_loss=float(gw2_loss or 0),
             gateway_rtt_ms=gw2_rtt,
