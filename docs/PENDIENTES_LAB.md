@@ -1,6 +1,30 @@
 # Pendientes lab (recordatorio operativo)
 
-Actualizado: **14 ago 2026** · Dueño: Juan Pablo (único operador)
+Actualizado: **15 ago 2026** · Dueño: Juan Pablo (único operador)
+
+## ⭐ TAREA PENDIENTE 3 — monitorear unos días antes de seguir (checkpoint)
+
+Tras el repaso completo de sensibilidad/alertas (Sesión 72-73 + Tarea pendiente 2), Juan Pablo
+decidió **dejar correr el sistema un par de días con los arreglos ya desplegados antes de tocar
+nada más** — en vez de seguir agregando cambios sin ver primero si los de hoy funcionan solos.
+
+**Evaluación honesta que quedó como base para retomar (no repetir, solo releer):**
+- Los filtros de hoy SÍ mejoran la eficacia — verificado con datos reales del 15 ago (582 eventos
+  reales, solo 41 mensajes, sin nada que quedara caído de verdad sin avisar).
+- Cada supresión tiene una salvaguarda pensada (tope de 10min en caída masiva, el patrón crónico
+  nunca se calla del todo, la recuperación repetida nunca oculta la falla original, y desde hoy
+  **nada se borra de verdad** — todo lo suprimido queda en `eventos_filtrados` para auditar).
+- **El hueco honesto que sigue abierto:** no existe todavía una capa de "esto es crítico de
+  negocio" (datáfono ≠ AP de pasillo vacío) — un patrón crónico en un equipo importante se trata
+  igual que uno sin importancia. Es la opción 4 de la Tarea pendiente 2, sin implementar.
+
+**Al retomar, revisar en este orden:**
+1. `python3 tools/reporte_alertas_semanal.py --days N` (N = días transcurridos desde el 15 ago)
+   — confirmar que el volumen de mensajes se mantuvo bajo y razonable.
+2. Revisar `eventos_filtrados` (network_monitor.db y knowledge.db) — ¿algo se suprimió que en
+   retrospectiva no debió suprimirse? Con el registro nuevo ya se puede responder esto con datos.
+3. Si todo se ve bien → seguir con **Tarea pendiente 2**, priorizando la capa de criticidad de
+   negocio (opción 4), que es la que más directamente cierra la preocupación de Juan Pablo.
 
 ## ⭐ TAREA PENDIENTE 2 — rediseñar cuándo interrumpe Shomer al técnico (sin resolver)
 
