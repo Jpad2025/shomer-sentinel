@@ -139,6 +139,33 @@ def reconcile_once() -> list[dict]:
     return cambios
 
 
+def cleanup_orphaned_infra_status() -> int:
+    """Borra de `infra_status` las IPs que ya no corresponden a ningún equipo
+    activo de `infra_devices` -- pasa cuando un equipo cambia de IP (la fila
+    vieja se queda huérfana, no hay nada que la borre sola) o se desactiva
+    (la última lectura "offline" se queda congelada para siempre). Solo
+    limpia el estado actual -- el historial real vive en `status_events` y
+    no se toca. 4 filas encontradas así el 15 ago (2 de IP cambiada/equipo
+    desactivado, 1 de un equipo desactivado hace meses)."""
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                "DELETE FROM infra_status WHERE ip NOT IN "
+                "(SELECT ip FROM infra_devices WHERE active=1)"
+            )
+            conn.commit()
+            borradas = cur.rowcount or 0
+    except Exception as e:
+        logger.warning("mac_reconcile: cleanup_orphaned_infra_status falló: %s", e)
+        return 0
+    if borradas:
+        logger.warning(
+            "mac_reconcile: %d fila(s) huérfana(s) de infra_status borradas "
+            "(equipo cambió de IP o fue desactivado)", borradas,
+        )
+    return borradas
+
+
 async def mac_reconcile_loop() -> None:
     await asyncio.sleep(120)
     while True:
@@ -148,6 +175,7 @@ async def mac_reconcile_loop() -> None:
                 logger.warning(
                     "mac_reconcile: %d equipo(s) reconciliado(s) este ciclo", len(cambios),
                 )
+            await asyncio.to_thread(cleanup_orphaned_infra_status)
         except Exception as e:
             logger.warning("mac_reconcile loop error: %s", e)
         await asyncio.sleep(MAC_RECONCILE_INTERVAL_SEC)
