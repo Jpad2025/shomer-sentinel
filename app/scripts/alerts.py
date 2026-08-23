@@ -8,6 +8,34 @@ import re
 import logging
 import requests
 import os
+import sqlite3
+
+_TELEGRAM_ENVIADOS_DB = "/storage/shomer-agent/data/telegram_enviados.db"
+
+
+def _registrar_envio_real(origen: str, resumen: str) -> None:
+    """Contador de verdad -- registra CADA mensaje que de verdad salió a
+    Telegram, sin importar qué camino lo mandó. Motivado por la Sesión del
+    23 ago: reconstruir el conteo desde memoria_alertas (bot) tenía un
+    hueco real -- este canal directo de Guardian nunca quedaba ahí. Archivo
+    compartido en /storage/shomer-agent/data/ (escribible desde el host Y
+    desde el contenedor del bot; /storage/db es solo-lectura para el bot)."""
+    try:
+        conn = sqlite3.connect(_TELEGRAM_ENVIADOS_DB, timeout=5)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS enviados ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "ts TEXT DEFAULT (datetime('now')), "
+            "origen TEXT, resumen TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO enviados (origen, resumen) VALUES (?, ?)",
+            (origen, (resumen or "")[:80]),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def _get_telegram_creds() -> tuple[str, str]:
@@ -123,6 +151,7 @@ def send_telegram_alert(message: str) -> bool:
         r = requests.post(url, json=payload, timeout=10)
         if r.status_code == 200:
             logger.info("Telegram: alerta enviada")
+            _registrar_envio_real("guardian_directo", msg)
             mirror_telegram_to_noc(msg)
             return True
         logger.warning("Telegram: fallo HTTP %d - %s", r.status_code, (r.text or "")[:200])
