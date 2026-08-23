@@ -710,6 +710,7 @@ async def _poller_tick() -> None:
         existing_status,
         len(devices),
         log_prefix="guardian poll",
+        batch_id=batch_id,
     )
 
     ssh_ms = 0
