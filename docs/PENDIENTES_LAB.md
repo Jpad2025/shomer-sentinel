@@ -2,6 +2,16 @@
 
 Actualizado: **24 ago 2026** · Dueño: Juan Pablo (único operador)
 
+## Sesión 74 (cont.) — reportes 07:00/22:00 unificados, falta ver el primero en vivo
+
+`watch_docker`/`watch_network_audit`/`watch_port_errors` ya no mandan mensaje suelto -- anotan
+en una libreta compartida (`notas_reporte`, `knowledge.db`) que dos reportes leen y vacían:
+07:00 (completo) y 22:00 (liviano, o "sin novedades"). Ver `CLAUDE.md` §Sesión 74 (cont.).
+
+**Pendiente real:** no se pudo confirmar en vivo porque no dio tiempo de esperar a que llegaran
+las 07:00/22:00 reales durante la sesión. Revisar mañana que el de las 07:00 salió bien (con las
+notas si hubo alguna) y esta noche que el de las 22:00 también.
+
 ## Sesión 74 — resuelto: un solo canal de Telegram (Opción 2), falta probar el respaldo
 
 Juan Pablo detectó a mano una diferencia real entre mensajes vistos (~130 un día) y registrados

@@ -321,6 +321,33 @@ desplegado en Ópera + los 3 labs.
 no contestó en 60s) — para eso hay que apagar el bot a propósito, no se hizo hoy para no
 interferir con la comparación de conteos que Juan Pablo está haciendo en paralelo.
 
+## Sesión 74 (cont.) — "salud del propio Shomer" en 2 reportes: 07:00 y 22:00
+
+Del inventario completo de mensajes (14 tipos, agrupados por propósito — equipos de red, VPN,
+seguridad, backups, IA, y "salud del propio Shomer"), Juan Pablo pidió unificar el último grupo:
+antes `watch_docker` (agente reiniciado), `watch_network_audit` (auditoría atrasada/riesgos) y
+`watch_port_errors` (errores de puerto, ya corría a las 08:00) mandaban su propio mensaje suelto
+cada uno, en momentos distintos del día.
+
+**Ahora, 2 reportes nada más:**
+- **07:00** (`daily_summary`, movido de 08:00) — el resumen completo de siempre (red, Hunter, IA)
+  + servidor (CPU/RAM/disco/servicios) + lo que se acumuló en la libreta compartida.
+- **22:00** (`evening_summary`, nuevo) — más liviano: solo servidor + libreta desde la mañana, o
+  "sin novedades" si no hay nada (para confirmar que el sistema sigue vivo, no que nadie miró).
+
+Mecanismo: `watch_docker`/`watch_network_audit`/`watch_port_errors` ya no llaman `_send()` —
+anotan en `notas_reporte` (tabla nueva en `knowledge.db`, persistida, no en memoria) y los dos
+reportes la leen y la vacían. `watch_port_errors` se corrió de 08:00 a 06:58 para que su nota
+esté lista cuando corre el reporte de las 07:00. `_build_server_line()` extraído como función
+compartida para no duplicar la lógica CPU/RAM/disco/servicios entre los dos reportes.
+
+Probado en vivo antes de desplegar: escribir + leer + vaciar la libreta, dentro del contenedor.
+`py_compile` OK, bot reiniciado sin errores, desplegado en Ópera + los 3 labs.
+
+**Pendiente:** confirmar mañana que el reporte de las 07:00 sale bien con las notas incluidas
+(no se pudo esperar a que pasaran las 07:00 reales para verlo en vivo) — y el de las 22:00 hoy
+mismo.
+
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
 
