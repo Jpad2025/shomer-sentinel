@@ -73,6 +73,7 @@ ALLOWED_TAGS = (
     "Protector — sync B2 FALLÓ",
     "INFRA — DISPOSITIVO CAÍDO",
     "INFRA — DISPOSITIVO RECUPERADO",
+    "SEGURIDAD —",
 )
 
 logger = logging.getLogger("alerts")
@@ -95,6 +96,8 @@ def _engine_from_message(message: str) -> str:
         return "Protector"
     if "PÉRDIDA" in m or "REINICIO" in m or "CALIDAD" in m or "SALUD DE NODOS" in m or "MANTENIMIENTO" in m:
         return "Guardian"
+    if "SEGURIDAD" in m:
+        return "Seguridad"
     return "Telegram"
 
 
