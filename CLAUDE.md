@@ -348,6 +348,27 @@ Probado en vivo antes de desplegar: escribir + leer + vaciar la libreta, dentro 
 (no se pudo esperar a que pasaran las 07:00 reales para verlo en vivo) — y el de las 22:00 hoy
 mismo.
 
+## Sesión 74 (cont. 2) — etiqueta única para "equipos de red" (equipos_red)
+
+Del punto 1 del inventario de mensajes: 8 etiquetas internas distintas (`watch_guardian_nodes`,
+`watch_infra_equipment`, `watch_infra_printer`, `watch_infra_service`, `watch_infra_pulse`,
+`watch_infra_flap`, `watch_infra_snmp`, `guardian_relay`) para lo que conceptualmente es una
+sola cosa. Unificadas todas en **`equipos_red`** — mismo mensaje, mismo ícono, mismo momento de
+envío, solo cambia la etiqueta interna que usan los reportes para contar/agrupar.
+
+**Hallazgo de paso, corregido:** `incident_escalation.py` etiquetaba TODOS sus digests/
+recordatorios como `watch_guardian_nodes` aun cuando el equipo era de Inframonitor (switches/
+impresoras/cámaras) — mislabeling real desde que ese módulo se compartió entre los dos en
+v1.1.3 (Sesión 73). Ya corregido de paso al unificar.
+
+**Nota sin resolver, no bloqueante:** encontrado un caso real (verificado con datos de hoy, no
+solo teoría) donde el buffer de `triage.py` hace que un mensaje de AP termine etiquetado `bot`
+en vez de la etiqueta correcta — no pierde ni cambia el contenido del mensaje que ve el técnico,
+solo desvía el conteo agregado en un pequeño % de los casos. No se investigó la causa raíz hoy.
+
+`py_compile` OK en los 2 archivos tocados, bot reiniciado sin errores, desplegado en Ópera + los
+3 labs.
+
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
 
