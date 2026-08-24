@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 14 ago 2026 (reconciliación IP-por-MAC automática + causa raíz del gateway, ver Sesión 73 abajo) · Sesión 73 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 24 ago 2026 (un solo canal de Telegram — Guardian ya no manda directo, ver Sesión 74 abajo) · Sesión 74 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -283,6 +283,43 @@ online. No migra estado de Redis — el siguiente ciclo de poll lo reconstruye s
 correcta. Arranca junto con `shomer-guardian.service` (`main.py::lifespan`, mismo patrón que los
 demás pollers). Aplicado ya a mano una vez: AP LOBBY RECEPCION corregido en ambas tablas,
 verificado con `tools/detectar_cambio_ip.py` (0 discrepancias tras el fix).
+
+## Sesión 74 (23-24 ago 2026) — un solo canal de Telegram (Opción 2)
+
+**El problema, encontrado por Juan Pablo contando mensajes a mano:** contó ~130 mensajes reales
+un día, el sistema (`memoria_alertas` del bot) solo tenía 23 registrados. Causa: Guardian tenía
+su **propio canal directo** a la API de Telegram (`app/scripts/alerts.py::send_telegram_alert`,
+usado por 13 archivos — reboots fallidos, backups, bloqueos Hunter, salud de nodos) que nunca
+pasaba por ningún filtro ni quedaba registrado en `memoria_alertas`. Formato distinto también
+("PÉRDIDA DE SERVICIO SHOMER" vs "🔴 AP X sin LAN" del bot) — no se veía como el mismo sistema.
+
+**Paso 1 — contador de verdad (`telegram_enviados.db`):** tabla nueva en
+`/storage/shomer-agent/data/` (escribible desde el host Y desde el contenedor del bot —
+`/storage/db` es solo-lectura para el bot, por diseño, por eso no se usó esa base). Se registra
+en el punto exacto donde Telegram confirma envío (HTTP 200), sin importar qué camino lo mandó.
+
+**Paso 2 — Opción 2, un solo canal real:** `send_telegram_alert()` ya **no manda directo** — encola
+en `notificaciones_pendientes` (misma BD compartida). El bot (`watch_pending_guardian`, nuevo,
+revisa cada 10s) lo releva por `_send()` — mismo formato, mismo prefijo de sitio, misma auditoría
+que todo lo demás del bot. Si el bot no releva en 60s (caído/lento), `shomer_telegram_relay.py`
+(nuevo, revisa cada 20s del lado network_monitor) lo manda directo como respaldo — nada se pierde
+solo porque el bot esté caído en ese momento exacto. Los 13 callers de `send_telegram_alert` no
+cambiaron — misma firma, mismo comportamiento desde su punto de vista.
+
+**Antes de construirlo se verificó** que depender del bot como canal principal fuera razonable:
+revisando el log del contenedor (14 días disponibles), los únicos reinicios fueron deliberados
+(despliegues de este mismo proyecto) — cero caídas inesperadas en ese período. La nota vieja de
+"42 reinicios en 40 días" (Sesión 69) no se sostiene con los datos recientes.
+
+**Verificado en vivo con un evento real** (no una simulación): al reiniciar Guardian, generó su
+aviso normal de "sistema reiniciado" — se encoló, el bot lo relevó 22s después (dentro del
+margen de 60s), llegó a Telegram con el prefijo `[Hotel Opera]` igual que cualquier otro mensaje
+del bot. `py_compile` OK en los 5 archivos tocados, ambos servicios reiniciados sin errores,
+desplegado en Ópera + los 3 labs.
+
+**Pendiente:** no se probó en vivo el camino de respaldo (Guardian mandando directo porque el bot
+no contestó en 60s) — para eso hay que apagar el bot a propósito, no se hizo hoy para no
+interferir con la comparación de conteos que Juan Pablo está haciendo en paralelo.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)

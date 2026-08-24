@@ -1,6 +1,22 @@
 # Pendientes lab (recordatorio operativo)
 
-Actualizado: **15 ago 2026** · Dueño: Juan Pablo (único operador)
+Actualizado: **24 ago 2026** · Dueño: Juan Pablo (único operador)
+
+## Sesión 74 — resuelto: un solo canal de Telegram (Opción 2), falta probar el respaldo
+
+Juan Pablo detectó a mano una diferencia real entre mensajes vistos (~130 un día) y registrados
+(23) — causa: el canal directo de Guardian, sin filtros ni registro. **Implementado y verificado
+en vivo con un evento real:** Guardian ya no manda directo, encola para que el bot lo releve con
+formato/auditoría consistente; si el bot no contesta en 60s, Guardian manda directo como
+respaldo. Ver `CLAUDE.md` §Sesión 74 para el detalle técnico completo.
+
+**Pendiente real:** el camino de respaldo (bot caído → Guardian manda directo) nunca se probó en
+vivo — hay que apagar el bot a propósito, dejar pasar un evento, y confirmar que igual llega.
+No se hizo el 24 ago para no interferir con la comparación de conteos en curso.
+
+**Pendiente separado:** confirmar con unos días más de `telegram_enviados.db` que el conteo del
+sistema por fin coincide con lo que Juan Pablo cuenta a mano en su Telegram — la comparación en
+vivo del 23-24 ago cerró mucho la brecha (14 vs 18, contra 23 vs 130 de antes) pero no exacto.
 
 ## ⭐ TAREA PENDIENTE 3 — monitorear unos días antes de seguir (checkpoint)
 
