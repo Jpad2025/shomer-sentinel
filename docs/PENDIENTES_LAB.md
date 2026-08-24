@@ -19,15 +19,12 @@ encontrados y corregidos. Lo que falta confirmar con datos reales (no simulados)
   así que no hay regresión posible), pero vale la pena revisar una vez que lleve unos días
   corriendo.
 
-**Pendiente separado, no relacionado a los monitores — logging de network_monitor invisible:**
-verificado que los `logger.warning()`/`logger.info()` de toda la app (Guardian/Hunter/Protector,
-no solo los monitores del bot) no llegan a `/var/log/shomer/api.log` — 0 líneas en 4+ días de
-histórico. Causa raíz no identificada (root logger sin handlers explicable en aislado, pero el
-proceso real de `shomer-guardian.service` se comporta distinto a una prueba idéntica en
-aislado). Esto significa que cualquier `except Exception: logger.warning(...)` en
-network_monitor puede estar fallando en silencio hoy mismo sin dejar rastro. Vale la pena una
-sesión dedicada a esto — es más grande que "un monitor con un bug", es la observabilidad de
-todo el proceso host.
+**Resuelto — logging de network_monitor sin formato:** la primera lectura decía "se pierden
+del todo" — era incorrecto. Los `logger.warning()` de toda la app (Guardian/Hunter/Protector,
+Tracker/Protector) sí llegaban a `api.log`/`tools_api.log`, pero sin nivel/timestamp/nombre de
+logger (fallback `lastResort` de Python) — indistinguibles de un `print()`, invisibles a un
+`grep "^WARNING"` normal. Corregido con `app/api/logging_setup.py`, desplegado en Ópera + los
+3 labs. Ver `CLAUDE.md` §Sesión 75 para el detalle completo y la prueba con un caso real.
 
 ## Sesión 74 (cont.) — reportes 07:00/22:00 unificados, falta ver el primero en vivo
 
