@@ -509,26 +509,40 @@ logs sin errores nuevos) en Ópera + los 3 labs, en 3 tandas de commits
 | 5. Otros/pipeline | `watch_wan_outage`, `watch_pipeline`, `watch_devices`, `watch_pattern_analysis`, `watch_memoria_sync`, `watch_pending_guardian` | ✅ revisado | `watch_wan_outage` — **grave**, `UnboundLocalError` garantizado en caída de 2+ grupos/WAN |
 | 6. IA/reportes | `watch_groq`, `watch_openai`, `daily_summary`, `evening_summary` | ✅ revisado | `watch_openai` (`_tick` faltante primeros 10 min de caída) |
 | Aparte | logging de `network_monitor` (Guardian/Hunter/Tracker/Protector, todo el host, no solo el bot) | ✅ revisado y corregido | root logger sin formato — mensajes llegaban pero sin nivel/timestamp/nombre |
+| Aparte (cont.) | los 24 `except Exception: pass` de `core/monitor.py`, revisados uno por uno | ✅ revisado | `watch_hunter`, `watch_hunter_verify` (grave), `watch_pipeline` — seed de estado sin reintento |
 
-**Total: 2 bugs graves, 4 menores, 1 sospecha descartada tras verificar, 1 hallazgo transversal corregido. Los 28 monitores del bot + los 2 procesos host de network_monitor quedaron cubiertos por lo menos una vez cada uno.**
+**Total: 2 bugs graves, 7 menores, 1 sospecha descartada tras verificar, 2 hallazgos transversales corregidos (logging + seeds sin reintento). Los 28 monitores del bot + los 2 procesos host de network_monitor quedaron cubiertos por lo menos una vez cada uno, más una auditoría línea-por-línea de todos los `except Exception: pass` del bot.**
+
+**Sesión 75 (cont. 2) — auditoría de los 24 `except: pass`:** revisado cada uno con su
+contexto completo. 21 son degradaciones seguras por diseño (fallan hacia inacción o un
+fallback razonable). 3 no lo eran — `watch_hunter`, `watch_hunter_verify` y `watch_pipeline`
+sembraban su estado inicial (qué IPs/pipeline ya estaban en X condición al arrancar, para no
+re-alertar sobre algo pre-existente) con un try/except de **un solo intento, antes del loop
+principal** — si ese intento fallaba (transitorio, API aún no lista en los primeros
+15-100s tras el arranque), el estado quedaba sembrado vacío **para siempre**, nunca se
+reintentaba. Efecto real: en el peor caso (`watch_hunter_verify`, sin red de seguridad
+adicional) el próximo ciclo hubiera reportado TODAS las IPs privadas ya bloqueadas como
+"IP interna bloqueada — revisar" de golpe. Fix: mismo patrón ya usado por `watch_infra`
+(`_infra_seed_done`) — el seed vive dentro del loop, gateado por un flag, se reintenta cada
+ciclo hasta que funciona. Verificado en vivo con `docker exec` (fallo simulado del primer
+intento + éxito del segundo: 0 alertas falsas en los 3 casos, y `watch_hunter_verify`
+confirmado que sigue detectando una IP genuinamente nueva). Confirmado también en producción
+real tras el deploy: log de arranque mostró "watch_hunter: 92 IPs pre-existentes cargadas
+(sin alerta)" — sin ninguna alerta falsa.
 
 **Faltantes para seguir (no se hizo hoy, queda abierto):**
 1. **Confirmar en producción real** (no simulada/offline): `watch_wan_outage` necesita ver una
    caída real de 2+ grupos para confirmar que ya no crashea y que el mensaje llega a Telegram;
    `security_watch.py` necesita unos días corriendo para confirmar que no genera ruido falso
    ni se queda callado. Ver `PENDIENTES_LAB.md` §Sesión 75.
-2. **Los 28 `except Exception: pass` de `core/monitor.py`** (detectados por grep en la sesión
-   anterior, Sesión 74 cont. 3) — no se revisó cada uno individualmente, solo se hizo el barrido
-   por bloques que sí encontró los bugs de arriba. Podrían esconder más casos como
-   `watch_security`/`watch_wan_outage`.
-3. **El barrido estático (`ast`) que encontró `watch_wan_outage`** solo corrió sobre
+2. **El barrido estático (`ast`) que encontró `watch_wan_outage`** solo corrió sobre
    `core/monitor.py` (shomer-agent) y `security_watch.py` (network_monitor) — no se extendió
    al resto de `network_monitor` (~50+ archivos en `app/api/`, `app/scripts/`, `app/backend/`).
    Vale la pena correrlo ahí también — es barato y ya demostró que encuentra bugs reales.
-4. **Revisión línea-por-línea de lógica de negocio** (no solo estructura/scope/`_tick`) de los
-   monitores que salieron "limpios" en los Bloques 3-4 y parte del 5-6 — se revisaron pero con
-   menos profundidad que los que sí mostraron problemas, dado el tiempo de la sesión.
-5. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
+3. **Revisión línea-por-línea de lógica de negocio** (no solo estructura/scope/`_tick`/seeds) de
+   los monitores que salieron "limpios" en los Bloques 3-4 y parte del 5-6 — se revisaron pero
+   con menos profundidad que los que sí mostraron problemas, dado el tiempo de la sesión.
+4. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
    vs. solo quedar registrados) y **Tarea pendiente 3** (checkpoint: dejar correr el sistema
    unos días antes de retomar la 2) — ya documentadas en sesiones anteriores, siguen abiertas,
    no tocadas hoy.
