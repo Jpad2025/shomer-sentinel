@@ -10,6 +10,10 @@ import os
 import subprocess
 from contextlib import asynccontextmanager
 
+from app.api.logging_setup import configure_app_logging
+
+configure_app_logging()
+
 _log = logging.getLogger(__name__)
 
 

@@ -7,6 +7,10 @@ Guardian y Hunter corren en puerto 8000 (shomer-core.service).
 
 from contextlib import asynccontextmanager
 
+from app.api.logging_setup import configure_app_logging
+
+configure_app_logging()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
