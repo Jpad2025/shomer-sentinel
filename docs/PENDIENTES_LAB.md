@@ -2,6 +2,33 @@
 
 Actualizado: **24 ago 2026** · Dueño: Juan Pablo (único operador)
 
+## Sesión 75 — revisión a fondo de los 28 monitores: pendientes de confirmar en vivo
+
+Ver `CLAUDE.md` §Sesión 75 para el detalle completo de los 2 bugs graves + 4 menores
+encontrados y corregidos. Lo que falta confirmar con datos reales (no simulados):
+
+- **`watch_wan_outage` (bug del `UnboundLocalError`):** el fix está verificado a nivel de
+  bytecode y con reproducción aislada del error — sólido, pero no se ha visto todavía una
+  caída real de 2+ grupos/nodos en producción que dispare la rama de código que antes
+  crasheaba. Próxima vez que eso pase, confirmar que sí llega el mensaje "Conectividad WAN"
+  o "Red interna" a Telegram.
+- **`security_watch.py` (nuevo, en network_monitor):** las 4 detecciones se probaron contra
+  datos/procesos reales del host (auth.log real, un proceso disfrazado de rsync), pero fuera
+  de línea, no dentro del loop real de producción corriendo 24/7. Confirmar en unos días que
+  no está generando ruido falso ni quedándose callado — no hay urgencia (nunca funcionó antes,
+  así que no hay regresión posible), pero vale la pena revisar una vez que lleve unos días
+  corriendo.
+
+**Pendiente separado, no relacionado a los monitores — logging de network_monitor invisible:**
+verificado que los `logger.warning()`/`logger.info()` de toda la app (Guardian/Hunter/Protector,
+no solo los monitores del bot) no llegan a `/var/log/shomer/api.log` — 0 líneas en 4+ días de
+histórico. Causa raíz no identificada (root logger sin handlers explicable en aislado, pero el
+proceso real de `shomer-guardian.service` se comporta distinto a una prueba idéntica en
+aislado). Esto significa que cualquier `except Exception: logger.warning(...)` en
+network_monitor puede estar fallando en silencio hoy mismo sin dejar rastro. Vale la pena una
+sesión dedicada a esto — es más grande que "un monitor con un bug", es la observabilidad de
+todo el proceso host.
+
 ## Sesión 74 (cont.) — reportes 07:00/22:00 unificados, falta ver el primero en vivo
 
 `watch_docker`/`watch_network_audit`/`watch_port_errors` ya no mandan mensaje suelto -- anotan

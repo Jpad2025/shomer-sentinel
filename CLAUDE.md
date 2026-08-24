@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 24 ago 2026 (un solo canal de Telegram — Guardian ya no manda directo, ver Sesión 74 abajo) · Sesión 74 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 24 ago 2026 (revisión a fondo de los 28 monitores por bloques — 2 bugs graves corregidos, ver Sesión 75 abajo) · Sesión 75 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -401,6 +401,97 @@ confirmado que `_send` recibe el monitor correcto en vez de perderlo.
   que una reincidencia sí resetea `blocked_at` correctamente. La lógica es correcta como está.
 
 `py_compile` OK, bot reiniciado sin errores, desplegado en Ópera + los 3 labs.
+
+---
+
+## Sesión 75 (24 ago 2026) — revisión a fondo de los 28 monitores por bloques
+
+Juan Pablo pidió dividir la revisión de los monitores en bloques y revisarlos a fondo,
+sospechando que había más bugs. Se dividieron en 6 bloques temáticos (red/equipos,
+seguridad, backups/protector, sistema/recursos, otros/pipeline, IA/reportes) y se revisó
+cada función línea por línea, verificando cada hallazgo con datos/ejecución real antes de
+tocar código (regla de la sesión: nunca afirmar sin verificar).
+
+**Bug grave — `watch_wan_outage` (Bloque 5), `core/monitor.py`:** `_wan_outage_start` y
+`_wan_last_repeat` se asignaban dentro de la función sin declararlas `global` — Python las
+trata como variables locales para TODA la función porque se les asigna en algún punto, y
+se leían ANTES de esa asignación local. Resultado: `UnboundLocalError` garantizado cada vez
+que había 2+ grupos offline o 2+ nodos Guardian offline — exactamente el escenario que esta
+función existe para detectar (caída de switch/WAN a nivel de sector u hotel completo). La
+excepción quedaba atrapada por el `except` genérico de siempre — **probablemente nunca
+mandó la alerta de "Conectividad WAN" ni "Red interna" en la vida del sistema.** Reproducido
+el error en aislado, confirmado a nivel de bytecode (`co_varnames`) que el fix lo resuelve, y
+corrido un barrido estático (`ast`) sobre las 28 funciones buscando el mismo patrón — validado
+el script contra la versión sin el fix (sí lo detecta) y confirmado que era el único caso.
+
+**Bug grave — `watch_security()` no vigilaba nada, nunca (Bloque 2), movido a network_monitor:**
+la "Capa 1" de seguridad (fuerza bruta SSH, login en horario inusual, copia de archivos
+sensibles, USB conectado) corría dentro del contenedor Docker del bot y nunca tuvo acceso real
+a lo que decía vigilar. Verificado en vivo con `docker exec`: `/var/log/auth.log` no existe en
+el contenedor (sí en el host, no está montado), `who` solo ve sesiones del contenedor (vacío),
+`journalctl` ni siquiera está instalado, `/proc/mounts` es el namespace de montajes propio del
+contenedor. Las 4 detecciones nunca dispararon una sola alerta real, en silencio, desde que
+existían. Se decidió con Juan Pablo la opción "correcta" (no la fácil): mover la lógica a
+network_monitor (proceso host, igual que Guardian/Hunter/Protector), nuevo archivo
+`app/api/security_watch.py`. Además de reubicar, se corrigieron 2 detecciones que ni
+conceptualmente iban a funcionar aunque corrieran en el host: login inusual ahora lee líneas
+"Accepted ... from" de `auth.log` en vez de `who` (que solo ve sesiones activas en el instante
+exacto del poll); copia de archivos sensibles ahora escanea procesos `scp/rsync/sftp/tar`
+activos vía `/proc` en vez de `journalctl -u ssh` (sshd no registra el comando ejecutado en su
+unidad systemd — ese patrón nunca iba a matchear nada, ni corriendo en el host). Probado en
+vivo contra datos reales del host antes de desplegar (auth.log real parseado correctamente,
+fuerza bruta y login inusual con líneas sintéticas, copia sensible con un proceso real
+disfrazado de rsync tocando `/opt/network_monitor` — detectado). `watch_security()` se eliminó
+del bot (28 tasks en vez de 29); se agregó el tag `SEGURIDAD —` a `ALLOWED_TAGS` en
+`alerts.py` (mismo canal auditado de `send_telegram_alert`/Opción 2).
+
+**Bugs medianos — `_tick()` faltante en éxito (Bloques 1 y 6):** `weekly_backup` y
+`watch_protector_retry` solo llamaban `_tick(name, error=...)` en el `except`, nunca
+`_tick(name)` en éxito. Efecto en `/monitores`: si nunca fallaban, mostraban "sin datos aún"
+para siempre; si fallaban una vez, quedaban con el error **pegado permanentemente** aunque
+después funcionaran bien meses. `watch_openai` tenía el mismo gap pero acotado a los primeros
+~10 min de una caída activa (antes de cruzar el umbral de alerta). Los 3 corregidos.
+
+**Bug — `watch_port_errors` crasheaba cada fin de mes:** `target.replace(day=target.day + 1)`
+lanza `ValueError` (día inválido) cada vez que se calcula "mañana" en el último día de un mes
+(ej. 31 ago → día 32). Cambiado a `target + timedelta(days=1)`, que maneja el rollover de
+mes/año correctamente (probado con 31-ago, 31-dic y 28-feb).
+
+**Bug menor — `watch_pending_guardian`:** la conexión sqlite no se cerraba si `_send()` o el
+`UPDATE` fallaban a mitad del loop. Envuelto en `try/finally`.
+
+**`/monitores` (bot.py) tenía 5 monitores invisibles:** `evening_summary`, `watch_infra_pulse`,
+`watch_pending_guardian`, `watch_memoria_sync` y `watch_pattern_analysis` corrían pero no
+estaban en `MONITOR_LABELS`/`MONITOR_GROUPS` — el técnico no podía ver su estado de salud.
+Agregados. Corregido también el label de `watch_port_errors` (decía "informe diario 08:00",
+ya no manda mensaje propio desde Sesión 74 cont.).
+
+**Descartado tras investigar (no era bug):** sospecha de desfase de timezone en
+`watch_backups` (`ultimo.replace("Z","")`) — verificado que `last_backup_at` se escribe con
+`datetime.now()` naive en hora local (Bogotá) tanto en el host como en el contenedor del bot
+(mismo TZ en ambos), sin sufijo "Z" real — el `.replace` es vestigial pero inofensivo, no hay
+desfase.
+
+**Hallazgo aparte, no corregido — logging de network_monitor prácticamente invisible:**
+verificado que ningún `logger.warning()`/`logger.info()` de la app (todo lo que usa
+`logging.getLogger(...)` en vez de `print()`) llega a `/var/log/shomer/api.log`, en NINGÚN
+día de los últimos 4+ revisados (0 líneas `WARNING`/`ERROR` con el prefijo estándar de
+`logging`, solo líneas de uvicorn y `print()` crudos como "guardian poll [...]" o
+"[WAN-QUORUM]..."). Root logger sin handlers, nivel WARNING por defecto — en una prueba
+aislada (`python -c`) el `lastResort` handler de Python sí imprime a stderr, pero en el
+proceso real de `shomer-guardian.service` no aparece nada, ni siquiera con la app real
+importada igual que en producción. Causa raíz no identificada aún — pendiente investigar por
+separado (no es parte del alcance de "los 29 monitores"; es transversal a TODO
+`network_monitor`, no solo a los monitores). Mientras tanto: cualquier `except Exception:
+logger.warning(...)` en network_monitor puede estar fallando en silencio sin dejar rastro en
+el log — no confiar en "no hay errores en el log" como prueba de salud para ese proceso sin
+verificación adicional (health check, comportamiento observado, etc.).
+
+Deploy: `py_compile` en cada cambio, pruebas en vivo contra datos/ejecución real antes de
+desplegar (simulaciones con `docker exec`, reproducción aislada del `UnboundLocalError`,
+inspección de bytecode, barrido estático `ast`). Desplegado y verificado (`/health` limpio,
+logs sin errores nuevos) en Ópera + los 3 labs, en 3 tandas de commits
+(`bc75243`→`58eb9b6`→`a27071f` en shomer-agent; `9272696` en network_monitor).
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
