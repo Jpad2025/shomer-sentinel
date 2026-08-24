@@ -472,26 +472,66 @@ ya no manda mensaje propio desde Sesión 74 cont.).
 (mismo TZ en ambos), sin sufijo "Z" real — el `.replace` es vestigial pero inofensivo, no hay
 desfase.
 
-**Hallazgo aparte, no corregido — logging de network_monitor prácticamente invisible:**
-verificado que ningún `logger.warning()`/`logger.info()` de la app (todo lo que usa
-`logging.getLogger(...)` en vez de `print()`) llega a `/var/log/shomer/api.log`, en NINGÚN
-día de los últimos 4+ revisados (0 líneas `WARNING`/`ERROR` con el prefijo estándar de
-`logging`, solo líneas de uvicorn y `print()` crudos como "guardian poll [...]" o
-"[WAN-QUORUM]..."). Root logger sin handlers, nivel WARNING por defecto — en una prueba
-aislada (`python -c`) el `lastResort` handler de Python sí imprime a stderr, pero en el
-proceso real de `shomer-guardian.service` no aparece nada, ni siquiera con la app real
-importada igual que en producción. Causa raíz no identificada aún — pendiente investigar por
-separado (no es parte del alcance de "los 29 monitores"; es transversal a TODO
-`network_monitor`, no solo a los monitores). Mientras tanto: cualquier `except Exception:
-logger.warning(...)` en network_monitor puede estar fallando en silencio sin dejar rastro en
-el log — no confiar en "no hay errores en el log" como prueba de salud para ese proceso sin
-verificación adicional (health check, comportamiento observado, etc.).
+**Hallazgo aparte, CORREGIDO — logging de network_monitor sin formato (no invisible):**
+la primera lectura de este hallazgo decía que los `logger.warning()` se perdían del todo —
+**eso era incorrecto, verificado y corregido en la misma sesión.** Root logger sin handler
+propio → Python usa su `lastResort` (fallback silencioso a stderr) con formato `%(message)s`
+puro: sin nivel, sin timestamp, sin nombre de logger. Los mensajes SÍ llegaban al archivo,
+pero indistinguibles a simple vista de un `print()` — por eso un `grep "^WARNING"` normal
+(como se hizo en la primera pasada) nunca los encontraba. Prueba concluyente: se buscó un
+caso YA OCURRIDO con evidencia independiente (`blocked_ips` con `blocked_by='auto'`,
+IP 192.168.0.27 bloqueada el 22 ago) y se encontró la línea real en `api.log.2.gz`:
+`AUTO-BLOCK 192.168.0.27 sid=2035089 sig=...` — sin ningún prefijo. Fix: nuevo
+`app/api/logging_setup.py` con `configure_app_logging()` — agrega handler al root logger con
+formato `timestamp [NIVEL] nombre: mensaje`, mismo nivel WARNING de antes (no se sube a INFO
+para no inflar el volumen — 133 call sites de `.info()` en el árbol). Llamado al inicio de
+`main.py` (8000, Guardian/Hunter) y `main_tools.py` (8001, Tracker/Protector), antes de
+cualquier otro import de la app. Verificado que uvicorn.*/uvicorn.access no se duplican
+(tienen su propio handler con `propagate=False` en su `LOGGING_CONFIG`) — probado en vivo
+que "Started server process" aparece exactamente 1 vez tras el cambio. Desplegado y
+verificado (`/health` limpio) en `shomer-guardian.service` + `shomer-tools.service` de Ópera
+y en los 3 labs.
 
 Deploy: `py_compile` en cada cambio, pruebas en vivo contra datos/ejecución real antes de
 desplegar (simulaciones con `docker exec`, reproducción aislada del `UnboundLocalError`,
 inspección de bytecode, barrido estático `ast`). Desplegado y verificado (`/health` limpio,
 logs sin errores nuevos) en Ópera + los 3 labs, en 3 tandas de commits
 (`bc75243`→`58eb9b6`→`a27071f` en shomer-agent; `9272696` en network_monitor).
+
+### ✅ Revisión 24 ago 2026 — checklist de la auditoría a fondo
+
+| Bloque | Monitores | Estado | Bugs encontrados |
+|---|---|---|---|
+| 1. Red/equipos | `watch_guardian_nodes`, `watch_infra`, `watch_connectivity`, `watch_active_threats`, `watch_network_audit`, `watch_port_errors` | ✅ revisado | `watch_port_errors` (crash fin de mes), `watch_pending_guardian` (fuga sqlite), 5 monitores invisibles en `/monitores` |
+| 2. Seguridad | `watch_hunter`, `watch_hunter_verify`, `watch_security`, `watch_mikrotik_security` | ✅ revisado | `watch_security` — **grave**, nunca funcionó dentro del contenedor, movido al host |
+| 3. Backups/Protector | `watch_backups`, `watch_protector_sample`, `watch_protector_retry` | ✅ revisado | `watch_protector_retry` (`_tick` faltante en éxito) |
+| 4. Sistema/recursos | `watch_resources`, `watch_disk`, `watch_docker`, `watch_log_truncate`, `watch_services` | ✅ revisado | ninguno nuevo |
+| 5. Otros/pipeline | `watch_wan_outage`, `watch_pipeline`, `watch_devices`, `watch_pattern_analysis`, `watch_memoria_sync`, `watch_pending_guardian` | ✅ revisado | `watch_wan_outage` — **grave**, `UnboundLocalError` garantizado en caída de 2+ grupos/WAN |
+| 6. IA/reportes | `watch_groq`, `watch_openai`, `daily_summary`, `evening_summary` | ✅ revisado | `watch_openai` (`_tick` faltante primeros 10 min de caída) |
+| Aparte | logging de `network_monitor` (Guardian/Hunter/Tracker/Protector, todo el host, no solo el bot) | ✅ revisado y corregido | root logger sin formato — mensajes llegaban pero sin nivel/timestamp/nombre |
+
+**Total: 2 bugs graves, 4 menores, 1 sospecha descartada tras verificar, 1 hallazgo transversal corregido. Los 28 monitores del bot + los 2 procesos host de network_monitor quedaron cubiertos por lo menos una vez cada uno.**
+
+**Faltantes para seguir (no se hizo hoy, queda abierto):**
+1. **Confirmar en producción real** (no simulada/offline): `watch_wan_outage` necesita ver una
+   caída real de 2+ grupos para confirmar que ya no crashea y que el mensaje llega a Telegram;
+   `security_watch.py` necesita unos días corriendo para confirmar que no genera ruido falso
+   ni se queda callado. Ver `PENDIENTES_LAB.md` §Sesión 75.
+2. **Los 28 `except Exception: pass` de `core/monitor.py`** (detectados por grep en la sesión
+   anterior, Sesión 74 cont. 3) — no se revisó cada uno individualmente, solo se hizo el barrido
+   por bloques que sí encontró los bugs de arriba. Podrían esconder más casos como
+   `watch_security`/`watch_wan_outage`.
+3. **El barrido estático (`ast`) que encontró `watch_wan_outage`** solo corrió sobre
+   `core/monitor.py` (shomer-agent) y `security_watch.py` (network_monitor) — no se extendió
+   al resto de `network_monitor` (~50+ archivos en `app/api/`, `app/scripts/`, `app/backend/`).
+   Vale la pena correrlo ahí también — es barato y ya demostró que encuentra bugs reales.
+4. **Revisión línea-por-línea de lógica de negocio** (no solo estructura/scope/`_tick`) de los
+   monitores que salieron "limpios" en los Bloques 3-4 y parte del 5-6 — se revisaron pero con
+   menos profundidad que los que sí mostraron problemas, dado el tiempo de la sesión.
+5. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
+   vs. solo quedar registrados) y **Tarea pendiente 3** (checkpoint: dejar correr el sistema
+   unos días antes de retomar la 2) — ya documentadas en sesiones anteriores, siguen abiertas,
+   no tocadas hoy.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
