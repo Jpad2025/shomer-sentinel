@@ -369,6 +369,39 @@ solo desvía el conteo agregado en un pequeño % de los casos. No se investigó 
 `py_compile` OK en los 2 archivos tocados, bot reiniciado sin errores, desplegado en Ópera + los
 3 labs.
 
+## Sesión 74 (cont. 3) — revisión a fondo del bot: 1 bug real encontrado y corregido
+
+Juan Pablo pidió perseguir la nota "sin resolver" de arriba y revisar el bot/monitores a fondo
+en busca de más errores.
+
+**Bug real confirmado y arreglado — `core/triage.py`:** `TriageManager.emit()`/`_flush()`
+llamaban a `self._send(...)` **sin pasar `monitor=`** — la etiqueta correcta (`event.origen`,
+armada bien por el closure `_dispatch` de `_emit()`) se recibía en `notify()` como parámetro
+`send_fn` pero **se descartaba sin usar**: una vez que el manager de triage existe, se llama
+`mgr.emit(event)` en vez de ese `send_fn`. Como el triage está activo en producción ("Triage
+activo" en el log de arranque), **todo mensaje que pasara por el buffer perdía su etiqueta real**
+y caía al default `"bot"` — no era un caso raro del 1%, era sistemático para cualquier evento
+bufferizado. `ShomerEvent` ya traía `origen` en el dataclass, `TriageManager` simplemente nunca
+lo leía. Fix: usar `event.origen` (camino sin buffer) y `events[-1].origen` (camino con buffer,
+mismo criterio que ya se usaba para `severity`) en las dos llamadas a `self._send`.
+
+Probado en vivo sin tocar Telegram real: `ShomerEvent` simulado con `origen='equipos_red'`,
+confirmado que `_send` recibe el monitor correcto en vez de perderlo.
+
+**Encontrado de paso, informativo, no se tocó:**
+- `_monitor_ctx` (ContextVar declarado en `monitor.py`) **nunca se usa** — se declara y se lee
+  (`_resolve_monitor`) pero ningún lugar del código llama `.set()` sobre él. Es código muerto;
+  no rompe nada, pero sugiere una capacidad de etiquetado automático que en realidad no existe.
+- `auto_tasks.py::_notify_result` tampoco pasa `monitor=` explícito — hereda el mismo default
+  `"bot"` genérico. Dado que `_monitor_ctx` está muerto (punto anterior), esto es consistente
+  y esperado, no un bug — solo significa que los resultados de auto-tareas siempre se cuentan
+  como "bot" en los reportes, sin categoría propia.
+- **Investigado y descartado como bug:** `auto_unblock`'s docstring dice "sin reincidencia" —
+  se verificó el esquema real de `blocked_ips` (`ip UNIQUE` + `INSERT OR REPLACE`) y confirmé
+  que una reincidencia sí resetea `blocked_at` correctamente. La lógica es correcta como está.
+
+`py_compile` OK, bot reiniciado sin errores, desplegado en Ópera + los 3 labs.
+
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
 
