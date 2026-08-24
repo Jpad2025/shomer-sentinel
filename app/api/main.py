@@ -70,6 +70,7 @@ async def lifespan(app: FastAPI):
     from app.api.shomer_guardian_nodes import start_node_poller, ensure_infra_nodes_heartbeat_column
     from app.api.shomer_inframonitor import start_inframonitor_poller
     from app.api.shomer_mac_reconcile import start_mac_reconcile_loop
+    from app.api.shomer_telegram_relay import start_telegram_relay_fallback
     from app.api.shomer_poller_leader import try_acquire_poller_leader
 
     from app.api.shomer_topology import _ensure_tables as ensure_topology_tables
@@ -88,6 +89,7 @@ async def lifespan(app: FastAPI):
             start_inframonitor_poller()
         start_hunter_autoblock_poller()
         start_mac_reconcile_loop()
+        start_telegram_relay_fallback()
     yield
 
 

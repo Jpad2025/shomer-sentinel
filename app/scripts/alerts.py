@@ -126,12 +126,64 @@ def mirror_telegram_to_noc(message: str, engine=None) -> None:
         pass
 
 
+def _encolar_para_bot(msg: str) -> bool:
+    """Encola el mensaje para que el bot lo relea y lo mande por su canal
+    (con formato consistente, y por el mismo camino que ya audita todo).
+    Si el bot no lo releva en 60s (caído/lento), watch_pending_fallback lo
+    manda directo como respaldo -- no depende de que el bot esté sano.
+    Tabla compartida en /storage/shomer-agent/data/ (escribible desde el
+    host y desde el contenedor; /storage/db es solo-lectura para el bot)."""
+    try:
+        conn = sqlite3.connect(_TELEGRAM_ENVIADOS_DB, timeout=5)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS notificaciones_pendientes ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "ts TEXT DEFAULT (datetime('now')), "
+            "mensaje TEXT NOT NULL, "
+            "estado TEXT DEFAULT 'pendiente', "
+            "procesado_at TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO notificaciones_pendientes (mensaje) VALUES (?)", (msg,),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.warning("Telegram: no se pudo encolar para el bot: %s", e)
+        return False
+
+
+def _enviar_directo(msg: str) -> bool:
+    """Envío real a la API de Telegram -- usado por el respaldo de
+    emergencia (watch_pending_fallback) si el bot no releva a tiempo."""
+    _token, _chat_id = _get_telegram_creds()
+    if not _token or not _chat_id:
+        return False
+    url = f"https://api.telegram.org/bot{_token}/sendMessage"
+    payload = {"chat_id": _chat_id, "text": msg, "parse_mode": "HTML"}
+    try:
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code == 200:
+            logger.info("Telegram: alerta enviada (respaldo directo)")
+            _registrar_envio_real("guardian_directo_fallback", msg)
+            mirror_telegram_to_noc(msg)
+            return True
+        logger.warning("Telegram: fallo HTTP %d - %s", r.status_code, (r.text or "")[:200])
+        return False
+    except Exception as e:
+        logger.warning("Telegram: error enviando alerta directa: %s", e)
+        return False
+
+
 def send_telegram_alert(message: str) -> bool:
     """
-    Envía mensaje por Telegram.
+    Punto de entrada único de Guardian hacia Telegram -- Opción 2 (24 ago):
+    ya NO manda directo. Encola para que el bot lo releve con formato
+    consistente; si el bot no confirma en 60s, watch_pending_fallback lo
+    manda directo como respaldo. Callers no cambian, misma firma/semántica.
     - Requiere token y chat_id configurados en system_state o variables de entorno
     - Etiquetas permitidas: ver ALLOWED_TAGS
-    - Si se envía OK → espejo en NOC (noc:ia_log); no genera mensajes extra
     """
     _token, _chat_id = _get_telegram_creds()
     if not _token or _token == "YOUR_BOT_TOKEN":
@@ -145,17 +197,4 @@ def send_telegram_alert(message: str) -> bool:
         logger.debug("Telegram: bloqueado (falta etiqueta permitida)")
         return False
 
-    url = f"https://api.telegram.org/bot{_token}/sendMessage"
-    payload = {"chat_id": _chat_id, "text": msg, "parse_mode": "HTML"}
-    try:
-        r = requests.post(url, json=payload, timeout=10)
-        if r.status_code == 200:
-            logger.info("Telegram: alerta enviada")
-            _registrar_envio_real("guardian_directo", msg)
-            mirror_telegram_to_noc(msg)
-            return True
-        logger.warning("Telegram: fallo HTTP %d - %s", r.status_code, (r.text or "")[:200])
-        return False
-    except Exception as e:
-        logger.warning("Telegram: error enviando alerta: %s", e)
-        return False
+    return _encolar_para_bot(msg)
