@@ -573,8 +573,8 @@ Deploy de esta ronda: `82b77c0` (Groq) y `8465a6a` (fechas) en shomer-agent, ver
 |---|---|---|---|
 | `watch_hunter` | 2 | Seed de IPs pre-existentes de un solo intento — si fallaba, quedaba vacío para siempre (riesgo mitigado por chequeo de antigüedad ya existente) | Seed movido dentro del loop, reintenta cada ciclo hasta funcionar (`b663970`) |
 | `watch_devices` | 5 | "✅ Equipo recuperado" huérfano en blips de 1-2 ciclos (nunca se alertó la caída porque no llegó a los 3 ciclos necesarios) — mismo bug ya arreglado en `watch_groq` el 8 jun 2026, nunca replicado acá | `_device_down_alerted` (set) — mismo criterio que `_guardian_down_alerted`, "recuperado" solo si hubo "caído" real antes (`a3b696e`) |
-| `daily_summary` | 6 | Comparaba solo día-del-mes (`now.day`) para "¿ya mandé el resumen hoy?" — colisión posible con >1 mes de uptime | `now.day` → `now.date()` (`8465a6a`) |
-| `evening_summary` | 6 | Mismo bug de fecha que `daily_summary`; además estaba invisible en `/monitores` | Fecha corregida + agregado a `MONITOR_LABELS`/`MONITOR_GROUPS` (`bc75243`, `8465a6a`) |
+| `daily_summary` | 6 | Comparaba solo día-del-mes (`now.day`); **además** marcaba el día como "ya enviado" ANTES de confirmar que `_send()` funcionara — un fallo en cualquier paso previo (API, Groq, etc.) perdía el reporte del día completo sin reintento | `now.day` → `now.date()`; bandera movida a después del `_send()` exitoso (`8465a6a`, `d28ee65`) |
+| `evening_summary` | 6 | Mismo bug de fecha + mismo bug de bandera-antes-de-confirmar que `daily_summary`; además estaba invisible en `/monitores` | Fecha y orden de bandera corregidos + agregado a `MONITOR_LABELS`/`MONITOR_GROUPS` (`bc75243`, `8465a6a`, `d28ee65`) |
 | `watch_resources` | 4 | Ninguna (histéresis CPU/RAM revisada a fondo, correcta por diseño) | — |
 | `watch_backups` | 3 | Mismo bug de fecha (día-del-mes) para "¿ya revisé este equipo hoy?" | `now.day` → `now.date()` (`8465a6a`) |
 | `watch_wan_outage` | 5 | **GRAVE** — `_wan_outage_start`/`_wan_last_repeat` sin `global`, `UnboundLocalError` garantizado en caída de 2+ grupos/WAN — probablemente nunca mandó esta alerta | `global` agregado; verificado con reproducción aislada + inspección de bytecode (`58eb9b6`) |
@@ -622,13 +622,29 @@ TCP, puerto SNMP) — todos correctamente gateados por un flag de "se alertó an
 `watch_connectivity`, sin ventana de riesgo porque no hay debounce entre detectar y alertar).
 `watch_devices` era el único caso.
 
+**Sesión 75 (cont. 6) — `daily_summary`/`evening_summary` perfeccionados:** encontrado un
+segundo bug en ambos, más serio que el de fecha: la bandera "ya se envió hoy" se asignaba
+ANTES de confirmar que el envío realmente funcionara — un fallo en cualquier paso previo
+(`shomer_api.summary_text()`, `get_daily_health()`, la llamada a Groq, etc.) perdía el reporte
+del día **completo**, sin reintento, con la bandera ya diciendo "hecho". Mismo patrón de fondo
+que el bug de `weekly_backup`/`watch_protector_retry` del Bloque 1, aplicado ahora a los 2
+reportes diarios más importantes. Fix: la bandera se asigna después del `_send()` exitoso.
+Verificado en vivo simulando un fallo en el primer paso — confirmado que el siguiente ciclo
+(60s después, dentro de la misma ventana de 2 min) reintenta y sí manda el reporte.
+`watch_pattern_analysis`/`watch_memoria_sync` confirmados sin bugs — su lógica de negocio real
+vive en módulos aparte (`pattern_analysis.py`, `memoria_central.py`), fuera del alcance de "los
+monitores". **Con esto, los 30 monitores de shomer-agent quedan con revisión de negocio
+completa, no solo estructural.**
+
+**Bloque nuevo — lógica propia de network_monitor (Guardian/Hunter/Infra/Protector):** hasta
+ahora la revisión cubrió los monitores del BOT que *consumen* estos datos vía `shomer_api`,
+pero no la implementación real del lado host (`app/api/shomer_guardian_*.py`,
+`casador_*.py`, `backups.py`, etc.) — ese es el siguiente bloque a revisar.
+
 **Faltantes para seguir:**
 1. Seguir esperando el evento real para `watch_wan_outage` y `security_watch.py` (sin acción
    posible más allá de observar).
-2. **Revisión línea-por-línea de lógica de negocio** de `daily_summary`/`evening_summary`
-   (contenido de los reportes) y `watch_pattern_analysis`/`watch_memoria_sync` (jobs silenciosos
-   de fondo) — Bloque 6 y el resto del 5 sin la misma profundidad que hoy.
-3. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
+2. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
    vs. solo quedar registrados) y **Tarea pendiente 3** (checkpoint: dejar correr el sistema
    unos días antes de retomar la 2) — ya documentadas en sesiones anteriores, siguen abiertas,
    no tocadas hoy.
