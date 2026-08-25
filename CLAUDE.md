@@ -530,19 +530,49 @@ confirmado que sigue detectando una IP genuinamente nueva). Confirmado también 
 real tras el deploy: log de arranque mostró "watch_hunter: 92 IPs pre-existentes cargadas
 (sin alerta)" — sin ninguna alerta falsa.
 
-**Faltantes para seguir (no se hizo hoy, queda abierto):**
-1. **Confirmar en producción real** (no simulada/offline): `watch_wan_outage` necesita ver una
-   caída real de 2+ grupos para confirmar que ya no crashea y que el mensaje llega a Telegram;
-   `security_watch.py` necesita unos días corriendo para confirmar que no genera ruido falso
-   ni se queda callado. Ver `PENDIENTES_LAB.md` §Sesión 75.
-2. **El barrido estático (`ast`) que encontró `watch_wan_outage`** solo corrió sobre
-   `core/monitor.py` (shomer-agent) y `security_watch.py` (network_monitor) — no se extendió
-   al resto de `network_monitor` (~50+ archivos en `app/api/`, `app/scripts/`, `app/backend/`).
-   Vale la pena correrlo ahí también — es barato y ya demostró que encuentra bugs reales.
-3. **Revisión línea-por-línea de lógica de negocio** (no solo estructura/scope/`_tick`/seeds) de
-   los monitores que salieron "limpios" en los Bloques 3-4 y parte del 5-6 — se revisaron pero
-   con menos profundidad que los que sí mostraron problemas, dado el tiempo de la sesión.
-4. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
+**Sesión 75 (cont. 3) — puntos 1, 2 y 3 de los faltantes:**
+
+1. **Confirmar en producción real** — todavía no ha ocurrido una caída de 2+ grupos
+   (`watch_wan_outage`) ni ningún evento de seguridad real (`security_watch.py`); ambos siguen
+   vivos y sin errores (confirmado: proceso estable, `/health` limpio, sin crashes desde el
+   deploy). Sigue como pendiente de observación — no se puede forzar sin simular un incidente
+   real. **De paso, revisando logs para confirmar esto, apareció otro bug real y activo:**
+   `llama-3.3-70b-versatile` (el modelo Groq hardcodeado en 5 sitios de `groq_helper.py`,
+   usado por `explain()` — el chokepoint de TODA la IA de diagnóstico del bot: pattern_analysis,
+   hunter_context, journal_context, resúmenes, diagnóstico de puertos) fue retirado del catálogo
+   Groq — 404 `model_not_found` cada ~15-40 min desde al menos el 23 ago (verificado con
+   `models.list()` real: ya no aparece en el catálogo). `watch_groq` no lo detectó porque su
+   healthcheck solo prueba conectividad/credencial (`models.list()`), no un chat real con el
+   modelo específico. Fix: nueva constante `GROQ_MODEL` (env var, default
+   `openai/gpt-oss-20b`) en vez de hardcodear — mismo patrón que `OPENAI_MODEL`. Probado contra
+   la API real antes de elegir el reemplazo (texto simple + tool calling, ambos OK) y
+   end-to-end con `explain()` tras el cambio.
+2. **Barrido estático (`ast`) extendido** a los 112 archivos de `network_monitor` (antes solo
+   `security_watch.py`) y a los 35 de `core/` en shomer-agent (antes solo `monitor.py`) — script
+   validado contra un caso sintético con el mismo bug de `watch_wan_outage` antes de confiar en
+   el resultado. **0 problemas nuevos en 147 archivos** — confirma que `watch_wan_outage` era el
+   único caso en todo el sistema, no solo en `monitor.py`.
+3. **Revisión de lógica de negocio, Bloques 3-4:** `watch_disk` y `watch_services` revisados a
+   fondo — histéresis y "reintento único, luego escala al humano" son diseño intencional, no
+   bugs. Encontrado un patrón repetido en 6 sitios (`daily_summary`, `evening_summary`,
+   `watch_log_truncate`, `watch_backups`, `watch_protector_sample`, `weekly_backup`): comparaban
+   solo el día del mes o la semana ISO (`now.day`, `now.isocalendar()[1]`) para saber "¿ya
+   revisé esto?" — si el proceso corre >1 mes/año seguido y se pierde una ventana de chequeo
+   completa, la próxima coincidencia del mismo día-de-mes/semana (ej. 31 ago vs 31 oct) se
+   salta por error. Verificado el caso concreto (`datetime(2026,8,31).day ==
+   datetime(2026,10,31).day` → `True`, el bug real). Severidad baja (se autocorrige al día
+   siguiente, requiere una combinación rara), pero el fix es barato y se aplicó en los 6 sitios
+   (`now.day` → `now.date()`, `isocalendar()[1]` → `isocalendar()[:2]`).
+
+Deploy de esta ronda: `82b77c0` (Groq) y `8465a6a` (fechas) en shomer-agent, verificado en
+Ópera + 3 labs.
+
+**Faltantes para seguir:**
+1. Seguir esperando el evento real para `watch_wan_outage` y `security_watch.py` (sin acción
+   posible más allá de observar).
+2. **Revisión línea-por-línea de lógica de negocio** de los Bloques 5-6 restantes con más
+   profundidad (ya se hizo una pasada, pero no tan exhaustiva como Bloques 3-4 hoy).
+3. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
    vs. solo quedar registrados) y **Tarea pendiente 3** (checkpoint: dejar correr el sistema
    unos días antes de retomar la 2) — ya documentadas en sesiones anteriores, siguen abiertas,
    no tocadas hoy.
