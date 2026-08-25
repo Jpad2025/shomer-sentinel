@@ -40,7 +40,7 @@ qué observar para confirmar que cada fix quedó bien, y con qué commit se hizo
 | Fix | Commit | Cómo confirmar que funcionó |
 |---|---|---|
 | `watch_wan_outage` — `UnboundLocalError` | `58eb9b6` (shomer-agent) | Verificado con reproducción aislada + bytecode — falta ver una caída REAL de 2+ grupos/nodos y confirmar que llega "Conectividad WAN"/"Red interna" sin crash |
-| `watch_security` → `security_watch.py` movido al host | `9272696` | Probado offline contra datos reales — falta ver que detecte algo real (fuerza bruta SSH, login raro, copia sensible, USB) cuando ocurra, sin ruido falso mientras tanto |
+| `watch_security` → `security_watch.py` movido al host | `9272696` | **Ya generó un falso positivo real** (22:58 del 24 ago: alertó un `deploy.sh` legítimo como "copia de archivos sensibles") — corregido el mismo día con `_has_trusted_ancestor()` (`c380bfc`), verificado con un deploy real después del fix (0 alertas). Seguir vigilando unos días por si aparece otro patrón de falso positivo no previsto |
 | Logging sin formato (`logging_setup.py`) | `c3688a6` | **Revisar que la próxima vez que salga un `logger.warning()` real en `api.log`/`tools_api.log`, aparezca con formato `fecha [NIVEL] nombre: mensaje`** en vez de la línea pelada de antes |
 | `shomer_guardian_nodes.py` — reinicio antes de confirmar offline | `b32ef48` | Verificado con 3 simulaciones directas — sin cambio de comportamiento mientras `guardian.fail_threshold` (hoy: 3) siga >= `offline_persist_ticks` (hoy: 3, por defecto). Solo importa si alguien baja el threshold del panel en el futuro |
 
