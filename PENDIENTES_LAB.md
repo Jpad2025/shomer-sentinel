@@ -2,29 +2,47 @@
 
 Actualizado: **24 ago 2026** · Dueño: Juan Pablo (único operador)
 
-## Sesión 75 — revisión a fondo de los 28 monitores: pendientes de confirmar en vivo
+## Sesión 75 (24 ago 2026) — TODO LO HECHO HOY: checklist para verificar que funcionó
 
-Ver `CLAUDE.md` §Sesión 75 para el detalle completo de los 2 bugs graves + 4 menores
-encontrados y corregidos. Lo que falta confirmar con datos reales (no simulados):
+Auditoría a fondo de los 28 monitores del bot (por bloques) + `shomer_guardian_nodes.py`
+completo del lado network_monitor. Detalle técnico completo de cada uno en `CLAUDE.md`
+§Sesión 75 (y sus "cont. 1" a "cont. 6"). Esta lista es solo el checklist de verificación —
+qué observar para confirmar que cada fix quedó bien, y con qué commit se hizo.
 
-- **`watch_wan_outage` (bug del `UnboundLocalError`):** el fix está verificado a nivel de
-  bytecode y con reproducción aislada del error — sólido, pero no se ha visto todavía una
-  caída real de 2+ grupos/nodos en producción que dispare la rama de código que antes
-  crasheaba. Próxima vez que eso pase, confirmar que sí llega el mensaje "Conectividad WAN"
-  o "Red interna" a Telegram.
-- **`security_watch.py` (nuevo, en network_monitor):** las 4 detecciones se probaron contra
-  datos/procesos reales del host (auth.log real, un proceso disfrazado de rsync), pero fuera
-  de línea, no dentro del loop real de producción corriendo 24/7. Confirmar en unos días que
-  no está generando ruido falso ni quedándose callado — no hay urgencia (nunca funcionó antes,
-  así que no hay regresión posible), pero vale la pena revisar una vez que lleve unos días
-  corriendo.
+**Para retomar la próxima sesión, en orden:**
+1. Repasar esta lista — marcar qué ya se pudo confirmar en producción real.
+2. Seguir el bloque nuevo que quedó abierto: `casador_autoblock_poller.py`,
+   `shomer_inframonitor.py` (2230 líneas), `backups.py` (1646 líneas) y el resto de
+   `app/api/*.py` de network_monitor — mismo criterio que hoy: un monitor grande a la vez,
+   línea por línea, no varios superficiales.
+3. Decidir cuándo desactivar el modo mantenimiento (`shomer_maintenance=1`, lo activó Juan
+   Pablo a propósito antes del fix de reinicio de Guardian — sigue activo).
+4. Tarea pendiente 2/3 (ver más abajo en este archivo) — solo si Juan Pablo las menciona.
 
-**Resuelto — logging de network_monitor sin formato:** la primera lectura decía "se pierden
-del todo" — era incorrecto. Los `logger.warning()` de toda la app (Guardian/Hunter/Protector,
-Tracker/Protector) sí llegaban a `api.log`/`tools_api.log`, pero sin nivel/timestamp/nombre de
-logger (fallback `lastResort` de Python) — indistinguibles de un `print()`, invisibles a un
-`grep "^WARNING"` normal. Corregido con `app/api/logging_setup.py`, desplegado en Ópera + los
-3 labs. Ver `CLAUDE.md` §Sesión 75 para el detalle completo y la prueba con un caso real.
+**Checklist de verificación — shomer-agent (todos requieren `docker logs shomer-agent`):**
+
+| Fix | Commit | Cómo confirmar que funcionó |
+|---|---|---|
+| `weekly_backup`/`watch_protector_retry` — `_tick()` faltante | `bc75243` | `/monitores` ya no debe mostrar error pegado ni "sin datos" para estos dos, sobre todo después del próximo domingo 2am (`weekly_backup`) |
+| `watch_port_errors` — crash fin de mes | `bc75243` | Revisar que NO haya un error/crash de este monitor el 31 ago 2026 (~07:58) — sería la primera vez que se pone a prueba en producción real |
+| `watch_pending_guardian` — fuga de conexión sqlite | `bc75243` | Bajo impacto, sin evidencia observable esperada — solo confirmar que sigue sin errores en `/monitores` |
+| 5 monitores agregados a `/monitores` | `bc75243` | Correr `/monitores` en Telegram y confirmar que aparecen `evening_summary`, `watch_infra_pulse`, `watch_pending_guardian`, `watch_memoria_sync`, `watch_pattern_analysis` |
+| `core/triage.py` — buffer perdía la etiqueta real | `6283420` | Ya verificado en vivo con simulación — sin pendiente |
+| `watch_hunter`/`watch_hunter_verify`/`watch_pipeline` — seed sin reintento | `b663970` | **Ya confirmado en producción real** — log mostró "watch_hunter: 92 IPs pre-existentes cargadas (sin alerta)" tras el deploy |
+| `watch_devices` — "recuperado" huérfano en blips | `a3b696e` | Verificado en vivo con simulación — confirmar además que un blip real corto (1-2 min) de algún equipo del agente NO genere un "recuperado" sin su "sin respuesta" antes |
+| `daily_summary`/`evening_summary` — fecha día-del-mes + bandera antes de confirmar envío | `8465a6a`, `d28ee65` | Confirmar que el resumen de las 7am y el de las 10pm sigan llegando todos los días sin falta — si alguno falla un día, confirmar que al día siguiente vuelve a intentarlo normal (no se queda "atascado") |
+| `watch_log_truncate`/`watch_backups`/`watch_protector_sample`/`weekly_backup` — mismo bug de fecha | `8465a6a` | Sin evidencia observable a corto plazo (requiere >1 mes de uptime sin reinicio para que el bug viejo se manifestara) — no hay nada que revisar pronto |
+| `watch_openai` — `_tick()` faltante primeros 10 min de caída | `a27071f` | Solo relevante si `LLM_PROVIDER_INTERACTIVE=openai` está activo (por defecto es Groq) — bajo impacto |
+| Modelo Groq retirado del catálogo (`llama-3.3-70b-versatile` → `GROQ_MODEL`) | `82b77c0` | **Revisar que ya NO aparezcan más líneas "model_not_found"/404 en `docker logs shomer-agent`** — antes pasaba cada 15-40 min, ahora no debería pasar nunca más |
+
+**Checklist de verificación — network_monitor (host, `journalctl`/`/var/log/shomer/`):**
+
+| Fix | Commit | Cómo confirmar que funcionó |
+|---|---|---|
+| `watch_wan_outage` — `UnboundLocalError` | `58eb9b6` (shomer-agent) | Verificado con reproducción aislada + bytecode — falta ver una caída REAL de 2+ grupos/nodos y confirmar que llega "Conectividad WAN"/"Red interna" sin crash |
+| `watch_security` → `security_watch.py` movido al host | `9272696` | Probado offline contra datos reales — falta ver que detecte algo real (fuerza bruta SSH, login raro, copia sensible, USB) cuando ocurra, sin ruido falso mientras tanto |
+| Logging sin formato (`logging_setup.py`) | `c3688a6` | **Revisar que la próxima vez que salga un `logger.warning()` real en `api.log`/`tools_api.log`, aparezca con formato `fecha [NIVEL] nombre: mensaje`** en vez de la línea pelada de antes |
+| `shomer_guardian_nodes.py` — reinicio antes de confirmar offline | `b32ef48` | Verificado con 3 simulaciones directas — sin cambio de comportamiento mientras `guardian.fail_threshold` (hoy: 3) siga >= `offline_persist_ticks` (hoy: 3, por defecto). Solo importa si alguien baja el threshold del panel en el futuro |
 
 ## Sesión 74 (cont.) — reportes 07:00/22:00 unificados, falta ver el primero en vivo
 

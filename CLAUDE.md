@@ -636,15 +636,49 @@ vive en módulos aparte (`pattern_analysis.py`, `memoria_central.py`), fuera del
 monitores". **Con esto, los 30 monitores de shomer-agent quedan con revisión de negocio
 completa, no solo estructural.**
 
-**Bloque nuevo — lógica propia de network_monitor (Guardian/Hunter/Infra/Protector):** hasta
-ahora la revisión cubrió los monitores del BOT que *consumen* estos datos vía `shomer_api`,
-pero no la implementación real del lado host (`app/api/shomer_guardian_*.py`,
-`casador_*.py`, `backups.py`, etc.) — ese es el siguiente bloque a revisar.
+**Bloque nuevo — lógica propia de network_monitor (Guardian/Hunter/Infra/Protector):** la
+revisión anterior cubrió los monitores del BOT que *consumen* estos datos vía `shomer_api`,
+pero no la implementación real del lado host. Por pedido explícito de Juan Pablo ("si es un
+monitor muy grande, haz solo ese en el bloque, bien línea por línea, y dejamos los demás para
+luego"): se hizo `shomer_guardian_nodes.py` completo (1227 líneas, el poller central de
+Guardian) a fondo; `casador_autoblock_poller.py`, `shomer_inframonitor.py` (2230 líneas),
+`backups.py` y el resto quedan para una sesión futura.
+
+**Hallazgo grave — reinicio automático podía disparar antes de confirmar "offline":** el
+umbral para REINICIAR un equipo por SSH/SNMP (`guardian.fail_threshold`, configurable desde el
+panel) y el umbral para CONFIRMAR oficialmente que está offline (`SHOMER_OFFLINE_PERSIST_TICKS`,
+solo por env var) son dos contadores independientes que incrementan igual, sin validación
+cruzada entre ellos. En Ópera hoy ambos valen 3 — coincidencia, no diseño — así que no ha
+causado un problema real todavía. Pero si alguien bajara `fail_threshold` por debajo de
+`offline_persist_ticks` (algo razonable de querer, para reiniciar más rápido), Guardian
+reiniciaría el equipo por SSH/SNMP **antes** de que el panel lo mostrara como caído: el
+técnico vería "⚡ reinicio en progreso" sin ningún "🔴 caída" previo, y el equipo se seguiría
+viendo "online" en el panel mientras se reiniciaba de verdad.
+
+Fix: nueva bandera `reboot_confirmed_ok` — el reinicio ahora requiere `new_failures>=threshold`
+**y** que el estado ya esté confirmado offline, efectivamente `max(threshold,
+offline_persist_ticks)` en vez de solo `threshold` (sin sumar ambos, para no duplicar el tiempo
+de espera). Verificado con 3 simulaciones directas de `_build_node_outcome()` a lo largo de
+varios ciclos (sin tocar Redis/SSH real): config actual de Ópera (3,3) → reboot en tick 3, SIN
+CAMBIO; escenario vulnerable (threshold=1, persist=3) → reboot ahora espera al tick 3 en vez
+de disparar en el tick 1, confirmado que el status nunca se ve "offline" antes del reinicio
+real; config más conservadora (5,3) → reboot en tick 5, sin cambio.
+
+**Sistema en modo mantenimiento** (`shomer_maintenance=1`, sin TTL) — Juan Pablo lo activó él
+mismo antes de pedir este fix, a propósito. Sigue activo; queda pendiente de él decidir cuándo
+desactivarlo (no se tocó).
+
+Desplegado y verificado (`/health` limpio) en Ópera + los 3 labs (`b32ef48`).
 
 **Faltantes para seguir:**
 1. Seguir esperando el evento real para `watch_wan_outage` y `security_watch.py` (sin acción
    posible más allá de observar).
-2. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
+2. **Resto del bloque `network_monitor`** sin revisar aún: `casador_autoblock_poller.py`
+   (motor de auto-bloqueo Hunter), `shomer_inframonitor.py` (2230 líneas, el poller de Infra),
+   `backups.py` (1646 líneas, Protector), y el resto de `app/api/*.py` (112 archivos en total).
+3. **Desactivar el modo mantenimiento** cuando Juan Pablo decida — lo activó él mismo a
+   propósito antes de este fix, sigue activo.
+4. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
    vs. solo quedar registrados) y **Tarea pendiente 3** (checkpoint: dejar correr el sistema
    unos días antes de retomar la 2) — ya documentadas en sesiones anteriores, siguen abiertas,
    no tocadas hoy.
