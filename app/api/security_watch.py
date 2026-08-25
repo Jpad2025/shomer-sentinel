@@ -43,6 +43,12 @@ _SENSITIVE_CMD_PATTERNS = (
     "shomer-runtime.env", "/storage/shomer-agent", "/storage/db",
 )
 _COPY_BINARIES = ("scp", "rsync", "sftp", "tar")
+# Herramientas propias de deploy (deploy.sh, fleet_sync.sh) usan rsync/tar
+# tocando estas mismas rutas como parte normal de su trabajo -- sin este
+# filtro, CADA deploy dispara un falso positivo de "copia sensible"
+# (confirmado en producción: alerta real el 24 ago 22:58, causada por un
+# deploy.sh legítimo corriendo esa misma noche).
+_TRUSTED_ANCESTOR_MARKERS = ("deploy.sh", "fleet_sync.sh")
 
 _auth_log_offset = 0
 _auth_fail_times: List[float] = []
@@ -145,6 +151,30 @@ def _check_unusual_login(lines: List[str]) -> None:
         )
 
 
+def _has_trusted_ancestor(pid: str, max_depth: int = 6) -> bool:
+    """True si algún proceso ancestro es deploy.sh/fleet_sync.sh (herramienta
+    propia, no un actor externo copiando archivos)."""
+    current = pid
+    for _ in range(max_depth):
+        try:
+            ppid = None
+            with open(f"/proc/{current}/status", "r") as f:
+                for line in f:
+                    if line.startswith("PPid:"):
+                        ppid = line.split()[1].strip()
+                        break
+            if not ppid or ppid in ("0", current):
+                return False
+            with open(f"/proc/{ppid}/cmdline", "rb") as f:
+                anc_cmd = f.read().replace(b"\x00", b" ").decode(errors="ignore")
+            if any(marker in anc_cmd for marker in _TRUSTED_ANCESTOR_MARKERS):
+                return True
+            current = ppid
+        except Exception:
+            return False
+    return False
+
+
 def _check_sensitive_copy() -> None:
     from app.scripts.alerts import send_telegram_alert
 
@@ -170,6 +200,8 @@ def _check_sensitive_copy() -> None:
         if cmd0 not in _COPY_BINARIES:
             continue
         if not any(pat in cmdline for pat in _SENSITIVE_CMD_PATTERNS):
+            continue
+        if _has_trusted_ancestor(pid):
             continue
         key = f"copy_{pid}_{hash(cmdline)}"
         if key in _copy_warned_keys:
