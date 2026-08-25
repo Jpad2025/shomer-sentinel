@@ -572,7 +572,7 @@ Deploy de esta ronda: `82b77c0` (Groq) y `8465a6a` (fechas) en shomer-agent, ver
 | Monitor | Bloque | Falla encontrada | Solución aplicada |
 |---|---|---|---|
 | `watch_hunter` | 2 | Seed de IPs pre-existentes de un solo intento — si fallaba, quedaba vacío para siempre (riesgo mitigado por chequeo de antigüedad ya existente) | Seed movido dentro del loop, reintenta cada ciclo hasta funcionar (`b663970`) |
-| `watch_devices` | 5 | Ninguna | — |
+| `watch_devices` | 5 | "✅ Equipo recuperado" huérfano en blips de 1-2 ciclos (nunca se alertó la caída porque no llegó a los 3 ciclos necesarios) — mismo bug ya arreglado en `watch_groq` el 8 jun 2026, nunca replicado acá | `_device_down_alerted` (set) — mismo criterio que `_guardian_down_alerted`, "recuperado" solo si hubo "caído" real antes (`a3b696e`) |
 | `daily_summary` | 6 | Comparaba solo día-del-mes (`now.day`) para "¿ya mandé el resumen hoy?" — colisión posible con >1 mes de uptime | `now.day` → `now.date()` (`8465a6a`) |
 | `evening_summary` | 6 | Mismo bug de fecha que `daily_summary`; además estaba invisible en `/monitores` | Fecha corregida + agregado a `MONITOR_LABELS`/`MONITOR_GROUPS` (`bc75243`, `8465a6a`) |
 | `watch_resources` | 4 | Ninguna (histéresis CPU/RAM revisada a fondo, correcta por diseño) | — |
@@ -605,11 +605,29 @@ Deploy de esta ronda: `82b77c0` (Groq) y `8465a6a` (fechas) en shomer-agent, ver
 | logging de `network_monitor` (host, todo el proceso, no un monitor) | aparte | Root logger sin handler propio → formato `lastResort` sin nivel/timestamp/nombre — mensajes llegaban pero invisibles a un `grep` normal | `logging_setup.py` con formato correcto, mismo nivel WARNING de antes (`c3688a6`) |
 | modelo Groq (`groq_helper.py`, usado por casi todos los diagnósticos IA) | aparte | `llama-3.3-70b-versatile` retirado del catálogo Groq — 404 desde hace 1+ día, sin detectar por `watch_groq` | `GROQ_MODEL` configurable (env var), probado contra la API real antes de elegir `openai/gpt-oss-20b` (`82b77c0`) |
 
+**Sesión 75 (cont. 5) — Bloque 5 a fondo + barrido de todos los "recuperado":** revisado
+`watch_devices` línea por línea — el mensaje "✅ Equipo recuperado" se mandaba comparando solo
+el estado anterior crudo, sin verificar si esa caída había llegado a los 3 ciclos necesarios
+para mandar la alerta de "🔴 sin respuesta" en primer lugar. Un blip de 1-2 ciclos generaba un
+"recuperado" huérfano. Mismo bug ya encontrado y arreglado en `watch_groq` el 8 jun 2026, nunca
+replicado en este monitor hermano. Fix: `_device_down_alerted` (set), mismo criterio que
+`_guardian_down_alerted`. Verificado en vivo: blip de 1 ciclo → 0 mensajes; caída real de 4
+ciclos → "sin respuesta" + "recuperado", ambos correctos (`a3b696e`).
+
+Aprovechando el hallazgo, se revisaron **todos** los mensajes de "recuperado" del archivo
+(`grep` de las 20 ocurrencias) para descartar el mismo patrón en otro lado: `watch_resources`,
+`watch_wan_outage` (grupo y red), `watch_services`, `watch_guardian_nodes` (nodo y post-reboot),
+`watch_connectivity`, `watch_groq`, `watch_openai`, `watch_infra` (equipo/impresora, servicio
+TCP, puerto SNMP) — todos correctamente gateados por un flag de "se alertó antes" (o, en
+`watch_connectivity`, sin ventana de riesgo porque no hay debounce entre detectar y alertar).
+`watch_devices` era el único caso.
+
 **Faltantes para seguir:**
 1. Seguir esperando el evento real para `watch_wan_outage` y `security_watch.py` (sin acción
    posible más allá de observar).
-2. **Revisión línea-por-línea de lógica de negocio** de los Bloques 5-6 restantes con más
-   profundidad (ya se hizo una pasada, pero no tan exhaustiva como Bloques 3-4 hoy).
+2. **Revisión línea-por-línea de lógica de negocio** de `daily_summary`/`evening_summary`
+   (contenido de los reportes) y `watch_pattern_analysis`/`watch_memoria_sync` (jobs silenciosos
+   de fondo) — Bloque 6 y el resto del 5 sin la misma profundidad que hoy.
 3. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
    vs. solo quedar registrados) y **Tarea pendiente 3** (checkpoint: dejar correr el sistema
    unos días antes de retomar la 2) — ya documentadas en sesiones anteriores, siguen abiertas,
