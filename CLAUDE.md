@@ -567,6 +567,44 @@ real tras el deploy: log de arranque mostró "watch_hunter: 92 IPs pre-existente
 Deploy de esta ronda: `82b77c0` (Groq) y `8465a6a` (fechas) en shomer-agent, verificado en
 Ópera + 3 labs.
 
+### 📋 Tabla maestra — falla y solución, monitor por monitor (30 de shomer-agent + 2 de network_monitor)
+
+| Monitor | Bloque | Falla encontrada | Solución aplicada |
+|---|---|---|---|
+| `watch_hunter` | 2 | Seed de IPs pre-existentes de un solo intento — si fallaba, quedaba vacío para siempre (riesgo mitigado por chequeo de antigüedad ya existente) | Seed movido dentro del loop, reintenta cada ciclo hasta funcionar (`b663970`) |
+| `watch_devices` | 5 | Ninguna | — |
+| `daily_summary` | 6 | Comparaba solo día-del-mes (`now.day`) para "¿ya mandé el resumen hoy?" — colisión posible con >1 mes de uptime | `now.day` → `now.date()` (`8465a6a`) |
+| `evening_summary` | 6 | Mismo bug de fecha que `daily_summary`; además estaba invisible en `/monitores` | Fecha corregida + agregado a `MONITOR_LABELS`/`MONITOR_GROUPS` (`bc75243`, `8465a6a`) |
+| `watch_resources` | 4 | Ninguna (histéresis CPU/RAM revisada a fondo, correcta por diseño) | — |
+| `watch_backups` | 3 | Mismo bug de fecha (día-del-mes) para "¿ya revisé este equipo hoy?" | `now.day` → `now.date()` (`8465a6a`) |
+| `watch_wan_outage` | 5 | **GRAVE** — `_wan_outage_start`/`_wan_last_repeat` sin `global`, `UnboundLocalError` garantizado en caída de 2+ grupos/WAN — probablemente nunca mandó esta alerta | `global` agregado; verificado con reproducción aislada + inspección de bytecode (`58eb9b6`) |
+| `watch_disk` | 4 | Ninguna (umbrales 80/85/92% e histéresis de reset revisados a fondo, correctos) | — |
+| `watch_log_truncate` | 4 | Mismo bug de fecha (día-del-mes) | `now.day` → `now.date()` (`8465a6a`) |
+| `watch_protector_sample` | 3 | Mismo bug pero de semana ISO (`isocalendar()[1]`) | `isocalendar()[1]` → `isocalendar()[:2]` (año+semana) (`8465a6a`) |
+| `watch_pipeline` | 5 | Seed de "pipeline ya degradado al arrancar" de un solo intento — peor caso: 1 alerta redundante (no falsa) | Seed movido dentro del loop, reintenta cada ciclo (`b663970`) |
+| `watch_services` | 4 | Ninguna ("reintento único, luego escala al humano" es diseño intencional) | — |
+| `watch_guardian_nodes` | 1 | Ninguna | — |
+| `preventive_reboot` | — | Ninguna | — |
+| `weekly_backup` | 3 | `_tick()` faltante en éxito → `/monitores` mostraba "sin datos" para siempre o un error pegado permanente; además mismo bug de semana ISO | `_tick()` agregado (`bc75243`); fecha corregida (`8465a6a`) |
+| `watch_protector_retry` | 3 | Mismo bug de `_tick()` faltante en éxito | `_tick()` agregado (`bc75243`) |
+| `watch_hunter_verify` | 2 | **GRAVE** — mismo bug de seed que `watch_hunter` pero SIN red de seguridad: un fallo transitorio hubiera reportado TODAS las IPs privadas ya bloqueadas como "revisar" de golpe | Seed movido dentro del loop (`b663970`); confirmado en producción real: "92 IPs pre-existentes cargadas (sin alerta)" |
+| `watch_docker` | 4 | Ninguna (limitación de `docker.sock` ya documentada y resuelta en sesión previa) | — |
+| `watch_connectivity` | 1 | Ninguna | — |
+| `watch_groq` | 6 | Ninguna en el monitor mismo — pero su healthcheck (`models.list()`) no detecta que el modelo de chat específico esté roto (ver hallazgo aparte abajo) | — |
+| `watch_openai` | 6 | `_tick()` faltante durante los primeros ~10 min de una caída activa (antes de cruzar el umbral de alerta) | `_tick()` agregado en la rama que faltaba (`a27071f`) |
+| `watch_mikrotik_security` | 2 | Ninguna (usa API/SSH real vía network_monitor, no archivos locales) | — |
+| `auto_unblock` | — | Sospecha de bug (docstring "sin reincidencia") investigada y descartada — el esquema real (`ip UNIQUE` + `INSERT OR REPLACE`) sí resetea correctamente | — (ruled out) |
+| `watch_infra` | 1 | Menor: `watch_infra_vpn` usa `snmp_alert` en vez de un flag propio para su "última alerta" (cosmético, no afecta el contenido del mensaje) | No corregido — bajo impacto, solo afecta el timestamp de `/monitores` |
+| `watch_active_threats` | 1 | Ninguna (sin lógica de diff/alerta, solo mantiene estado) | — |
+| `watch_network_audit` | 1 | Ninguna | — |
+| `watch_port_errors` | 1 | **Crash cada fin de mes** — `target.replace(day=target.day+1)` inválido en meses con distinto número de días | `timedelta(days=1)` en vez de `.replace(day=+1)`, probado con 31-ago/dic/28-feb (`bc75243`) |
+| `watch_pattern_analysis` | 5 | Ninguna | — |
+| `watch_memoria_sync` | 5 | Ninguna | — |
+| `watch_pending_guardian` | 1 y 5 | Conexión sqlite no se cerraba si `_send()`/`UPDATE` fallaban a mitad de loop; además invisible en `/monitores` | `try/finally` agregado; agregado a `MONITOR_LABELS`/`MONITOR_GROUPS` (`bc75243`) |
+| `watch_security` (bot) | 2 | **GRAVE** — corría en el contenedor, sin acceso real a `auth.log`, `who`, `journalctl` ni `/proc/mounts` del host. Nunca detectó nada, nunca, desde que existía | Eliminado del bot; reescrito como `security_watch.py` en network_monitor (host real), con 2 de las 4 detecciones también corregidas conceptualmente (`9272696`) |
+| logging de `network_monitor` (host, todo el proceso, no un monitor) | aparte | Root logger sin handler propio → formato `lastResort` sin nivel/timestamp/nombre — mensajes llegaban pero invisibles a un `grep` normal | `logging_setup.py` con formato correcto, mismo nivel WARNING de antes (`c3688a6`) |
+| modelo Groq (`groq_helper.py`, usado por casi todos los diagnósticos IA) | aparte | `llama-3.3-70b-versatile` retirado del catálogo Groq — 404 desde hace 1+ día, sin detectar por `watch_groq` | `GROQ_MODEL` configurable (env var), probado contra la API real antes de elegir `openai/gpt-oss-20b` (`82b77c0`) |
+
 **Faltantes para seguir:**
 1. Seguir esperando el evento real para `watch_wan_outage` y `security_watch.py` (sin acción
    posible más allá de observar).
