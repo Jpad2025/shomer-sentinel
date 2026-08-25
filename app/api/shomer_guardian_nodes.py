@@ -413,6 +413,20 @@ def _build_node_outcome(
         outcome["tick_result"] = {"ip": ip, "status": "degraded", "latency_ms": lat_ms}
         return outcome
 
+    # Sesión 75: el reinicio automático (más abajo, guiado por `threshold`)
+    # nunca debe poder disparar antes de que el estado quede CONFIRMADO
+    # offline (guiado por `offline_persist_ticks`) -- son dos umbrales
+    # configurables por separado (uno en el panel, el otro solo por env var)
+    # sin validación cruzada. Antes de este fix, si alguien bajaba
+    # `guardian.fail_threshold` por debajo de `offline_persist_ticks`,
+    # Guardian reiniciaba el equipo por SSH/SNMP ANTES de que el panel lo
+    # mostrara como caído -- "⚡ reinicio en progreso" sin un "🔴 caída"
+    # previo, y el equipo seguía viéndose "online" mientras se reiniciaba.
+    # Con `reboot_confirmed_ok`, el reinicio queda atado a max(threshold,
+    # offline_persist_ticks) en vez de threshold solo -- en Ópera hoy
+    # ambos valen 3, así que esto no cambia el comportamiento actual.
+    reboot_confirmed_ok = True
+
     if status_label == "offline":
         new_offline_streak = int(redis_snap.get("offline_streak") or 0) + 1
         outcome["redis_ops"].append(("set", offline_streak_key, str(new_offline_streak)))
@@ -422,6 +436,7 @@ def _build_node_outcome(
             prev = redis_snap.get("status") or "online"
             outcome["redis_ops"].append(("delete", streak_key))
             outcome["tick_result"] = {"ip": ip, "status": prev, "latency_ms": lat_ms}
+            reboot_confirmed_ok = False
         else:
             if prev_redis != "offline":
                 _event(prev_redis, "offline", reason)
@@ -447,7 +462,7 @@ def _build_node_outcome(
     outcome["redis_ops"].append(("set", fail_key, str(new_failures)))
     outcome["poller_log"] = (ip, status_label, new_failures, threshold, reason)
 
-    if new_failures < threshold:
+    if new_failures < threshold or not reboot_confirmed_ok:
         return outcome
 
     now_ts = int(datetime.utcnow().timestamp())
