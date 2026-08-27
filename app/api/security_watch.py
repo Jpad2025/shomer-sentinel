@@ -137,6 +137,12 @@ def _check_unusual_login(lines: List[str]) -> None:
         if not m:
             continue
         _metodo, user, ip = m.groups()
+        if ip == "127.0.0.1" or ip.startswith("127."):
+            # Loopback -- solo puede originarse en este mismo servidor, nunca
+            # un acceso externo real. Confirmado un login diario legítimo a
+            # las 03:00 desde 127.0.0.1 (proceso propio del host, no un
+            # intruso) -- sin esto, generaba ruido todos los días.
+            continue
         key = f"login_{user}_{ip}_{now.date()}_{now.hour}"
         if key in _login_warned_keys:
             continue
