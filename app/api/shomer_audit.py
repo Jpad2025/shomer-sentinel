@@ -31,14 +31,14 @@ _SKIP_PATHS = {
 
 # Rutas cuyo body contiene credenciales — guardar solo campos seguros.
 # Sesión 76: esta lista estaba incompleta -- confirmado en audit_log real
-# (80k+ filas) que /api/router-devices, /backups/devices*, /tracker/credentials
-# y /auth/users ya habían guardado contraseñas en texto plano (ssh_password,
-# password de dominio, password de backup, password de usuario del panel)
-# porque no coincidían con ningún path de esta lista ni de _SKIP_PATHS.
+# (80k+ filas, en Ópera Y en shomer205) que /api/router-devices,
+# /backups/devices*, /tracker/credentials, /auth/users y /auth/register ya
+# habían guardado contraseñas en texto plano (ssh_password, password de
+# dominio, password de backup, password de usuario del panel) porque no
+# coincidían con ningún path de esta lista ni de _SKIP_PATHS. Todo /auth/*
+# se enmascara por prefijo en vez de enumerar cada sub-ruta una por una --
+# cualquier endpoint de autenticación es candidato a llevar una contraseña.
 _MASK_BODY_PATHS = {
-    "/auth/login",
-    "/auth/change-password",
-    "/auth/users",
     "/setup/site-info",
     "/config/system",
     "/api/router-devices",
@@ -46,9 +46,10 @@ _MASK_BODY_PATHS = {
 }
 
 # Prefijos que también deben enmascararse (rutas con id/sufijo variable,
-# ej. /backups/devices/{id}, /backups/devices/test).
+# ej. /backups/devices/{id}, /backups/devices/test; y todo /auth/*).
 _MASK_BODY_PREFIXES = (
     "/backups/devices",
+    "/auth/",
 )
 
 
