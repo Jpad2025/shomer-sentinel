@@ -2,6 +2,39 @@
 
 Actualizado: **27 ago 2026** · Dueño: Juan Pablo (único operador)
 
+## Sesión 77 (27 ago 2026) — revisión EXHAUSTIVA COMPLETADA: 112/112 archivos de network_monitor
+
+Detalle completo en `CLAUDE.md` §Sesión 77. Resumen ejecutivo:
+- Se terminaron los ~64 archivos que quedaban de la Sesión 76. **Los 112 archivos de
+  network_monitor quedan revisados, sin excepciones.**
+- 🔴 **Seguridad, reportado, NO corregido (decisión de diseño pendiente):** `auth_api.py`
+  recrea sola la cuenta de fábrica `root` (password `shomer2026`) cada vez que se usa el panel,
+  aunque se borre. Confirmado que existe HOY en la BD de Ópera.
+- 🟡 **Seguridad, corregido y desplegado (2 rondas, mismo patrón de Sesión 76):** 4 rutas más
+  sin enmascarar en `audit_log` (`/setup/apply`, `/api/topology/config`, `/backups/b2config`,
+  `/tracker/asset/*`) — sin exposición histórica confirmada en ninguna.
+- 5 hallazgos menores reportados, sin corregir (requieren tu decisión):
+  `/config/save_nodos` roto (bajo impacto), 3 rutas proxy sin auth propia (mitigadas por
+  firewall), `/tracker/credentials` accesible a cualquier operador (no solo admin), drill
+  manual/automático sin mutex compartido, y una corrección: `backend/scripts/discovery.py`
+  no es código muerto (se corrigió ese hallazgo de sesiones previas).
+- `app/scripts/monitor.py` confirmado dormido (no existe la unidad systemd pese a estar
+  documentada en la Parte A de CLAUDE.md).
+
+**Para retomar, en orden:**
+1. Decidir sobre la puerta trasera `root` en `auth_api.py` — ¿se mantiene o se quita el
+   auto-recreado?
+2. Decidir acceso a `/tracker/credentials` (¿solo admin?).
+3. Decidir mutex compartido para el drill (manual vs. automático).
+4. Ahora que el panorama de código muerto/dormant está completo (Sesión 76 + 77), decidir qué
+   hacer con él — mover a `_archivo_obsoleto/`, dejarlo, o borrarlo.
+5. Guardar en archivo protegido las credenciales legado extraídas en Sesión 76 (bloqueado por
+   el clasificador de seguridad de la sesión de Claude — hacerlo manualmente o ajustar permiso).
+6. Rotar las 2 credenciales expuestas desde Sesión 76 (dominio de red, usuario panel).
+7. Tarea pendiente 2/3, solo si se piden.
+
+---
+
 ## Sesión 76 (26-27 ago 2026) — revisión EXHAUSTIVA de TODO network_monitor (~48/112 archivos)
 
 Detalle completo de hallazgos en `CLAUDE.md` §Sesión 76. Resumen ejecutivo:
