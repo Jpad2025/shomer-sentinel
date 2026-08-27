@@ -916,7 +916,13 @@ async def _send_infra_alert(
     duration_sec: Optional[float], device_type: str = "generic",
 ):
     redis = get_redis()
-    ck = f"infra_alert_cooldown:{ip}"
+    # Cooldown por dirección (Sesión 76): antes era una sola clave para
+    # offline/online -- si el equipo se recuperaba dentro de los 5 min del
+    # cooldown de la alerta de caída, el "recuperado" quedaba bloqueado por
+    # la MISMA clave, dejando al técnico con un "caído" sin cierre nunca
+    # avisado. Código inactivo hoy (requiere INFRA_TELEGRAM_PANEL=1, no
+    # configurado en Ópera) pero corregido para cuando se active.
+    ck = f"infra_alert_cooldown:{ip}:{status}"
     if redis and redis.get(ck):
         return
 
