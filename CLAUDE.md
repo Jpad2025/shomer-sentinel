@@ -4,7 +4,7 @@ Este archivo une **dos cosas** en un solo lugar: (1) **qué hace el sistema hoy*
 
 Los manuales de instalación detallados (cableado, modelo por modelo) y las tablas QA fila por fila **no** caben completos aquí; el equipo debe entregarlos en el mismo paquete de instalación donde corresponda. Este archivo concentra arquitectura, normas y estado sintético.
 
-**Última unificación:** 24 ago 2026 (revisión a fondo de los 28 monitores por bloques — 2 bugs graves corregidos, ver Sesión 75 abajo) · Sesión 75 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
+**Última unificación:** 26-27 ago 2026 (revisión exhaustiva de TODO `network_monitor` — bug de seguridad real corregido: audit_log guardaba contraseñas en texto plano, ver Sesión 76 abajo) · Sesión 76 · Idioma: español · Código: `/opt/network_monitor/` + `/storage/shomer-agent/`
 
 ---
 
@@ -751,15 +751,113 @@ Desplegado y verificado (`/health` limpio, puerto 8001) en Ópera + los 3 labs.
    seguir vigilando unos días más antes de darlo por estable.
 2. **Rutas del panel de `shomer_inframonitor.py`** (~1000 líneas) y del resto de `backups.py`
    sin revisar con la misma profundidad — menor prioridad por ser código human-triggered.
-3. **Resto de `network_monitor` sin revisar aún:** el resto de `app/api/*.py` (112 archivos
-   en total, ya cubiertos a fondo: `shomer_guardian_nodes.py`, `shomer_inframonitor.py`,
-   `casador_autoblock_poller.py`, `security_watch.py`, `backups.py` — parcial).
 4. **Desactivar el modo mantenimiento** cuando Juan Pablo decida — lo activó él mismo a
    propósito antes del fix de reinicio de Guardian, sigue activo.
 5. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
    vs. solo quedar registrados) y **Tarea pendiente 3** (checkpoint: dejar correr el sistema
    unos días antes de retomar la 2) — ya documentadas en sesiones anteriores, siguen abiertas,
    no tocadas hoy.
+
+## Sesión 76 (26-27 ago 2026) — revisión EXHAUSTIVA de TODO network_monitor, sin excepciones
+
+Juan Pablo pidió explícitamente no decidir por criterio propio qué archivos "importan menos" —
+revisar los 112 archivos de `app/` (`api/`, `backend/`, `scripts/`), uno por uno, sin saltarse
+ninguno. Progreso de esta sesión: ~48 de 112 archivos revisados a fondo (el resto queda para
+continuar la próxima sesión — ver lista en `PENDIENTES_LAB.md`).
+
+**🔴 Hallazgo de seguridad real y activo, ya corregido — `shomer_audit.py`:** el middleware de
+auditoría del panel (`AuditMiddleware`) guarda el body de cada POST/PUT/PATCH/DELETE
+autenticado en `audit_log`, con una lista `_MASK_BODY_PATHS` de rutas cuyo body debía
+enmascararse por llevar credenciales. Esa lista estaba incompleta. **Confirmado en la BD real
+de producción** (80,258 filas en Ópera): 21 filas con contraseñas reales en texto plano —
+`/tracker/credentials` (contraseña de dominio de red), `/backups/devices*` (contraseñas de
+equipos de backup SMB/Windows), `/api/router-devices` (ssh_password de routers), `/auth/users`
+(contraseña de un usuario del PANEL). `shomer205` tenía 6 filas más, incluyendo `/auth/register`
+(ruta que ni siquiera había aparecido en Ópera). Fix: `_MASK_BODY_PATHS` ampliada +
+`_MASK_BODY_PREFIXES` nuevo para `/backups/devices*` y **todo `/auth/*`** (en vez de enumerar
+cada sub-ruta de auth una por una). Verificado que las rutas confirmadas quedan como
+"[REDACTED]" en el body guardado.
+
+**Redacción retroactiva del historial (a pedido explícito de Juan Pablo):** se hizo backup de
+`network_monitor.db` antes de tocar nada (`network_monitor.db.bak_pre_redact_<timestamp>` junto
+a la BD real, en Ópera y en shomer205). Se redactaron las 21 filas de Ópera + 6 de shomer205
+(`UPDATE audit_log SET body_summary='[REDACTED...]' WHERE ...`), conservando fecha/usuario/ruta
+— solo se reemplazó el contenido con la contraseña real. Verificado con `count(*)` que quedaron
+en 0 en los 4 servidores tras el fix + la redacción.
+
+**Pendiente de decisión de Juan Pablo, no tocado:** la contraseña de dominio de red expuesta en
+`/tracker/credentials` y la contraseña de usuario del panel expuesta en `/auth/users` estuvieron
+en texto plano en la BD desde junio 2026 hasta hoy — **recomendado rotarlas** (cambiarlas), ya
+que estuvieron potencialmente expuestas a cualquiera con acceso a `audit_log` o a
+`/audit/logs`/`/audit/export/csv` (solo admin, pero aun así). No se rotó ninguna credencial real
+sin que el usuario lo pida explícitamente.
+
+**Hallazgo de negocio (no de código) — `shomer_technician.py`:** el sistema de score de
+técnicos (usado para bonos) calcula `doc_rate=100` por defecto cuando un técnico no tuvo
+reinicios en el mes — un técnico sin reinicios saca nota perfecta sin que se evalúe su
+documentación real. Señalado a Juan Pablo, sin tocar (requiere su decisión de negocio, no una
+corrección de código).
+
+**Bugs de código reales encontrados y corregidos esta sesión (además de los ya documentados
+arriba en las secciones de Guardian/Infra/Hunter/Protector):**
+- `inventory_asset_report_pdf.py` — crash real y reproducido (`FPDFUnicodeEncodingException`)
+  al exportar el PDF de un activo si el hostname/modelo/notas tenían un emoji u otro carácter
+  fuera de Latin-1. Endpoint real, sin manejo de excepción en el caller. Fix: helper `_latin1()`
+  aplicado también al encabezado y las notas (antes solo a los campos administrativos).
+- **3 ocurrencias independientes** del mismo bug ("success falso" al recargar/alternar
+  Suricata — reporta éxito sin revisar si el comando `systemctl`/`kill` realmente funcionó):
+  `casador_support_rules_file.py::_reload_suricata`, `casador_intel.py::/suricata/toggle`,
+  `casador_rules.py::/rules/reload` (una reimplementación duplicada e independiente de la
+  primera). Los 3 corregidos con el mismo criterio: verificar el resultado real antes de
+  reportar éxito.
+
+**Código muerto confirmado (nunca se conecta a la app real, no causa daño activo pero puede
+confundir a futuro):**
+- `app/backend/database.py` + `models.py` — SQLAlchemy, nunca importado por nada.
+- **Todo `app/backend/routes/`** (`devices.py`, `discovery.py`, `reboot.py`, `backup.py`,
+  `inventory.py`, ~845 líneas) — ningún router se monta en `main.py`/`main_tools.py`. 3 de 5
+  archivos tienen `from db import get_connection` roto (ese módulo no existe en el path real de
+  la app) — ni cargarían si alguien los intentara usar.
+- `app/scripts/ssh_recovery.py` (paramiko) — nadie lo llama, el mecanismo real de reboot SSH es
+  `_run_ssh_reboot` en `shomer_guardian_lib.py`.
+- `app/backend/reboot_playwright.py` + `router_http_manager.py` — dos implementaciones
+  redundantes de "reboot HTTP de router" (Playwright vs `requests`), ninguna importada.
+- `app/backend/scripts/backup_system.py` — solo lo llamaba el ya-muerto `routes/backup.py`;
+  además tiene su propio bug interno (no sigue symlinks al empaquetar, y `network_monitor.db`
+  es un symlink) que lo haría inútil si se revivió sin arreglarlo — no se tocó por estar inerte.
+
+**Código dormido (funciona si corriera, pero nada lo invoca hoy — sin systemd/cron):**
+`app/backend/scripts/auto_recovery.py`, `app/backend/scripts/reboot_glinet.py` (alcanzable solo
+desde código muerto/dormido). `app/backend/scripts/inventory_sync.py` también dormido, y además
+usa `connect()` (→ `network_monitor.db`) en vez de `connect_inventory()` (→ `inventory.db`) —
+si se revive sin corregir eso, crearía una tabla `assets` fantasma en la BD equivocada.
+
+**Revisado y confirmado activo/correcto sin bugs:** `app/scripts/inframonitor_poller.py`
+(confirmado que ES el poller real vía `shomer-inframonitor-poller.service`, no el embebido),
+`shomer_mac_reconcile.py` (loop autónomo real), `shomer_infra_pulse.py` (confirmado
+`INFRA_PULSE_ENABLED=1` activo — revisada la máquina de estados EWMA a fondo, histéresis
+correcta), `shomer_guardian_events.py` (el toggle real de mantenimiento), `security_http.py`,
+`infra_monitor_profiles.py`, `casador_autoblock_poller.py`, `casador_support_health.py`,
+`casador_support_suricata.py`, `shomer_common.py`, `shomer_guardian_devices.py`,
+`shomer_guardian_discovery.py`, `hunter_signature_labels.py`, `scripts/network_context.py`, y
+~25 archivos pequeños más (migraciones one-shot idempotentes, helpers sin lógica de negocio).
+
+Todo desplegado y verificado (`/health` limpio) en Ópera + los 3 labs tras cada fix.
+
+**Faltantes para la próxima sesión (en orden):**
+1. Continuar la revisión exhaustiva — quedan ~64 archivos: `auth_api.py`, `web_ui.py`,
+   `backend/protector.py`, `shomer_config.py`, `shomer_setup.py`, `shomer_proxies.py`,
+   `casador_blocking.py`, `shomer_reports.py`, `shomer_audit_network.py`, `shomer_noc.py`,
+   `shomer_status_events.py`, `inventory.py` (completo), `inventory_discovery.py`,
+   `shomer_guardian_server_health.py` (completo), `shomer_guardian_health_checks.py`
+   (completo), `shomer_guardian_lib.py` (completo), `scripts/restore_drill.py` (y su cruce con
+   `shomer_drill.py`'s `_drill_running`), `scripts/scanner.py`, `scripts/monitor.py`,
+   `scripts/tracker/*.py` (discovery, persistence, extractor, lldp_helper), y el resto — ver
+   lista completa en `PENDIENTES_LAB.md`.
+2. Decidir sobre la rotación de las 2 credenciales expuestas (dominio de red, usuario panel).
+3. Seguir esperando el evento real para `watch_wan_outage`.
+4. Desactivar el modo mantenimiento cuando Juan Pablo decida.
+5. Tarea pendiente 2/3 de sesiones anteriores.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
