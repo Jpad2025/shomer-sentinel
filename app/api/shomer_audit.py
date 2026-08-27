@@ -29,13 +29,27 @@ _SKIP_PATHS = {
     "/api/server-metrics",
 }
 
-# Rutas cuyo body contiene credenciales — guardar solo campos seguros
+# Rutas cuyo body contiene credenciales — guardar solo campos seguros.
+# Sesión 76: esta lista estaba incompleta -- confirmado en audit_log real
+# (80k+ filas) que /api/router-devices, /backups/devices*, /tracker/credentials
+# y /auth/users ya habían guardado contraseñas en texto plano (ssh_password,
+# password de dominio, password de backup, password de usuario del panel)
+# porque no coincidían con ningún path de esta lista ni de _SKIP_PATHS.
 _MASK_BODY_PATHS = {
     "/auth/login",
     "/auth/change-password",
+    "/auth/users",
     "/setup/site-info",
     "/config/system",
+    "/api/router-devices",
+    "/tracker/credentials",
 }
+
+# Prefijos que también deben enmascararse (rutas con id/sufijo variable,
+# ej. /backups/devices/{id}, /backups/devices/test).
+_MASK_BODY_PREFIXES = (
+    "/backups/devices",
+)
 
 
 # ──────────────────────────────────────────────
@@ -108,7 +122,7 @@ async def _safe_body_summary(request: Request, path: str) -> Optional[str]:
         body_bytes = await request.body()
         if not body_bytes:
             return None
-        if path in _MASK_BODY_PATHS:
+        if path in _MASK_BODY_PATHS or path.startswith(_MASK_BODY_PREFIXES):
             return "[REDACTED]"
         text = body_bytes.decode("utf-8", errors="replace")
         # Truncar a 300 chars para no inflar la BD
