@@ -48,15 +48,28 @@ async def suricata_toggle(body: Dict[str, Any] = Body(...), user=Depends(require
     enable = bool(body.get("enable", True))
     action = "start" if enable else "stop"
     try:
-        subprocess.run(["sudo", "systemctl", action, "suricata"], capture_output=True, timeout=15)
-        _set_config("hunter.enabled", enable)
+        r_action = subprocess.run(["sudo", "systemctl", action, "suricata"], capture_output=True, timeout=15)
         try:
             r = subprocess.run(["systemctl", "is-active", "suricata"], capture_output=True, text=True, timeout=5)
             running = (r.stdout or "").strip() == "active"
         except Exception:
-            running = enable
-        return {"success": True, "enabled": enable, "running": running,
-                "message": "Suricata iniciado" if enable else "Suricata detenido"}
+            running = False
+        # Éxito real = el estado final coincide con lo pedido, no solo que el
+        # comando systemctl haya corrido sin lanzar excepción (Sesión 76 --
+        # antes reportaba "success" aunque systemctl fallara).
+        ok = running if enable else not running
+        if ok:
+            _set_config("hunter.enabled", enable)
+        return {
+            "success": ok,
+            "enabled": enable if ok else running,
+            "running": running,
+            "message": (
+                ("Suricata iniciado" if enable else "Suricata detenido") if ok
+                else f"No se pudo {('iniciar' if enable else 'detener')} Suricata: "
+                     f"{(r_action.stderr or r_action.stdout or b'').decode(errors='replace')[:200]}"
+            ),
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
 

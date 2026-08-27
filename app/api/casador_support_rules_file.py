@@ -86,11 +86,11 @@ def _reload_suricata() -> bool:
         if pid:
             r = subprocess.run(["sudo", "kill", "-USR2", pid[0]], capture_output=True, timeout=5)
             return r.returncode == 0
-        subprocess.run(
+        r2 = subprocess.run(
             ["sudo", "systemctl", "reload-or-restart", "suricata"],
             capture_output=True,
             timeout=10,
         )
-        return True
+        return r2.returncode == 0
     except Exception:
         return False
