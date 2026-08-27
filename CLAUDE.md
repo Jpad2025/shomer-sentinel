@@ -844,20 +844,93 @@ correcta), `shomer_guardian_events.py` (el toggle real de mantenimiento), `secur
 
 Todo desplegado y verificado (`/health` limpio) en Ópera + los 3 labs tras cada fix.
 
-**Faltantes para la próxima sesión (en orden):**
-1. Continuar la revisión exhaustiva — quedan ~64 archivos: `auth_api.py`, `web_ui.py`,
-   `backend/protector.py`, `shomer_config.py`, `shomer_setup.py`, `shomer_proxies.py`,
-   `casador_blocking.py`, `shomer_reports.py`, `shomer_audit_network.py`, `shomer_noc.py`,
-   `shomer_status_events.py`, `inventory.py` (completo), `inventory_discovery.py`,
-   `shomer_guardian_server_health.py` (completo), `shomer_guardian_health_checks.py`
-   (completo), `shomer_guardian_lib.py` (completo), `scripts/restore_drill.py` (y su cruce con
-   `shomer_drill.py`'s `_drill_running`), `scripts/scanner.py`, `scripts/monitor.py`,
-   `scripts/tracker/*.py` (discovery, persistence, extractor, lldp_helper), y el resto — ver
-   lista completa en `PENDIENTES_LAB.md`.
-2. Decidir sobre la rotación de las 2 credenciales expuestas (dominio de red, usuario panel).
-3. Seguir esperando el evento real para `watch_wan_outage`.
-4. Desactivar el modo mantenimiento cuando Juan Pablo decida.
-5. Tarea pendiente 2/3 de sesiones anteriores.
+**Faltantes al cierre de Sesión 76:** quedaban ~64 archivos por revisar — completados en
+Sesión 77 (ver sección siguiente). Pendientes que siguen abiertos: rotación de las 2
+credenciales expuestas, evento real para `watch_wan_outage`, modo mantenimiento, Tarea
+pendiente 2/3.
+
+## Sesión 77 (27 ago 2026) — revisión EXHAUSTIVA completada: 112/112 archivos, `network_monitor` cerrado
+
+Continuación directa de Sesión 76. Se revisaron los ~64 archivos restantes (más 2 no listados
+originalmente que resultaron ser código vivo: `app/scripts/discovery.py` y un cruce con
+`shomer_drill.py`). **Con esto, los 112 archivos de `network_monitor` quedan 100% revisados.**
+
+**🔴 Hallazgo de seguridad — puerta trasera de fábrica en `auth_api.py`, reportado, NO corregido
+(requiere decisión de diseño de Juan Pablo):** `_ensure_users_table()` se ejecuta en casi cada
+acción de login/gestión de usuarios y siempre hace "si no existe `root`, créalo con password de
+fábrica `shomer2026` (hash fijo, mismo en cualquier instalación de este software)". Confirmado
+que el usuario `root` existe HOY en la BD de Ópera (id=163, admin), junto al `admin` real. Si
+alguien borra `root` pensando que queda eliminado, la siguiente acción del panel lo vuelve a
+crear con la contraseña de fábrica — no se puede quitar esa cuenta desde el panel. No se tocó el
+código: cambiar este comportamiento es una decisión de diseño (¿debe existir un failsafe de
+recuperación siempre disponible, o no?), no un bug a corregir unilateralmente.
+
+**🟡 Seguridad — 2 rondas más de `shomer_audit.py` (mismo patrón de Sesión 76), corregidas y
+desplegadas:** la revisión sistemática (`grep` de todo endpoint que acepta `password`/`_pass`)
+encontró 4 rutas más con campos de contraseña sin enmascarar en el audit_log, **sin exposición
+histórica confirmada en ninguna** (0 filas en las 4):
+- `/setup/apply` (wifi_pass, service_pass del wizard de red) — commit `a2270df`.
+- `/api/topology/config` (unifi_pass), `/backups/b2config` (b2_password), prefijo
+  `/tracker/asset` (override_pass por equipo) — commit `1d3df6d`.
+Desplegado y verificado en Ópera + 3 labs ambas rondas.
+
+**Hallazgos menores, reportados sin corregir (bajo impacto, requieren decisión o son solo
+higiene de código):**
+- `shomer_config.py::/config/save_nodos` — escribe en `devices` usando columnas `ip`/
+  `is_shomer_node` que no existen en el esquema real (`ip_address`, sin `is_shomer_node`) — 500
+  garantizado si se llama. Ningún botón del panel actual lo usa.
+- `shomer_proxies.py` — 3 rutas (`PATCH`/`DELETE /tracker/asset/{mac}`, `GET
+  /snapshot/{id}/excel`) no repiten el chequeo de auth que sí tienen casi todas las demás; el
+  servicio destino (8001) sí lo exige, y además 8001 está bloqueado a IPs externas por firewall
+  (`ufw`) en los 4 servidores — verificado. Sin riesgo real hoy, solo inconsistencia de estilo.
+- `/tracker/credentials` (lee/escribe la contraseña de dominio) solo exige "usuario
+  autenticado", no admin — cualquier operador puede leer/cambiar la credencial de red. Decisión
+  de política pendiente.
+- `shomer_drill.py::_drill_running` (guarda el disparo manual del drill) y el scheduler mensual
+  automático en `restore_drill.py` **no comparten el mismo flag** — ventana estrecha donde un
+  drill manual y el automático podrían correr a la vez contra el mismo repo restic. No corregido
+  (afecta lógica de backups en producción, requiere decidir diseño del mutex compartido).
+- `app/backend/scripts/discovery.py` — **corrección de un hallazgo previo**: no es código
+  muerto (lo importa `app/scripts/discovery.py`, usado por `/config/scan` e
+  `/inventory/discovery_scan`), pero dentro de él las funciones `promote_ip_to_panel()` y
+  `auto_promote_live_ips()` sí son código muerto — nunca las llama `run_discovery()`, y
+  apuntan a un endpoint `/api/discovery/promote` que no existe en ningún lado. Sin efecto
+  práctico porque nunca se ejecutan.
+
+**Código dormido confirmado (nuevo esta sesión):** `app/scripts/monitor.py` (el "SHOMER Monitor
+Pro v2.0" legacy) — no existe ni la unidad systemd `shomer-monitor.service` en Ópera pese a estar
+documentada en la Parte A de este archivo; el WAN quorum/failsafe/heartbeat real hoy vive en
+`shomer_guardian_server_health.py`.
+
+**Revisado y confirmado sin bugs (33 archivos, además de los ya nombrados arriba):**
+`auth_api.py` (aparte del hallazgo de root), `web_ui.py`, `backend/protector.py`,
+`shomer_setup.py`, `casador_blocking.py`, `shomer_reports.py`, `shomer_audit_network.py`,
+`shomer_noc.py`, `shomer_status_events.py`, `inventory.py` (completo), `inventory_discovery.py`,
+`inventory_excel_export.py`, `inventory_label_pdf.py`, `shomer_guardian_server_health.py`,
+`shomer_guardian_health_checks.py`, `shomer_guardian_lib.py`, `shomer_system_status.py`,
+`shomer_incidents.py`, `shomer_host_health.py`, `shomer_audit_export.py`, `shomer_topology.py`,
+`shomer_network_blip.py`, `casador_support_firewall.py`, `scripts/restore_drill.py`,
+`scripts/scanner.py`, `scripts/tracker/discovery.py`, `scripts/tracker/persistence.py`,
+`scripts/tracker/lldp_helper.py`, `scripts/tracker/extractor.py` (1441 líneas), `app/scripts/
+discovery.py`, y los 7 scripts pequeños de `backend/scripts/` (migraciones idempotentes o
+utilidades DEV, ninguna automática).
+
+**Faltantes para la próxima sesión:**
+1. Decidir: puerta trasera `root` en `auth_api.py` (¿mantener failsafe o eliminarlo?).
+2. Decidir: acceso a `/tracker/credentials` (¿admin-only o se mantiene para operadores?).
+3. Decidir: mutex compartido entre drill manual y automático (`shomer_drill.py` /
+   `restore_drill.py`) — bajo riesgo pero real.
+4. Limpieza de código muerto/dormant acumulado en Sesión 76 (`app/backend/routes/`,
+   `database.py`/`models.py`, `ssh_recovery.py`, `reboot_playwright.py`/
+   `router_http_manager.py`, `monitor.py`) — Juan Pablo pidió esperar a tener el panorama
+   completo antes de decidir mover/borrar (ya lo está, con esta sesión).
+5. Guardar en un archivo protegido (fuera del repo, permisos 600) las credenciales legado
+   extraídas de los backups pre-redacción de Sesión 76 — bloqueado por el clasificador de
+   seguridad de la sesión de Claude Code; Juan Pablo debe crear el archivo manualmente o
+   ajustar el permiso de Bash.
+6. Rotación de las 2 credenciales expuestas (dominio de red, usuario panel) — pendiente desde
+   Sesión 76.
+7. Tarea pendiente 2/3 de sesiones anteriores.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
