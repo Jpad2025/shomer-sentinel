@@ -670,14 +670,40 @@ desactivarlo (no se tocó).
 
 Desplegado y verificado (`/health` limpio) en Ópera + los 3 labs (`b32ef48`).
 
+## Sesión 76 (26 ago 2026) — checklist repasado: 2 hallazgos reales más en `security_watch.py`
+
+Al retomar, se repasó el checklist de verificación de la Sesión 75 contra producción real
+(`telegram_enviados.db`, `docker logs`, `/health`) antes de seguir con el bloque nuevo:
+
+- ✅ `daily_summary`/`evening_summary` llegaron sin falta los 2 días siguientes (25 y 26 ago).
+- ✅ Cero errores nuevos de Groq `model_not_found` en 24h+.
+- ⏳ Sin caída real de 2+ grupos todavía — `watch_wan_outage` sigue sin poder confirmarse en
+  vivo (no depende de nosotros, hay que esperar).
+- ⚠️ **`security_watch.py` — 2 hallazgos reales de ruido, ambos corregidos hoy:**
+  1. Los 2 falsos positivos de "copia sensible" del 24 ago (deploy.sh) resultaron ser ambos de
+     la ventana entre el commit del fix (`c380bfc`, 22:42:37) y el restart real del servicio —
+     el fix en sí es sólido (confirmado corriendo un `deploy.sh` real hoy: 0 alertas nuevas, y
+     verificada la cadena de procesos real vía `/proc`: el hijo `rsync` de `deploy.sh` tiene a
+     `deploy.sh` como ancestro directo, tal como se diseñó).
+  2. **Nuevo, no visto antes:** alerta diaria "Acceso SSH en horario inusual" a las 03:00,
+     TODOS los días — causada por un login SSH legítimo desde `127.0.0.1` (loopback),
+     confirmado en `auth.log` que este login diario ya existía desde antes de esta sesión (no
+     es nuevo comportamiento, solo nueva detección). Un login desde localhost no puede ser un
+     acceso externo real. Fix: ignorar IPs `127.*` en `_check_unusual_login()` (`3556e89`).
+     Verificado en vivo: el mismo login loopback ya no genera alerta, una IP externa real
+     sigue alertando normalmente.
+
+Desplegado y verificado (`/health` limpio) en Ópera + los 3 labs.
+
 **Faltantes para seguir:**
-1. Seguir esperando el evento real para `watch_wan_outage` y `security_watch.py` (sin acción
-   posible más allá de observar).
+1. Seguir esperando el evento real para `watch_wan_outage` (sin acción posible más allá de
+   observar). `security_watch.py` ya tiene 2 rondas de ajuste por ruido real encontrado —
+   seguir vigilando unos días más antes de darlo por estable.
 2. **Resto del bloque `network_monitor`** sin revisar aún: `casador_autoblock_poller.py`
    (motor de auto-bloqueo Hunter), `shomer_inframonitor.py` (2230 líneas, el poller de Infra),
    `backups.py` (1646 líneas, Protector), y el resto de `app/api/*.py` (112 archivos en total).
 3. **Desactivar el modo mantenimiento** cuando Juan Pablo decida — lo activó él mismo a
-   propósito antes de este fix, sigue activo.
+   propósito antes del fix de reinicio de Guardian, sigue activo.
 4. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
    vs. solo quedar registrados) y **Tarea pendiente 3** (checkpoint: dejar correr el sistema
    unos días antes de retomar la 2) — ya documentadas en sesiones anteriores, siguen abiertas,
