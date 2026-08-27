@@ -38,8 +38,13 @@ _SKIP_PATHS = {
 # coincidían con ningún path de esta lista ni de _SKIP_PATHS. Todo /auth/*
 # se enmascara por prefijo en vez de enumerar cada sub-ruta una por una --
 # cualquier endpoint de autenticación es candidato a llevar una contraseña.
+# Sesión 77: /setup/apply también recibe wifi_pass y service_pass en el body
+# (shomer_setup.py) y no estaba en esta lista -- sin exposición histórica
+# confirmada (0 filas en audit_log a la fecha) pero se agrega para prevenir
+# fuga futura si se vuelve a usar el wizard de red.
 _MASK_BODY_PATHS = {
     "/setup/site-info",
+    "/setup/apply",
     "/config/system",
     "/api/router-devices",
     "/tracker/credentials",
