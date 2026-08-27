@@ -1,6 +1,43 @@
 # Pendientes lab (recordatorio operativo)
 
-Actualizado: **24 ago 2026** · Dueño: Juan Pablo (único operador)
+Actualizado: **27 ago 2026** · Dueño: Juan Pablo (único operador)
+
+## Sesión 76 (26-27 ago 2026) — revisión EXHAUSTIVA de TODO network_monitor (~48/112 archivos)
+
+Detalle completo de hallazgos en `CLAUDE.md` §Sesión 76. Resumen ejecutivo:
+- 🔴 **Seguridad, corregido**: `audit_log` guardaba contraseñas reales en texto plano en 6
+  rutas (`/tracker/credentials`, `/backups/devices*`, `/api/router-devices`, `/auth/*`).
+  Ya corregido en código + redactadas las 21 (Ópera) + 6 (shomer205) filas históricas
+  afectadas, con backup de la BD hecho antes de tocar nada.
+- **Pendiente de decisión:** rotar la contraseña de dominio de red y la contraseña de usuario
+  del panel que estuvieron expuestas desde junio 2026.
+- 4 bugs de código reales corregidos: crash de PDF con emoji (`inventory_asset_report_pdf.py`),
+  y 3 ocurrencias independientes de "success falso" al recargar Suricata.
+- Hallazgo de negocio señalado (no corregido, requiere decisión): `shomer_technician.py` da
+  nota perfecta a un técnico sin reinicios en el mes.
+- Bastante código muerto/dormido confirmado (ver CLAUDE.md) — no se tocó por no causar daño.
+
+**Para retomar, en orden:**
+1. Decidir sobre la rotación de las 2 credenciales expuestas.
+2. Continuar la revisión archivo por archivo — **quedan ~64 de 112**:
+   `auth_api.py`, `web_ui.py`, `backend/protector.py`, `shomer_config.py`, `shomer_setup.py`,
+   `shomer_proxies.py`, `casador_blocking.py`, `shomer_reports.py`, `shomer_audit_network.py`,
+   `shomer_noc.py`, `shomer_status_events.py`, `inventory.py` (completo, solo se vio una ruta),
+   `inventory_discovery.py`, `inventory_excel_export.py`, `inventory_label_pdf.py`,
+   `shomer_guardian_server_health.py` (completo, solo se vio el WAN failsafe),
+   `shomer_guardian_health_checks.py` (completo), `shomer_guardian_lib.py` (completo),
+   `shomer_system_status.py`, `shomer_incidents.py`, `shomer_host_health.py`,
+   `shomer_audit_export.py`, `shomer_topology.py`, `shomer_network_blip.py`,
+   `casador_support_firewall.py`, `casador_blocking.py`, `scripts/restore_drill.py` (revisar
+   cruce con `shomer_drill.py::_drill_running` — ¿usan el mismo flag de "drill en progreso"?),
+   `scripts/scanner.py`, `scripts/monitor.py`, `scripts/tracker/discovery.py`,
+   `scripts/tracker/persistence.py`, `scripts/tracker/extractor.py`,
+   `scripts/tracker/lldp_helper.py`, `backend/scripts/discovery.py`, y el resto de archivos
+   pequeños de `backend/scripts/`. Mismo criterio: uno por uno, sin decidir cuáles importan
+   menos.
+3. Seguir el checklist de verificación de la Sesión 75 (abajo) — sigue vigente.
+4. Decidir cuándo desactivar el modo mantenimiento.
+5. Tarea pendiente 2/3, solo si se piden.
 
 ## Sesión 75 (24 ago 2026) — TODO LO HECHO HOY: checklist para verificar que funcionó
 
