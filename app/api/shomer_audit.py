@@ -48,12 +48,16 @@ _MASK_BODY_PATHS = {
     "/config/system",
     "/api/router-devices",
     "/tracker/credentials",
+    "/api/topology/config",
+    "/backups/b2config",
 }
 
 # Prefijos que también deben enmascararse (rutas con id/sufijo variable,
-# ej. /backups/devices/{id}, /backups/devices/test; y todo /auth/*).
+# ej. /backups/devices/{id}, /backups/devices/test; /tracker/asset/{mac}
+# (override_pass); y todo /auth/*).
 _MASK_BODY_PREFIXES = (
     "/backups/devices",
+    "/tracker/asset",
     "/auth/",
 )
 
