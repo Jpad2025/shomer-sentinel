@@ -695,16 +695,44 @@ Al retomar, se repasó el checklist de verificación de la Sesión 75 contra pro
 
 Desplegado y verificado (`/health` limpio) en Ópera + los 3 labs.
 
+## Sesión 76 (cont.) — `shomer_inframonitor.py` (2230 líneas, poller de Infra) a fondo
+
+Mismo criterio que Guardian: revisado línea por línea. Cubierto (~1200 de 2230 líneas): setup
+de tablas/migraciones, pools de hilos (fast/snmp separados), `_send_infra_alert`, cálculo de
+uptime 24h, sync bidireccional de APs Guardian↔Infra, `_poll_fast_once`/`_poll_snmp_once`/
+`_poll_once`/`_poller_loop`/`start_inframonitor_poller`, `_persist_poll_results` completo, y
+`_collect_snmp_map` (con backoff de fallos). Es decir: toda la lógica que corre 24/7 sin
+supervisión humana. Quedan sin revisar con la misma profundidad las rutas del panel
+(`add_device`, `remove_device`, `get_status`, `manual_ping`, `get_snmp_data`, `device_action`,
+~1000 líneas) — menor riesgo porque solo corren cuando un humano interactúa, no en background.
+
+**Hallazgo (inactivo hoy, corregido de todas formas):** `_send_infra_alert()` usaba una sola
+clave de cooldown Redis para las dos direcciones (caída y recuperación) — si el equipo se
+recuperaba dentro de los 5 min de cooldown de la alerta de caída, el "recuperado" quedaba
+bloqueado por la misma clave, dejando un "🔴 caído" sin su "🟢 recuperado" correspondiente.
+Verificado que esta ruta está inactiva en Ópera (requiere `INFRA_TELEGRAM_PANEL=1`, no
+configurado — las alertas de Infra hoy las genera `watch_infra()` del lado del bot). Corregido
+de todas formas con clave de cooldown separada por dirección, para cuando se active.
+
+`derive_liveness()` (en `infra_monitor_profiles.py`) revisado también — SNMP anulando ping
+para `network_gear`/`printer`, y "degraded" siempre promovido a "online" para impresoras
+(ping poco confiable en WiFi) son decisiones de diseño intencionales, documentadas en
+comentarios existentes, no bugs.
+
+Desplegado y verificado (`/health` limpio) en Ópera + los 3 labs.
+
 **Faltantes para seguir:**
 1. Seguir esperando el evento real para `watch_wan_outage` (sin acción posible más allá de
    observar). `security_watch.py` ya tiene 2 rondas de ajuste por ruido real encontrado —
    seguir vigilando unos días más antes de darlo por estable.
-2. **Resto del bloque `network_monitor`** sin revisar aún: `casador_autoblock_poller.py`
-   (motor de auto-bloqueo Hunter), `shomer_inframonitor.py` (2230 líneas, el poller de Infra),
-   `backups.py` (1646 líneas, Protector), y el resto de `app/api/*.py` (112 archivos en total).
-3. **Desactivar el modo mantenimiento** cuando Juan Pablo decida — lo activó él mismo a
+2. **Rutas del panel de `shomer_inframonitor.py`** (~1000 líneas) sin revisar con la misma
+   profundidad — menor prioridad que el resto del bloque por ser código human-triggered.
+3. **Resto del bloque `network_monitor`** sin revisar aún: `casador_autoblock_poller.py`
+   (motor de auto-bloqueo Hunter), `backups.py` (1646 líneas, Protector), y el resto de
+   `app/api/*.py` (112 archivos en total).
+4. **Desactivar el modo mantenimiento** cuando Juan Pablo decida — lo activó él mismo a
    propósito antes del fix de reinicio de Guardian, sigue activo.
-4. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
+5. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico
    vs. solo quedar registrados) y **Tarea pendiente 3** (checkpoint: dejar correr el sistema
    unos días antes de retomar la 2) — ya documentadas en sesiones anteriores, siguen abiertas,
    no tocadas hoy.
