@@ -29,6 +29,13 @@ _ASSET_REPORT_HARDWARE_KEYS = frozenset(
 )
 
 
+def _latin1(text: str) -> str:
+    """Fuentes core (Arial/helvetica) solo soportan Latin-1 -- un hostname/modelo/nota
+    con emoji u otro carácter fuera de rango crashea fpdf2 (FPDFUnicodeEncodingException)
+    sin esto. Mismo criterio que ya se aplicaba solo a los campos administrativos."""
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
 def build_asset_report_pdf_bytes(a: Dict[str, Any]) -> bytes:
     """Reporte formal de un activo (mismo contenido que export /asset/pdf/{ip})."""
     pdf = FPDF()
@@ -53,7 +60,7 @@ def build_asset_report_pdf_bytes(a: Dict[str, Any]) -> bytes:
         f"Última auditoría: {a.get('last_audit')}",
     ]
     for line in header_lines:
-        pdf.cell(0, 6, line or "", ln=1)
+        pdf.cell(0, 6, _latin1(line or ""), ln=1)
 
     pdf.ln(4)
     pdf.set_font("Arial", "B", 11)
@@ -62,7 +69,7 @@ def build_asset_report_pdf_bytes(a: Dict[str, Any]) -> bytes:
     notes = (a.get("internal_notes") or "").strip() or "(sin notas)"
     for p in notes.splitlines():
         pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(0, 5, p)
+        pdf.multi_cell(0, 5, _latin1(p))
 
     pdf.ln(4)
     pdf.set_font("Arial", "B", 11)
@@ -75,9 +82,7 @@ def build_asset_report_pdf_bytes(a: Dict[str, Any]) -> bytes:
         label = key.replace("_", " ").capitalize()
         # multi_cell puede dejar x al borde derecho; cada campo desde margen izquierdo.
         pdf.set_x(pdf.l_margin)
-        text = f"{label}: {value}"
-        text = text.encode("latin-1", errors="replace").decode("latin-1")
-        pdf.multi_cell(0, 5, text)
+        pdf.multi_cell(0, 5, _latin1(f"{label}: {value}"))
 
     out = pdf.output()
     if out is None:
