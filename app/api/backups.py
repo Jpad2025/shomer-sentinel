@@ -134,6 +134,7 @@ async def sync_to_cloud_endpoint(
 # ── Backup Devices ─────────────────────────────────────────────────────────────
 
 import os
+import shutil
 import subprocess
 import sqlite3
 import tempfile
@@ -794,6 +795,13 @@ async def _backup_linux(device: dict) -> dict:
     source_path = device["source_path"] or "/home"
     device_id   = device["id"]
     local_stage = f"/srv/shomer_backups/staging_ssh/{device_id}"
+    # Sesión 76: sin limpiar entre corridas, local_stage acumulaba para siempre
+    # archivos borrados del lado remoto desde el último backup (scp recurse
+    # sobreescribe lo que sigue existiendo, pero nunca purga lo que ya no) --
+    # crecimiento sin límite en /srv + basura vieja incluida en cada backup
+    # Restic. Empezar cada corrida desde cero, igual que _backup_windows
+    # desmonta/limpia sus recursos al terminar.
+    shutil.rmtree(local_stage, ignore_errors=True)
     os.makedirs(local_stage, exist_ok=True)
     try:
         import asyncssh
