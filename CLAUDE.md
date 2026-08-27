@@ -721,15 +721,39 @@ comentarios existentes, no bugs.
 
 Desplegado y verificado (`/health` limpio) en Ópera + los 3 labs.
 
+## Sesión 76 (cont.) — `casador_autoblock_poller.py` (sin bugs) + `backups.py` (1 bug, inactivo)
+
+`casador_autoblock_poller.py` (122 líneas, motor de auto-bloqueo Hunter 24/7) revisado
+completo — dedup acotado por tamaño (8000 claves), política de severidad coherente (incluida
+la excepción explícita para amenazas críticas internas pese a "solo externas"), corre detrás
+del mismo `poller_leader` que evita doble ejecución entre workers. **Sin bugs.**
+
+`backups.py` (1646 líneas, Protector) — revisada la lógica autónoma: `_scheduler_loop` (dedup
+por día correcto vía `fire_key`, sin fugas de memoria real), `_run_global_b2_sync`,
+`_backup_windows` (ya limpia mount CIFS y credenciales al terminar, con `finally`).
+Descartado como bug real el timezone default `"America/Denver"` en `_site_timezone()` —
+`base.timezone` SÍ está configurado como `America/Bogota` en Ópera, el fallback nunca se usa.
+
+**Hallazgo (inactivo hoy, corregido de todas formas) — `_backup_linux`:** el directorio de
+staging SCP (`/srv/shomer_backups/staging_ssh/{device_id}`) nunca se limpiaba entre corridas —
+`scp recurse` sobreescribe lo que sigue existiendo en el remoto pero nunca purga lo que ya se
+borró ahí, así que crecía sin límite y cada backup Restic incluía basura vieja acumulada.
+Verificado que el directorio existe desde mayo pero está **vacío** — ningún equipo Linux/macOS
+configurado para backup todavía en Ópera, código nunca ejecutado en producción. Corregido de
+todas formas (limpia el staging antes de cada corrida, mismo criterio que `_backup_windows` ya
+usa para sus propios recursos) para cuando se configure el primer equipo Linux.
+
+Desplegado y verificado (`/health` limpio, puerto 8001) en Ópera + los 3 labs.
+
 **Faltantes para seguir:**
 1. Seguir esperando el evento real para `watch_wan_outage` (sin acción posible más allá de
    observar). `security_watch.py` ya tiene 2 rondas de ajuste por ruido real encontrado —
    seguir vigilando unos días más antes de darlo por estable.
-2. **Rutas del panel de `shomer_inframonitor.py`** (~1000 líneas) sin revisar con la misma
-   profundidad — menor prioridad que el resto del bloque por ser código human-triggered.
-3. **Resto del bloque `network_monitor`** sin revisar aún: `casador_autoblock_poller.py`
-   (motor de auto-bloqueo Hunter), `backups.py` (1646 líneas, Protector), y el resto de
-   `app/api/*.py` (112 archivos en total).
+2. **Rutas del panel de `shomer_inframonitor.py`** (~1000 líneas) y del resto de `backups.py`
+   sin revisar con la misma profundidad — menor prioridad por ser código human-triggered.
+3. **Resto de `network_monitor` sin revisar aún:** el resto de `app/api/*.py` (112 archivos
+   en total, ya cubiertos a fondo: `shomer_guardian_nodes.py`, `shomer_inframonitor.py`,
+   `casador_autoblock_poller.py`, `security_watch.py`, `backups.py` — parcial).
 4. **Desactivar el modo mantenimiento** cuando Juan Pablo decida — lo activó él mismo a
    propósito antes del fix de reinicio de Guardian, sigue activo.
 5. **Tarea pendiente 2** (rediseño de qué eventos deben interrumpir en tiempo real al técnico

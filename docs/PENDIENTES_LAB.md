@@ -45,6 +45,7 @@ qué observar para confirmar que cada fix quedó bien, y con qué commit se hizo
 | `shomer_guardian_nodes.py` — reinicio antes de confirmar offline | `b32ef48` | Verificado con 3 simulaciones directas — sin cambio de comportamiento mientras `guardian.fail_threshold` (hoy: 3) siga >= `offline_persist_ticks` (hoy: 3, por defecto). Solo importa si alguien baja el threshold del panel en el futuro |
 | `security_watch.py` — falso positivo login SSH localhost 03:00 diario | `3556e89` | Verificado en vivo (loopback ignorado, IP externa sigue alertando) — confirmar que ya no aparezca la alerta diaria de las 03:00 |
 | `shomer_inframonitor.py` — cooldown de `_send_infra_alert` bloqueaba "recuperado" | `a926b39` | Código inactivo hoy (`INFRA_TELEGRAM_PANEL` no configurado) — sin nada que observar en producción a menos que se active esa variable en el futuro |
+| `backups.py` — staging SSH (`_backup_linux`) nunca se limpiaba entre corridas | `59fc71b` | Código inactivo hoy (sin equipos Linux/macOS configurados para backup) — verificar que el directorio de staging quede vacío después de cada corrida el día que se configure el primer equipo Linux |
 
 ## Sesión 74 (cont.) — reportes 07:00/22:00 unificados, falta ver el primero en vivo
 
