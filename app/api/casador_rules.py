@@ -137,9 +137,19 @@ async def reload_suricata_rules(user=Depends(get_current_user)) -> Dict[str, Any
         pid_proc = subprocess.run(["pidof", "suricata"], capture_output=True, text=True, timeout=5)
         pid = pid_proc.stdout.strip()
         if pid:
-            subprocess.run(["sudo", "kill", "-USR2", pid.split()[0]], capture_output=True, timeout=5)
+            r_kill = subprocess.run(["sudo", "kill", "-USR2", pid.split()[0]], capture_output=True, timeout=5)
+            if r_kill.returncode != 0:
+                return {
+                    "success": False,
+                    "message": f"No se pudo enviar SIGUSR2: {(r_kill.stderr or b'').decode(errors='replace')[:200]}",
+                }
             return {"success": True, "message": "Reglas recargadas (SIGUSR2 enviado)"}
-        subprocess.run(["sudo", "systemctl", "reload", "suricata"], capture_output=True, timeout=15)
+        r_reload = subprocess.run(["sudo", "systemctl", "reload", "suricata"], capture_output=True, timeout=15)
+        if r_reload.returncode != 0:
+            return {
+                "success": False,
+                "message": f"systemctl reload falló: {(r_reload.stderr or b'').decode(errors='replace')[:200]}",
+            }
         return {"success": True, "message": "Reglas recargadas (systemctl reload)"}
     except Exception as e:
         return {"success": False, "message": str(e)}
