@@ -76,15 +76,13 @@ def _ensure_users_table():
         conn.commit()
         cur = conn.execute("SELECT COUNT(*) FROM users")
         n = cur.fetchone()[0]
-        h_factory = hashlib.sha256("shomer2026".encode()).hexdigest()
         if n == 0:
-            conn.execute(
-                "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-                ("root", h_factory, "admin"),
-            )
-            conn.commit()
-        else:
-            # Garantizar que el usuario root de fábrica siempre exista
+            # Solo primera instalación (tabla vacía): crea root de fábrica.
+            # Sesión 79: antes esto también corría con la tabla NO vacía,
+            # recreando "root" con la contraseña de fábrica en cada acción del
+            # panel aunque un admin lo hubiera borrado a propósito -- una
+            # puerta trasera de facto. Ahora, si se borra, se queda borrado.
+            h_factory = hashlib.sha256("shomer2026".encode()).hexdigest()
             conn.execute(
                 "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
                 ("root", h_factory, "admin"),
