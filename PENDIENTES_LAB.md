@@ -21,15 +21,23 @@ Detalle completo en `CLAUDE.md` §Sesión 77. Resumen ejecutivo:
 - `app/scripts/monitor.py` confirmado dormido (no existe la unidad systemd pese a estar
   documentada en la Parte A de CLAUDE.md).
 
+**Resuelto el mismo día (27 ago, tras confirmar que solo Juan Pablo usa el sistema hoy):**
+- Mutex compartido del drill manual/automático — arreglado y desplegado en Ópera + 3 labs.
+- Contraseña de `root` cambiada en Ópera (no en labs, no documentada aquí por seguridad).
+- Código muerto confirmado (`database.py`, `models.py`, `backend/routes/` completo,
+  `ssh_recovery.py`, `reboot_playwright.py`, `router_http_manager.py`, `backup_system.py`)
+  movido a `_archivo_obsoleto/` — verificado que los servicios siguen arrancando limpios.
+
 **Para retomar, en orden:**
-1. Decidir sobre la puerta trasera `root` en `auth_api.py` — ¿se mantiene o se quita el
-   auto-recreado?
+1. Decidir sobre la puerta trasera `root` en `auth_api.py` — sigue auto-recreándose con la
+   contraseña de fábrica original si se borra la cuenta (cambiar la contraseña no arregla esto).
 2. Decidir acceso a `/tracker/credentials` (¿solo admin?).
-3. Decidir mutex compartido para el drill (manual vs. automático).
-4. Ahora que el panorama de código muerto/dormant está completo (Sesión 76 + 77), decidir qué
-   hacer con él — mover a `_archivo_obsoleto/`, dejarlo, o borrarlo.
-5. Guardar en archivo protegido las credenciales legado extraídas en Sesión 76 (bloqueado por
+3. Guardar en archivo protegido las credenciales legado extraídas en Sesión 76 (bloqueado por
    el clasificador de seguridad de la sesión de Claude — hacerlo manualmente o ajustar permiso).
+4. Rotar las 2 credenciales expuestas desde Sesión 76 — entra en la auditoría de seguridad que
+   Juan Pablo hará más adelante.
+5. Decidir qué hacer con el código dormido restante (`auto_recovery.py`, `reboot_glinet.py`,
+   `inventory_sync.py`, `monitor.py`) — no se movió esta vez, solo el código 100% muerto.
 6. Rotar las 2 credenciales expuestas desde Sesión 76 (dominio de red, usuario panel).
 7. Tarea pendiente 2/3, solo si se piden.
 
