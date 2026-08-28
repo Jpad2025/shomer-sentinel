@@ -88,7 +88,7 @@ def _get_stats(month: str) -> list:
             reboots_repetidos = len(rep_rows)
             rep_detail = [{"ip": r["device_ip"], "veces": r["cnt"]} for r in rep_rows]
 
-            doc_rate = round((docs / reboots * 100) if reboots > 0 else 100)
+            doc_rate = min(100, round((docs / reboots * 100) if reboots > 0 else 100))
             penalty  = min(reboots_repetidos * 10, 30)
             score    = max(0, min(100, doc_rate - penalty))
 
