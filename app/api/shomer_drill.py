@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["drill"])
 
-_drill_running = False
-
 
 def _fmt_dur(sec: Optional[int]) -> str:
     if sec is None:
@@ -33,13 +31,13 @@ async def run_drill_manual(user=Depends(require_admin)):
     Dispara un drill de restore manual de forma asíncrona.
     Retorna inmediatamente con un mensaje — el resultado llega por Telegram.
     """
-    global _drill_running
-    if _drill_running:
+    from app.scripts.restore_drill import is_drill_running, _set_drill_running
+
+    if is_drill_running():
         return {"success": False, "message": "Hay un drill en progreso — espera a que termine."}
 
     async def _bg():
-        global _drill_running
-        _drill_running = True
+        _set_drill_running(True)
         try:
             from app.scripts.restore_drill import _run_drill_blocking, _save_result, _notify
             result = await asyncio.to_thread(_run_drill_blocking, "manual")
@@ -48,7 +46,7 @@ async def run_drill_manual(user=Depends(require_admin)):
         except Exception as e:
             logger.error("drill manual error: %s", e)
         finally:
-            _drill_running = False
+            _set_drill_running(False)
 
     asyncio.create_task(_bg())
     return {
@@ -61,7 +59,7 @@ async def run_drill_manual(user=Depends(require_admin)):
 @router.get("/drill/status")
 async def drill_status(user=Depends(require_admin)):
     """Estado actual y último resultado."""
-    from app.scripts.restore_drill import _init_table
+    from app.scripts.restore_drill import _init_table, is_drill_running
     _init_table()
 
     with get_db() as conn:
@@ -73,7 +71,7 @@ async def drill_status(user=Depends(require_admin)):
 
     return {
         "success": True,
-        "drill_running": _drill_running,
+        "drill_running": is_drill_running(),
         "total_drills": total,
         "successful": ok_count,
         "failed": total - ok_count,

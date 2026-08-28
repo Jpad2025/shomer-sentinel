@@ -18,6 +18,21 @@ logger = logging.getLogger(__name__)
 DRILL_TARGET_BASE = "/srv/shomer_drill"
 DRILL_TIMEOUT_SEC = 3600
 
+# Sesión 77: flag compartido con shomer_drill.py (trigger manual) -- antes cada
+# módulo tenía su propio "_drill_running" y el scheduler mensual de aquí no
+# respetaba el flag del disparo manual (ni viceversa), permitiendo que un
+# drill manual y el automático corrieran a la vez contra el mismo repo restic.
+_drill_running = False
+
+
+def is_drill_running() -> bool:
+    return _drill_running
+
+
+def _set_drill_running(value: bool) -> None:
+    global _drill_running
+    _drill_running = value
+
 
 # ──────────────────────────────────────────────
 # DB (resultados históricos para R1 — PDF mensual)
@@ -385,12 +400,21 @@ async def _drill_scheduler_loop():
                 last_drill = get_config("protector.drill_last_run") or ""
                 today_str = now.strftime("%Y-%m-%d")
                 if last_drill != today_str:
-                    logger.info("Drill mensual iniciando — %s", today_str)
-                    from app.api.shomer_common import set_config
-                    set_config("protector.drill_last_run", today_str)
-                    result = await asyncio.to_thread(_run_drill_blocking, "scheduled")
-                    _save_result(result)
-                    _notify(result)
+                    if is_drill_running():
+                        logger.warning(
+                            "Drill mensual omitido — ya hay un drill en progreso (manual)"
+                        )
+                    else:
+                        logger.info("Drill mensual iniciando — %s", today_str)
+                        from app.api.shomer_common import set_config
+                        set_config("protector.drill_last_run", today_str)
+                        _set_drill_running(True)
+                        try:
+                            result = await asyncio.to_thread(_run_drill_blocking, "scheduled")
+                            _save_result(result)
+                            _notify(result)
+                        finally:
+                            _set_drill_running(False)
         except Exception as e:
             logger.error("drill scheduler error: %s", e)
         await asyncio.sleep(60)
