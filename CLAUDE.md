@@ -915,22 +915,48 @@ documentada en la Parte A de este archivo; el WAN quorum/failsafe/heartbeat real
 discovery.py`, y los 7 scripts pequeños de `backend/scripts/` (migraciones idempotentes o
 utilidades DEV, ninguna automática).
 
+## Sesión 77 (cont.) — cierre: mutex del drill, contraseña root, código muerto movido
+
+Juan Pablo dijo explícitamente que por ahora solo él y el asistente usan el sistema ("nadie
+más"), y que hará una auditoría de seguridad propia más adelante — prioridad: que el sistema
+funcione. En base a eso se resolvieron 3 de los pendientes de arriba en la misma sesión:
+
+- **Mutex compartido del drill (arreglado):** `restore_drill.py` ahora expone
+  `is_drill_running()` / `_set_drill_running()` como estado único; `shomer_drill.py` (trigger
+  manual) dejó de tener su propio flag `_drill_running` y usa el mismo. El scheduler mensual
+  ahora se salta el drill automático (con log de advertencia) si hay uno manual en curso, en vez
+  de correr los dos a la vez contra el mismo repo restic. Desplegado en Ópera + 3 labs.
+- **Contraseña de `root` cambiada** en Ópera (producción) a pedido explícito de Juan Pablo —
+  valor no documentado aquí a propósito (no guardar contraseñas reales en este archivo, que
+  vive en git). No se tocó en los labs. La puerta trasera de auto-recreación
+  (`_ensure_users_table`) sigue intacta — cambiar la contraseña no la desactiva; si se borra la
+  cuenta `root`, reaparece con la contraseña de fábrica original, no con la nueva. Sigue
+  pendiente decidir si se elimina ese comportamiento.
+- **Código muerto movido a `_archivo_obsoleto/`:** a pedido explícito de Juan Pablo (eligió
+  "mover, no borrar" entre las opciones dadas). Se movieron, preservando estructura de carpetas:
+  `app/backend/database.py`, `app/backend/models.py`, todo `app/backend/routes/` (6 archivos),
+  `app/scripts/ssh_recovery.py`, `app/backend/reboot_playwright.py`,
+  `app/backend/router_http_manager.py`, `app/backend/scripts/backup_system.py`. Antes de mover,
+  se re-confirmó con grep que nada fuera de ese grupo los importaba. Verificado tras mover:
+  `main.py` y `main_tools.py` compilan e **importan** sin error (no solo sintaxis), los dos
+  servicios (`shomer-guardian`, `shomer-tools`) reiniciaron limpios y `/health` respondió 200 en
+  ambos. **No se tocó** el código dormido (`auto_recovery.py`, `reboot_glinet.py`,
+  `inventory_sync.py`, `monitor.py`) ni las 2 funciones muertas dentro de
+  `backend/scripts/discovery.py` (`promote_ip_to_panel`/`auto_promote_live_ips`) — quedan solo
+  documentadas.
+
 **Faltantes para la próxima sesión:**
-1. Decidir: puerta trasera `root` en `auth_api.py` (¿mantener failsafe o eliminarlo?).
+1. Decidir: puerta trasera `root` en `auth_api.py` (¿mantener failsafe o eliminarlo?) — sigue
+   sin resolver aunque se cambió la contraseña.
 2. Decidir: acceso a `/tracker/credentials` (¿admin-only o se mantiene para operadores?).
-3. Decidir: mutex compartido entre drill manual y automático (`shomer_drill.py` /
-   `restore_drill.py`) — bajo riesgo pero real.
-4. Limpieza de código muerto/dormant acumulado en Sesión 76 (`app/backend/routes/`,
-   `database.py`/`models.py`, `ssh_recovery.py`, `reboot_playwright.py`/
-   `router_http_manager.py`, `monitor.py`) — Juan Pablo pidió esperar a tener el panorama
-   completo antes de decidir mover/borrar (ya lo está, con esta sesión).
-5. Guardar en un archivo protegido (fuera del repo, permisos 600) las credenciales legado
+3. Guardar en un archivo protegido (fuera del repo, permisos 600) las credenciales legado
    extraídas de los backups pre-redacción de Sesión 76 — bloqueado por el clasificador de
    seguridad de la sesión de Claude Code; Juan Pablo debe crear el archivo manualmente o
    ajustar el permiso de Bash.
-6. Rotación de las 2 credenciales expuestas (dominio de red, usuario panel) — pendiente desde
-   Sesión 76.
-7. Tarea pendiente 2/3 de sesiones anteriores.
+4. Rotación de las 2 credenciales expuestas (dominio de red, usuario panel) — pendiente desde
+   Sesión 76 (Juan Pablo dijo que esto entra en su próxima auditoría de seguridad propia).
+5. Tarea pendiente 2/3 de sesiones anteriores.
+6. Decidir qué hacer con el código dormido restante (no movido esta vez).
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
