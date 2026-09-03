@@ -1047,6 +1047,14 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   corregir o marcar un equipo crítico (opción 4).
 - Las 6 opciones de la Tarea pendiente 2 en sí: ninguna sin resolver. Queda solo observar unos
   días que el volumen de mensajes bajó (repetir el checklist de la Tarea pendiente 3).
+- **Backup e inventario agregados al resumen matutino** (pedido Juan Pablo 3 sep 2026): antes no
+  aparecían. `_run_global_b2_sync()`/`sync_cloud` (`app/api/backups.py`, commit `05653fd`) ahora
+  guardan `protector.last_b2_sync_at` en `system_state` al terminar OK -- antes esa confirmación
+  solo se mandaba por Telegram y se perdía entre los demás mensajes, no quedaba en ningún lado
+  consultable. El resumen (`core/monitor.py`, shomer-agent) agrega: backup local por equipo +
+  última subida a B2 (o "sin registro todavía" si nunca ha corrido desde el fix), y último
+  inventario de Tracker (fecha + cantidad de equipos, desde `inventory_snapshots`). Pendiente de
+  verificar con datos reales tras el próximo sync B2 programado (05:30).
 - **`AP HAB 103` (.148) en mantenimiento — verificado que SÍ funciona:** Juan Pablo notó que no
   se reinicia solo y sospechó que era por mantenimiento. Confirmado leyendo el código exacto
   (`shomer_guardian_nodes.py`, función de heartbeat): revisa `node_maintenance:{ip}` en Redis
