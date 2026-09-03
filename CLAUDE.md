@@ -1041,11 +1041,10 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   `network_monitor.db`). El resumen matutino (`core/shomer_api.py`) muestra los cambios de las
   últimas 24h, o "ninguno" explícito si no hubo — pedido de Juan Pablo para que el técnico sepa
   que el sistema sí revisó, no que se le olvidó.
-- **Pendiente real, sin resolver:** hoy no existe forma de **editar** `device_type` de un equipo
-  ya existente en Inframonitor desde el panel — el endpoint `POST /infra/devices` solo sirve para
-  crear, no hay `PUT`/`PATCH`. Si hace falta corregir o agregar un equipo crítico (opción 4) más
-  adelante, por ahora requiere edición directa en la BD. Juan Pablo pidió que se agregue un botón
-  de editar — no implementado todavía, queda para la próxima sesión.
+- **Resuelto en la misma sesión:** se agregó `PATCH /infra/devices/{id}` (nombre/tipo/ubicación,
+  valida `device_type` contra `DEVICE_ICONS`) + botón "Editar" en `inframonitor.html`
+  (`prompt()` simple, no modal) — commit `7af80fb`. Ya no depende de editar la BD a mano para
+  corregir o marcar un equipo crítico (opción 4).
 - Las 6 opciones de la Tarea pendiente 2 en sí: ninguna sin resolver. Queda solo observar unos
   días que el volumen de mensajes bajó (repetir el checklist de la Tarea pendiente 3).
 
