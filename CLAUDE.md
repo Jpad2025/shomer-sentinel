@@ -1088,6 +1088,14 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   aparece tras el primer saludo; `/start` nuevo (no existía — alguien nuevo no recibía nada al
   tocar "Iniciar"); texto libre reforzado como primera opción en `/ayuda`, antes que la lista de
   comandos. Todo en shomer-agent `core/bot.py`, versión 1.1.8.
+- **Aprendizaje acumulado (`agente_skills`) conectado a más lugares:** `/diagnostico` y
+  `/criticidad` muestran el historial de soluciones confirmadas de un equipo; el resumen
+  matutino agrega "patrones confirmados" (3+ arreglos remotos confirmados = candidato a
+  revisión física), excluyendo explícitamente tareas automáticas rutinarias (TASK-*) para no
+  confundirlas con equipos que siguen fallando. Versión 1.1.9.
+- **Fix en vivo: el resumen matutino se mandó dos veces hoy** por reiniciar el bot justo en la
+  ventana 07:00-07:02 — el día del último envío ahora se guarda en disco (`bot_state` en
+  `knowledge.db`), sobrevive a reinicios. Mismo fix en el resumen de las 22:00.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
