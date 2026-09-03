@@ -79,6 +79,22 @@ def _scan_mac_ip() -> dict[str, str]:
     return result
 
 
+def _ensure_log_table(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mac_reconcile_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT DEFAULT (datetime('now')),
+            fuente TEXT NOT NULL,
+            name TEXT NOT NULL,
+            mac TEXT NOT NULL,
+            ip_vieja TEXT NOT NULL,
+            ip_nueva TEXT NOT NULL
+        )
+        """
+    )
+
+
 def reconcile_once() -> list[dict]:
     """Una pasada de reconciliación. Devuelve los cambios aplicados."""
     scan = _scan_mac_ip()
@@ -88,6 +104,7 @@ def reconcile_once() -> list[dict]:
     cambios: list[dict] = []
     with get_db() as conn:
         conn.row_factory = sqlite3.Row
+        _ensure_log_table(conn)
         for r in conn.execute(
             "SELECT id, ip_address, mac_address, name FROM devices "
             "WHERE is_active=1 AND status='offline' "
@@ -105,6 +122,11 @@ def reconcile_once() -> list[dict]:
                     "fuente": "Guardian", "name": r["name"], "mac": mac,
                     "ip_vieja": vieja_ip, "ip_nueva": nueva_ip,
                 })
+                conn.execute(
+                    "INSERT INTO mac_reconcile_log (fuente, name, mac, ip_vieja, ip_nueva) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    ("Guardian", r["name"], mac, vieja_ip, nueva_ip),
+                )
                 logger.warning(
                     "mac_reconcile: Guardian %s (MAC %s) IP %s -> %s "
                     "(misma MAC vista en otra IP por barrido propio)",
@@ -128,6 +150,11 @@ def reconcile_once() -> list[dict]:
                     "fuente": "Inframonitor", "name": r["name"], "mac": mac,
                     "ip_vieja": vieja_ip, "ip_nueva": nueva_ip,
                 })
+                conn.execute(
+                    "INSERT INTO mac_reconcile_log (fuente, name, mac, ip_vieja, ip_nueva) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    ("Inframonitor", r["name"], mac, vieja_ip, nueva_ip),
+                )
                 logger.warning(
                     "mac_reconcile: Inframonitor %s (MAC %s) IP %s -> %s "
                     "(misma MAC vista en otra IP por barrido propio)",
