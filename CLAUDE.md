@@ -1052,15 +1052,17 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   (`shomer_guardian_nodes.py`, función de heartbeat): revisa `node_maintenance:{ip}` en Redis
   antes de intentar el reinicio automático — funciona como debe. El resumen ahora lo etiqueta
   explícito ("EN MANTENIMIENTO, sin auto-reboot") en vez de mostrar solo "offline" sin contexto.
-- **Causa real de `NIC eno1 RX dropped` encontrada y corregida:** el buffer de recepción (RX
-  ring) de la NIC de gestión del servidor estaba en 256, con el hardware soportando hasta 4096
-  (`ethtool -g eno1`) — con la carga de tráfico del hotel (30+ APs, decenas de switches), el
-  buffer chico se llenaba en ráfagas y el kernel descartaba paquetes (~5.4 pkt/s constante,
-  8+ horas). Confirmado que NO es cable/puerto físico: `rx_errors`/`rx_missed_errors` llevan
-  horas sin subir, enlace 1000Mb/s full-duplex sano — la nota vieja de "priorizar cable/puerto
-  switch del servidor" era una suposición equivocada. Aplicado `ethtool -G eno1 rx 4096` +
-  servicio systemd nuevo `eno1-ring-buffer.service` (persiste tras reinicio). Probablemente
-  contribuía a los blips de visibilidad que Guardian ya filtra.
+- **`NIC eno1 RX dropped` — descartado el buffer chico como causa, sigue sin resolver.**
+  Confirmado que NO es cable/puerto físico: `rx_errors`/`rx_missed_errors` llevan horas sin
+  subir, enlace 1000Mb/s full-duplex sano — la nota vieja de "priorizar cable/puerto switch del
+  servidor" era una suposición equivocada. Se probó subir el buffer RX de 256 a 4096
+  (`ethtool -G eno1 rx 4096` + servicio systemd `eno1-ring-buffer.service`, queda aplicado y
+  persiste tras reinicio) pero **medido antes/después: 5.23 vs 5.22 paquetes/seg — sin cambio
+  real**, no era el cuello de botella. `eno1` solo tiene **una cola de recepción** (`ethtool -l`
+  no soportado, un solo IRQ en `/proc/interrupts`) — un solo núcleo procesa todo su tráfico, lo
+  que sugiere el límite real está ahí, no en el tamaño del buffer. Pendiente de investigar más a
+  fondo; prioridad baja — no está empeorando y Guardian ya filtra bien los blips resultantes
+  (13/24h).
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
