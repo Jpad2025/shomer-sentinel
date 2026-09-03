@@ -2017,6 +2017,44 @@ async def remove_device(device_id: int, user=Depends(get_current_user)):
     return {"success": True, "message": f"Equipo {device_id} eliminado"}
 
 
+class DeviceEdit(BaseModel):
+    name: Optional[str] = None
+    device_type: Optional[str] = None
+    location: Optional[str] = None
+
+
+@router.patch("/infra/devices/{device_id}")
+async def edit_device(device_id: int, body: DeviceEdit, user=Depends(get_current_user)):
+    """Editar nombre/tipo/ubicación de un equipo ya existente -- pedido Juan
+    Pablo (3 sep 2026): antes solo se podía fijar el tipo al crear el equipo,
+    sin forma de corregirlo después (necesario para marcar criticidad de
+    negocio, Tarea pendiente 2 opción 4, sin depender de editar la BD a mano)."""
+    if body.device_type is not None and body.device_type not in DEVICE_ICONS:
+        raise HTTPException(status_code=400, detail=f"Tipo inválido. Opciones: {list(DEVICE_ICONS.keys())}")
+
+    campos, valores = [], []
+    if body.name is not None:
+        nombre = body.name.strip()
+        if not nombre:
+            raise HTTPException(status_code=400, detail="Nombre no puede estar vacío")
+        campos.append("name = ?"); valores.append(nombre)
+    if body.device_type is not None:
+        campos.append("device_type = ?"); valores.append(body.device_type)
+    if body.location is not None:
+        campos.append("location = ?"); valores.append(body.location.strip())
+    if not campos:
+        raise HTTPException(status_code=400, detail="Nada para actualizar")
+
+    _init_tables()
+    valores.append(device_id)
+    with get_db() as conn:
+        cur = conn.execute(f"UPDATE infra_devices SET {', '.join(campos)} WHERE id = ?", valores)
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    return {"success": True, "message": "Equipo actualizado"}
+
+
 @router.get("/infra/status")
 async def get_status(
     token: Optional[str] = None,
