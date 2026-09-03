@@ -1047,6 +1047,20 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   corregir o marcar un equipo crítico (opción 4).
 - Las 6 opciones de la Tarea pendiente 2 en sí: ninguna sin resolver. Queda solo observar unos
   días que el volumen de mensajes bajó (repetir el checklist de la Tarea pendiente 3).
+- **`AP HAB 103` (.148) en mantenimiento — verificado que SÍ funciona:** Juan Pablo notó que no
+  se reinicia solo y sospechó que era por mantenimiento. Confirmado leyendo el código exacto
+  (`shomer_guardian_nodes.py`, función de heartbeat): revisa `node_maintenance:{ip}` en Redis
+  antes de intentar el reinicio automático — funciona como debe. El resumen ahora lo etiqueta
+  explícito ("EN MANTENIMIENTO, sin auto-reboot") en vez de mostrar solo "offline" sin contexto.
+- **Causa real de `NIC eno1 RX dropped` encontrada y corregida:** el buffer de recepción (RX
+  ring) de la NIC de gestión del servidor estaba en 256, con el hardware soportando hasta 4096
+  (`ethtool -g eno1`) — con la carga de tráfico del hotel (30+ APs, decenas de switches), el
+  buffer chico se llenaba en ráfagas y el kernel descartaba paquetes (~5.4 pkt/s constante,
+  8+ horas). Confirmado que NO es cable/puerto físico: `rx_errors`/`rx_missed_errors` llevan
+  horas sin subir, enlace 1000Mb/s full-duplex sano — la nota vieja de "priorizar cable/puerto
+  switch del servidor" era una suposición equivocada. Aplicado `ethtool -G eno1 rx 4096` +
+  servicio systemd nuevo `eno1-ring-buffer.service` (persiste tras reinicio). Probablemente
+  contribuía a los blips de visibilidad que Guardian ya filtra.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
