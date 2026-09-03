@@ -126,6 +126,12 @@ async def sync_to_cloud_endpoint(
         result = await asyncio.to_thread(
             _b2_sync_blocking, account_id, app_key, bucket, b2_path, b2_password
         )
+        if result.get("success"):
+            try:
+                from app.api.shomer_common import set_config
+                set_config("protector.last_b2_sync_at", _dt.utcnow().isoformat() + "Z")
+            except Exception:
+                pass
         return result
     except Exception as e:
         return {"success": False, "message": "Error en sincronización: %s" % str(e)}
@@ -1035,6 +1041,15 @@ async def _run_global_b2_sync() -> None:
         )
         _telegram(f"🔄 <b>Protector — sync B2 OK</b>\nSync global completado. {detail}")
         print(f"[protector][b2-global] OK — prune local: {pruned}, prune B2: {pruned_b2}")
+        # Pedido Juan Pablo (3 sep 2026): saber exactamente cuándo se subió
+        # el último backup a la nube para el resumen diario -- antes no
+        # quedaba nada guardado, solo el aviso de Telegram que se pierde
+        # entre los demás mensajes.
+        try:
+            from app.api.shomer_common import set_config
+            set_config("protector.last_b2_sync_at", _dt.utcnow().isoformat() + "Z")
+        except Exception as e:
+            print(f"[protector][b2-global] no se pudo guardar last_b2_sync_at: {e}")
     else:
         print(f"[protector][b2-global] Falló: {result.get('message', '')[:200]}")
 
