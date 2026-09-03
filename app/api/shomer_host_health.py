@@ -351,14 +351,10 @@ def format_nic_daily_section(nic: Dict[str, Any]) -> str:
         elif delta < 100_000:
             hint = " — moderado; revisar si coincide con blips"
         else:
-            # 3 sep 2026: la nota vieja culpaba cable/switch -- diagnóstico real
-            # (Sesión 80) fue buffer RX chico (256 de 4096 posibles, `ethtool -g`)
-            # con rx_errors/rx_missed_errors sin subir y enlace sano. Corregido a
-            # 4096 + `eno1-ring-buffer.service` para que persista tras reinicio.
-            hint = (
-                " — alto; si rx_errors/rx_missed_errors NO suben, es buffer RX "
-                "chico (ver `ethtool -g`), no cable/switch — subir con `ethtool -G`"
-            )
+            # 3 sep 2026: diagnóstico técnico completo (buffer RX chico, no
+            # cable/switch, intentos de fix -- Sesión 80) vive en CLAUDE.md,
+            # no en el mensaje que ve el equipo. Aquí solo el estado.
+            hint = " — alto"
 
     return (
         f"🔌 NIC {iface} RX dropped: +{delta_s} en 24h "
