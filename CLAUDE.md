@@ -50,7 +50,7 @@ Detalle credenciales Tracker AD: §AI.3 · Usuario servicio sitio: §D.2 · Prot
 - **Hunter**: bloqueo IPs en MikroTik. `only_external` se respeta **también** en la cadena Wazuh (internas de `hunter.subnets` no se autobloquean). Bloqueo manual siempre disponible.
 - **Protector**: 1 equipo (Zeus PMS `.5`) → Restic local `/srv/shomer_backups/staging` → B2. Retención **5 local / 3 B2** (decisión del sitio; **no** subir a 30 sin pedido del hotel). Backup 05:00 / sync B2 05:30.
 - **Tracker**: inventario en `inventory.db` (assets + snapshots). Solo credenciales Tracker.
-- **Bot/IA**: 2 IAs — **Groq** (fondo/monitores, plan **FREE**) + **OpenAI** gpt-4o-mini (chat, con topes). Contenedor **`TZ=America/Bogota`**. Briefing **08:00** (resumen + puertos); mant. nocturno **sin Telegram si OK**. `/guardar` → `knowledge_decision()` (consejo en alertas/IA, no piloto auto). Token prod **solo Ópera**; lab bot activo en **.245** (token distinto). `.205`/`.243` bot off hasta token propio.
+- **Bot/IA**: 2 IAs — **Groq** (fondo/monitores, plan **FREE**) + **OpenAI** gpt-4o-mini (chat, con topes). Contenedor **`TZ=America/Bogota`**. Briefing **08:00** (resumen + puertos); mant. nocturno **sin Telegram si OK**. `/guardar` → `knowledge_decision()` (consejo en alertas/IA, no piloto auto). **Desde Sesión 80: los 4 sitios (Ópera, .205, .243, .245) tienen cada uno su propio bot y su propio grupo de Telegram, nunca compartido** — antes .243/.245 compartían el bot de .205 y los 4 compartían el chat personal de Juan Pablo.
 
 ## Lecciones vivas (bugs cerrados que importan)
 - **sudo/root**: tras cualquier `sudo restic` o correr módulos como root → revisar dueño del **repo** Y de `~/.cache/restic` Y de `__pycache__`; fix `chown -R usb_admin`. (Causó panel Protector "sin snapshots" y `.pyc` de Hunter en root.)
@@ -76,8 +76,10 @@ un evento se avisa o se calla, cada uno resolviendo el síntoma que se veía en 
 | 4 | Umbral por nodo | Guardian: `threshold`/`cooldown` · Infra: `INFRA_OFFLINE_CONFIRM_CHECKS` | N fallos seguidos antes de declarar offline "de verdad" | evita 1 blip aislado por equipo individual |
 | 5 | **Escalamiento crónico** | `incident_escalation.py` (agente) | 1ª falla avisa normal; repetidas en ventana 1h → solo cuenta; al cerrar ventana → 1 digest si hubo repetición | agrupa N caídas del MISMO equipo en 1-2 mensajes en vez de N |
 | 6 | **Recuperación repetida** (Sesión 71) | `incident_escalation.is_flapping` + `watch_guardian_nodes`/`watch_infra` | Si el incidente activo ya tiene 2+ eventos → no repetir "recuperado" en cada blip | 1ª recuperación avisa, repetidas no |
-| 7 | **Patrón crónico** (Sesión 69) | `pattern_analysis` / `BOT_CHRONIC_ALERT_MIN_OCURRENCIAS` | Si el equipo ya tiene 5+ ocurrencias conocidas → línea corta en vez de bloque completo | acorta el mensaje, no lo suprime |
-| 8 | Digest VPN | `monitor.py`, aparte, solo conexiones/desconexiones VPN | Agrupa cada `VPN_DIGEST_INTERVAL_SEC` (30min) en 1 mensaje | no es por equipo, es por tipo de evento |
+| 7 | **Patrón crónico** (Sesión 69, suprime desde Sesión 80) | `pattern_analysis` / `BOT_CHRONIC_ALERT_MIN_OCURRENCIAS` | Si el equipo ya tiene 5+ ocurrencias conocidas | **suprime del todo** en tiempo real (antes solo acortaba el mensaje) — queda en `eventos_filtrados` |
+| 8 | **Reinicio automático de Guardian** (Sesión 80) | `watch_guardian_nodes`, verificación 3 min | Si el auto-reboot funcionó, no interrumpe; si sigue caído, sí (crítico) | éxito = silencioso (registrado), fallo = avisa igual que antes |
+| 9 | **Criticidad de negocio** (Sesión 80, solo Inframonitor) | `watch_infra` / `INFRA_CRITICAL_DEVICE_TYPES` | `pos`/`router`/`server`/`controller`/`switch` avisan ya; `printer` no-POS y `camera` esperan al resumen | no aplica a Guardian/APs (sin subtipo) |
+| 10 | Digest VPN | `monitor.py`, aparte, solo conexiones/desconexiones VPN | Agrupa cada `VPN_DIGEST_INTERVAL_SEC` (30min) en 1 mensaje | no es por equipo, es por tipo de evento |
 
 **Pasos 5-6, desde `shomer-agent` v1.1.3 (13 ago):** ya cubren tanto `watch_guardian_nodes` (wifi)
 como `watch_infra` (switches/impresoras/cámaras/datáfonos) — antes solo Guardian los tenía, y un
@@ -929,9 +931,7 @@ funcione. En base a eso se resolvieron 3 de los pendientes de arriba en la misma
 - **Contraseña de `root` cambiada** en Ópera (producción) a pedido explícito de Juan Pablo —
   valor no documentado aquí a propósito (no guardar contraseñas reales en este archivo, que
   vive en git). No se tocó en los labs. La puerta trasera de auto-recreación
-  (`_ensure_users_table`) sigue intacta — cambiar la contraseña no la desactiva; si se borra la
-  cuenta `root`, reaparece con la contraseña de fábrica original, no con la nueva. Sigue
-  pendiente decidir si se elimina ese comportamiento.
+  (`_ensure_users_table`) **se eliminó en Sesión 79** (ver abajo) — ya no reaparece sola.
 - **Código muerto movido a `_archivo_obsoleto/`:** a pedido explícito de Juan Pablo (eligió
   "mover, no borrar" entre las opciones dadas). Se movieron, preservando estructura de carpetas:
   `app/backend/database.py`, `app/backend/models.py`, todo `app/backend/routes/` (6 archivos),
@@ -946,8 +946,7 @@ funcione. En base a eso se resolvieron 3 de los pendientes de arriba en la misma
   documentadas.
 
 **Faltantes para la próxima sesión:**
-1. Decidir: puerta trasera `root` en `auth_api.py` (¿mantener failsafe o eliminarlo?) — sigue
-   sin resolver aunque se cambió la contraseña.
+1. ~~Puerta trasera `root` en `auth_api.py`~~ — **resuelto Sesión 79**, ver abajo.
 2. Decidir: acceso a `/tracker/credentials` (¿admin-only o se mantiene para operadores?).
 3. Guardar en un archivo protegido (fuera del repo, permisos 600) las credenciales legado
    extraídas de los backups pre-redacción de Sesión 76 — bloqueado por el clasificador de
@@ -955,8 +954,100 @@ funcione. En base a eso se resolvieron 3 de los pendientes de arriba en la misma
    ajustar el permiso de Bash.
 4. Rotación de las 2 credenciales expuestas (dominio de red, usuario panel) — pendiente desde
    Sesión 76 (Juan Pablo dijo que esto entra en su próxima auditoría de seguridad propia).
-5. Tarea pendiente 2/3 de sesiones anteriores.
+5. ~~Tarea pendiente 2/3~~ — **resuelto Sesión 80**, ver abajo (opciones 1, 3 y 4 desplegadas).
 6. Decidir qué hacer con el código dormido restante (no movido esta vez).
+
+## Sesión 78 (27 ago 2026) — auditoría completa + verificación funcional de cada módulo, 2 bugs reales
+
+Juan Pablo pidió una auditoría profesional completa (código + ciberseguridad) de `network_monitor`
+y `shomer-agent` antes de enviar los 3 labs (205/243/245) a Bogotá, y además verificar en vivo
+(no solo leyendo código) que cada módulo de Shomer funcionara: Guardian, Hunter, Tracker,
+Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología y el bot.
+
+- **Bug real encontrado en vivo — `doc_rate_pct` de Technician mostraba 2100%**
+  (`app/api/shomer_technician.py`, commit `2c0178d`): faltaba el tope superior. Fix: `min(100,
+  ...)`. Verificado en vivo contra un técnico real.
+- **Bug real recurrente en producción — `pattern_analysis` perdía hallazgos por JSON truncado**
+  (`core/pattern_analysis.py`, shomer-agent, commit `f9ae49b`): pasaba ~4 veces/24h.
+  `_salvage_truncated_json_array()` nuevo rescata los objetos completos de un array truncado por
+  corte de tokens del LLM, en vez de descartar el lote entero.
+
+## Sesión 79 (28-29 ago 2026) — puerta trasera de root eliminada, labs a estado de fábrica, acceso de Mauricio
+
+- **🔴 Puerta trasera de `root` eliminada** (`app/api/auth_api.py`, `_ensure_users_table()`, commit
+  `8835b55`): antes reinsertaba la cuenta `root` de fábrica en cada arranque aunque un admin la
+  hubiera borrado a propósito (`INSERT OR IGNORE` incondicional). Ahora solo crea `root` si la
+  tabla de usuarios está genuinamente vacía. Probado contra copia de la BD (root borrado se queda
+  borrado). Desplegado en los 4 servidores.
+- **Bug real — `/agregar` de Telegram crasheaba en silencio con puerto no numérico** (`core/bot.py`,
+  `cmd_agregar`): faltaba validar `args[3]` antes de `int()`; el error solo quedaba en logs, sin
+  respuesta al usuario. Ahora responde con el error claro antes de intentar convertir. (Quedó sin
+  commitear hasta el 2 sep, ver Sesión 80.)
+- **Los 3 labs se resetearon a estado de fábrica real** (no demo con datos de Ópera) porque van a
+  instalarse en clientes nuevos, no a usarse como vitrina comercial — se limpiaron
+  `network_monitor.db`/`inventory.db` (tablas específicas del sitio) y `nodos_gl.json`, sin tocar
+  netplan. Verificado con login `root`/`shomer2026` devolviendo `/setup` en los 3.
+- **Acceso remoto de Mauricio (USB Ingeniería) a Ópera real** vía Tailscale — 2 problemas de
+  conectividad reales resueltos: IP de Tailscale distinta vista desde el tailnet compartido
+  (no hay arreglo de código, solo diagnóstico), y "Invalid host header" de nginx/FastAPI — se fijó
+  `proxy_set_header Host "shomer-hotelopera";` en `/etc/nginx/sites-enabled/network-monitor` en
+  vez de tocar el archivo de entorno protegido (`/etc/shomer/shomer-runtime.env`, fuera del
+  alcance de las herramientas de esta sesión).
+- **Pendiente sin resolver de esta sesión:** upgrades de dependencias con CVE conocido
+  (`pip-audit` en ambos repos, ~14-20 paquetes con versión atrasada) — documentado, no aplicado;
+  necesita ventana de pruebas completa antes del envío a Bogotá.
+
+## Sesión 80 (2-3 sep 2026) — Telegram separado por hotel + Tarea pendiente 2 (opciones 1, 3, 4) + resúmenes
+
+- **Cada hotel/cliente pasa a tener su propio bot y grupo de Telegram, nunca compartido.** Al
+  auditar se encontró que shomer243 y shomer245 usaban el bot de shomer205 (clonado por
+  `fleet_sync.sh` sin regenerar) y los 4 sitios compartían el chat personal de Juan Pablo. Se
+  crearon 3 bots nuevos vía BotFather y 4 grupos separados (Ópera con Mauricio incluido, 205,
+  243, 245), verificados con mensaje de prueba en cada uno. Detalle en memoria del asistente
+  (`project_shomer_telegram_por_hotel`), no en este archivo (contiene tokens).
+- **Tarea pendiente 3 (checkpoint) cerrada:** `reporte_alertas_semanal.py --days 19` + revisión de
+  `eventos_filtrados` en ambas BDs — volumen sano, nada suprimido incorrectamente. Detalle en
+  `PENDIENTES_LAB.md`.
+- **Tarea pendiente 2, opciones 1, 3 y 4 implementadas** en `core/monitor.py` (shomer-agent),
+  commits `0f7fb28` y `c9e7e1e`, desplegadas en Ópera + los 3 labs:
+  - Opción 1: reinicio automático de Guardian exitoso ya no interrumpe (solo si sigue caído a los
+    3 min).
+  - Opción 3: patrón crónico (5+ ocurrencias en `pattern_analysis`) deja de interrumpir en tiempo
+    real (antes solo acortaba el mensaje).
+  - Opción 4: criticidad de negocio por `infra_devices.device_type` (`pos`, `router`, `server`,
+    `controller`, `switch` = inmediato; `printer` no-POS y `camera` = diferido) — configurable con
+    `INFRA_CRITICAL_DEVICE_TYPES`. Solo aplica a Inframonitor (Guardian/APs no tienen subtipo).
+  - Opción 2 descartada (redundante con 3+4+6, riesgo de contradecir la 4). Opciones 5 y 6 sin
+    cambios (ya correctas).
+  - Todo lo suprimido en las tres queda en `eventos_filtrados` con `motivo` distinto por causa
+    (`auto_reboot_pendiente`/`auto_reboot_exitoso`, `patron_cronico`, `no_critico`,
+    `recuperacion_no_avisada`) — nada se pierde, todo auditable.
+- **Bug encontrado al probar en vivo — el recordatorio "Equipo sigue caído" de Inframonitor
+  (`INFRA_STALE_REMINDER_MINS`, cada 2h) es un mecanismo APARTE del aviso inicial y no respetaba
+  patrón crónico** (Bixolon .243, ya diagnosticado con 10 ocurrencias, generó 3 recordatorios en
+  una noche). Fix (`core/monitor.py`, commit `bf4620f`): aplica el mismo filtro `_chronic` antes
+  de mandar el recordatorio.
+- **Pregunta real de Juan Pablo tras ver esto: si ya no avisa, ¿cómo se entera el técnico?**
+  Verificado que el resumen de las 07:00 (`summary_text()`) YA lista por nombre cada equipo Infra
+  actualmente caído (hasta 8, con "…y N más"), independiente de si el aviso en tiempo real se
+  suprimió — no era un hueco nuevo, ya existía. Confirmado con Bixolon .243 real en el resumen.
+- **Resumen de Hunter (IPs bloqueadas en 24h) agregado al resumen de las 07:00**
+  (`core/shomer_api.py`, commit `c951cb4`): antes solo mostraba el total histórico de IPs
+  contenidas activas, ahora también cuántas se bloquearon en las últimas 24h, con motivo
+  (`alert_signature`) y origen (`blocked_by`: wazuh/auto/manual).
+- **Reconciliación IP-por-MAC ahora queda registrada, y el resumen de las 07:00 siempre dice algo
+  al respecto** (antes: `reconcile_once()` en `app/api/shomer_mac_reconcile.py` solo mandaba un
+  `logger.warning()` que se perdía; ahora también inserta en `mac_reconcile_log`, tabla nueva en
+  `network_monitor.db`). El resumen matutino (`core/shomer_api.py`) muestra los cambios de las
+  últimas 24h, o "ninguno" explícito si no hubo — pedido de Juan Pablo para que el técnico sepa
+  que el sistema sí revisó, no que se le olvidó.
+- **Pendiente real, sin resolver:** hoy no existe forma de **editar** `device_type` de un equipo
+  ya existente en Inframonitor desde el panel — el endpoint `POST /infra/devices` solo sirve para
+  crear, no hay `PUT`/`PATCH`. Si hace falta corregir o agregar un equipo crítico (opción 4) más
+  adelante, por ahora requiere edición directa en la BD. Juan Pablo pidió que se agregue un botón
+  de editar — no implementado todavía, queda para la próxima sesión.
+- Las 6 opciones de la Tarea pendiente 2 en sí: ninguna sin resolver. Queda solo observar unos
+  días que el volumen de mensajes bajó (repetir el checklist de la Tarea pendiente 3).
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)

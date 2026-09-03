@@ -1,6 +1,6 @@
 # Pendientes lab (recordatorio operativo)
 
-Actualizado: **27 ago 2026** · Dueño: Juan Pablo (único operador)
+Actualizado: **2 sep 2026** · Dueño: Juan Pablo (único operador)
 
 ## Sesión 77 (27 ago 2026) — revisión EXHAUSTIVA COMPLETADA: 112/112 archivos de network_monitor
 
@@ -151,54 +151,69 @@ No se hizo el 24 ago para no interferir con la comparación de conteos en curso.
 sistema por fin coincide con lo que Juan Pablo cuenta a mano en su Telegram — la comparación en
 vivo del 23-24 ago cerró mucho la brecha (14 vs 18, contra 23 vs 130 de antes) pero no exacto.
 
-## ⭐ TAREA PENDIENTE 3 — monitorear unos días antes de seguir (checkpoint)
+## ⭐ TAREA PENDIENTE 3 — checkpoint de monitoreo — ✅ CERRADA (2 sep 2026)
 
 Tras el repaso completo de sensibilidad/alertas (Sesión 72-73 + Tarea pendiente 2), Juan Pablo
-decidió **dejar correr el sistema un par de días con los arreglos ya desplegados antes de tocar
-nada más** — en vez de seguir agregando cambios sin ver primero si los de hoy funcionan solos.
+decidió dejar correr el sistema un tiempo con los arreglos ya desplegados antes de tocar nada
+más. Al retomar (2 sep 2026), se corrió el checklist completo:
 
-**Evaluación honesta que quedó como base para retomar (no repetir, solo releer):**
-- Los filtros de hoy SÍ mejoran la eficacia — verificado con datos reales del 15 ago (582 eventos
-  reales, solo 41 mensajes, sin nada que quedara caído de verdad sin avisar).
-- Cada supresión tiene una salvaguarda pensada (tope de 10min en caída masiva, el patrón crónico
-  nunca se calla del todo, la recuperación repetida nunca oculta la falla original, y desde hoy
-  **nada se borra de verdad** — todo lo suprimido queda en `eventos_filtrados` para auditar).
-- **El hueco honesto que sigue abierto:** no existe todavía una capa de "esto es crítico de
-  negocio" (datáfono ≠ AP de pasillo vacío) — un patrón crónico en un equipo importante se trata
-  igual que uno sin importancia. Es la opción 4 de la Tarea pendiente 2, sin implementar.
+1. `reporte_alertas_semanal.py --days 19` (desde el 15 ago): 449 mensajes Telegram en 19 días,
+   170 caídas agrupadas por `host_network_blip` evitaron ~4085 alertas individuales, 17
+   incidentes crónicos agrupados en digest (solo 1 escalado al coordinador). Volumen sano.
+2. Revisión de `eventos_filtrados` (network_monitor.db y knowledge.db), 19 días: 3708 eventos
+   suprimidos, prácticamente todos `blip_gateway`/`blip_masivo` (caída de gateway o masiva —
+   exactamente el caso previsto), repartidos parejo entre equipos (nada indicando que un equipo
+   puntual se estuviera ignorando en silencio). **Nada se suprimió mal.**
+3. Con el checkpoint sano, se pasó a la Tarea pendiente 2 (ver abajo).
 
-**Al retomar, revisar en este orden:**
-1. `python3 tools/reporte_alertas_semanal.py --days N` (N = días transcurridos desde el 15 ago)
-   — confirmar que el volumen de mensajes se mantuvo bajo y razonable.
-2. Revisar `eventos_filtrados` (network_monitor.db y knowledge.db) — ¿algo se suprimió que en
-   retrospectiva no debió suprimirse? Con el registro nuevo ya se puede responder esto con datos.
-3. Si todo se ve bien → seguir con **Tarea pendiente 2**, priorizando la capa de criticidad de
-   negocio (opción 4), que es la que más directamente cierra la preocupación de Juan Pablo.
+## ⭐ TAREA PENDIENTE 2 — rediseñar cuándo interrumpe Shomer al técnico — parcialmente resuelta (2 sep 2026)
 
-## ⭐ TAREA PENDIENTE 2 — rediseñar cuándo interrumpe Shomer al técnico (sin resolver)
+**El problema real, en palabras de Juan Pablo:** el técnico puede atender 2-3 hoteles a la vez,
+cada uno con su propio Shomer, y recibe Telegram encima todo el tiempo. "Shomer debe ser una
+herramienta de ayuda, no de desesperación." Hoy el sistema trata cada evento igual (manda
+mensaje), sin distinguir qué de verdad amerita interrumpir a alguien que reparte su atención
+entre varias propiedades.
 
-**El problema real, en palabras de Juan Pablo:** el técnico tiene Telegram encima todo el
-tiempo, pero puede tener 2-3 hoteles a la vez con Shomer cada uno — el ruido de todos se suma
-en el mismo chat. "Shomer debe ser una herramienta de ayuda, no de desesperación." Hoy el
-sistema trata cada evento igual (manda mensaje), sin distinguir qué de verdad amerita
-interrumpir a alguien que reparte su atención entre varias propiedades.
+**Corrección de premisa (2 sep 2026):** inicialmente se asumió que el ruido de varios hoteles se
+mezclaba en un mismo chat de Telegram — Juan Pablo aclaró que **cada hotel/cliente tiene (o debe
+tener) su propio bot y su propio grupo de Telegram, nunca compartido**. Al auditar, se encontró
+que en la práctica shomer243 y shomer245 sí compartían el bot de shomer205 (clonado por
+`fleet_sync.sh` sin regenerar), y los 4 sitios compartían el mismo chat personal de Juan Pablo —
+se corrigió: 4 bots y 4 grupos de Telegram separados (Ópera, 205, 243, 245), cada uno verificado
+con mensaje de prueba. Detalle en memoria del asistente (`project_shomer_telegram_por_hotel`).
 
-**6 opciones propuestas para la regla de "cuándo interrumpe" (con lo que ya existe hoy en el
-sistema), pendientes de que Juan Pablo diga cuáles aplican:**
+**6 opciones propuestas para la regla de "cuándo interrumpe":**
 
 1. **Por si el auto-reboot de Guardian ya lo intentó arreglar solo** — si funcionó, no
-   interrumpe; si falló, sí (hoy esa información se genera pero no se usa para decidir).
+   interrumpe; si falló, sí. **✅ Implementado 2 sep 2026** (`watch_guardian_nodes`,
+   `core/monitor.py`): ya no se manda el aviso inmediato de "reinicio automático"; si a los 3 min
+   el equipo sigue caído, ahí sí avisa (crítico), igual que antes. Si vuelve solo, queda
+   registrado en `eventos_filtrados` (`motivo=auto_reboot_exitoso`), sin interrumpir.
 2. **Por si es arreglable remoto vs. solo en sitio** — cable/fuente/router del hotel = nadie lo
-   arregla desde el teléfono, no interrumpir ya; backup/servicio Shomer/bloqueo de seguridad =
-   sí se puede resolver remoto, interrumpir.
-3. **Por patrón ya diagnosticado** (`pattern_analysis`, 5+ ocurrencias) — nunca más interrumpe
-   en tiempo real, solo aparece en el resumen de la próxima visita.
+   arregla desde el teléfono; backup/servicio Shomer/bloqueo de seguridad = sí se puede resolver
+   remoto. **No se implementó aparte** — se decidió que el hueco real que buscaba cerrar ya queda
+   cubierto por las opciones 3+4+6 (abajo), y aplicarla tal cual habría apagado el aviso
+   inmediato de un router/gateway caído, que la opción 4 clasifica como crítico y la opción 6 ya
+   resuelve con un solo mensaje. Revisar si en el futuro aparece un caso concreto no cubierto.
+3. **Por patrón ya diagnosticado** (`pattern_analysis`, 5+ ocurrencias) — nunca más interrumpe en
+   tiempo real. **✅ Implementado 2 sep 2026** (`watch_guardian_nodes` y `watch_infra`,
+   `core/monitor.py`): antes solo se acortaba el mensaje; ahora, si es patrón crónico, no se
+   manda nada en tiempo real — queda registrado (`motivo=patron_cronico`) para el resumen.
 4. **Por criticidad de negocio del equipo**, no por "cayó" — datáfono/PMS ≠ AP de pasillo vacío.
-5. **Backup y seguridad, siempre inmediato** — sin excepción (ya es así hoy, no tocar).
-6. **Caída masiva del gateway, un solo mensaje** — ya casi implementado desde Sesión 72/73.
+   **✅ Implementado 2 sep 2026**, solo en Inframonitor (Guardian/APs no tienen subtipo, todos
+   son `access_point`): usa `infra_devices.device_type` — `pos`, `router`, `server`,
+   `controller`, `switch` avisan de inmediato; `printer` (no-POS) y `camera` quedan para el
+   resumen (`motivo=no_critico`). Tipos configurables por `INFRA_CRITICAL_DEVICE_TYPES` en
+   `.env`. La recuperación de un equipo silenciado tampoco avisa (evita el "recuperado" de algo
+   que nunca se avisó como caído) — registrado como `motivo=recuperacion_no_avisada`.
+5. **Backup y seguridad, siempre inmediato** — sin excepción. Ya era así antes, no se tocó.
+6. **Caída masiva del gateway, un solo mensaje** — ya resuelto desde Sesión 72/73, no se tocó.
 
-**Estado:** solo conversación/diseño, **nada implementado todavía**. Retomar cuando Juan Pablo
-diga "tarea pendiente 2".
+**Estado:** opciones 1, 3 y 4 desplegadas y verificadas en Ópera + los 3 labs (205/243/245),
+commits `0f7fb28` (opciones 1 y 3) y `c9e7e1e` (opción 4) en `shomer-agent`. Opción 2 descartada
+por redundante/riesgosa tal como estaba planteada. Opciones 5 y 6 sin cambios (ya correctas).
+Pendiente real que queda: ninguna de las 6 sin resolver — solo observar unos días que el volumen
+de mensajes bajó de verdad con 3 y 4 activas (repetir el checklist de la Tarea pendiente 3).
 
 ## Sesión 73 — resuelto: reconciliación automática de IP por MAC
 
