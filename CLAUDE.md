@@ -1071,6 +1071,23 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   que sugiere el límite real está ahí, no en el tamaño del buffer. Pendiente de investigar más a
   fondo; prioridad baja — no está empeorando y Guardian ya filtra bien los blips resultantes
   (13/24h).
+- **Limpieza de comentarios editoriales en reportes reales:** se encontraron y quitaron 3
+  frases del asistente coladas en mensajes que ve el equipo ("nunca se liberan solas", una
+  explicación de más en el bloque de MAC-reconcile, instrucciones de `ethtool` en el mensaje de
+  NIC). La línea de Hunter ahora trae la fecha de la IP bloqueada más antigua en vez de un
+  número sin contexto temporal.
+- **Bot de Telegram — 3 mejoras tras revisar su estado:** se quitaron 21 alias legacy
+  (`shomer_*`/`guardian_*`/`hunter_*`/`infra_*`/`instalar_*`) que duplicaban comandos sin
+  aportar nada; `/revertir` ahora también deshace modo mantenimiento y cambios de tipo de
+  equipo (antes solo bloqueos/desbloqueos y agregar/quitar equipo); comando nuevo
+  `/criticidad <ip> [tipo]` para ver/cambiar la criticidad de negocio de un equipo Infra desde
+  Telegram (antes solo desde el panel).
+- **Bot de Telegram — UX más fácil de usar sin memorizar comandos:** botones "Ver detalle" en
+  `/equipos`/`/infra` para cada equipo con problema (sin copiar IP a mano); comando `/menu` con
+  botones por categoría; teclado fijo de accesos rápidos (Salud/Equipos/Alertas/Menú) que
+  aparece tras el primer saludo; `/start` nuevo (no existía — alguien nuevo no recibía nada al
+  tocar "Iniciar"); texto libre reforzado como primera opción en `/ayuda`, antes que la lista de
+  comandos. Todo en shomer-agent `core/bot.py`, versión 1.1.8.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
