@@ -1126,6 +1126,50 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
     de 1h), reinicio manual (respuesta directa a una acción del técnico, debe avisar siempre),
     reportes de caída masiva (ya con su propio dedup por causa/ventana).
 
+## Sesión 81 (4 sep 2026) — Cerebro unificado: correlación cruzada entre sistemas + aprendizaje activo
+
+- **Pedido explícito de Juan Pablo**, tras revisar el sistema completo: *"el sistema está bien
+  pero está suelto, no es un conjunto con cerebro propio"* — cada módulo (Guardian, Hunter,
+  Infra, `pattern_analysis`, `chronic_tickets`) decidía y avisaba por su cuenta sin ver el
+  cuadro completo. Antes de tocar nada: backup completo (tags `pre-cerebro-20260904` en ambos
+  repos + copia en caliente de las 7 bases de datos vivas — `network_monitor.db`, `inventory.db`,
+  `knowledge.db`, `memoria.db`, `changelog.db`, `conversations.db`, `telegram_enviados.db`).
+- **Hallazgo clave (no había que inventar nada desde cero):** `watch_memoria_sync` (shomer-agent)
+  ya unificaba Guardian+Infra+auto_task en una bitácora común (`memoria_incidentes`, en
+  `memoria.db`) con la intención explícita, escrita en su propio docstring meses atrás, de que
+  *"todo el razonamiento futuro (vigilante, investigación, chat) debe leer de memoria_central"*
+  — pero nada lo hacía todavía. `pattern_analysis.py` sí lee de ahí, pero agrupa por ENTIDAD
+  individual (un mismo AP repetido), nunca cruza sistemas ni equipos distintos.
+- **`core/brain.py` (nuevo, shomer-agent) — el "cerebro":**
+  - `memoria_central.py` gana una fuente más: Hunter (`blocked_ips`) ahora también sincroniza a
+    `memoria_incidentes` — antes corría aparte y nunca entraba a la bitácora común.
+  - Cada `BRAIN_INTERVAL_MIN` (20 min): agrupa eventos nuevos de TODOS los sistemas por
+    **proximidad temporal**, sin importar el origen — así detecta, por ejemplo, varios equipos
+    caídos juntos por una causa común en vez de tratarlos como incidentes separados.
+  - Cruza cada equipo del grupo con su historial real en `agente_skills` (éxitos/fallos de
+    remediaciones previas), patrón crónico (`pattern_analysis`) y tickets abiertos
+    (`chronic_tickets`) — aprendizaje **activo** como insumo de la recomendación, no solo
+    contexto pasivo pegado al chat (que es todo lo que hacía hasta hoy).
+  - Le pide a un modelo de razonamiento una causa raíz + recomendación respaldada en esa
+    evidencia — los conteos los calcula código, nunca el LLM (mismo principio anti-alucinación
+    que ya usaba `pattern_analysis.py`). Fallback automático OpenAI → Groq si el primero falla.
+  - No reemplaza ninguna alerta existente — capa adicional, solo manda Telegram si la urgencia
+    es media o alta. Comando nuevo `/cerebro` (`/cerebro ahora` fuerza un análisis manual).
+  - **Probado extremo a extremo antes de tocar producción:** copia aislada de datos reales (no
+    la BD viva), escenario sintético de 2 APs caídos con 2 min de diferencia + 1 bloqueo Hunter
+    35 min después — agrupó correctamente los 2 APs en un solo hallazgo, dejó el bloqueo Hunter
+    aparte (sin relación temporal), y generó una recomendación citando el historial real (ej.:
+    "reinicio remoto funcionó 100% de las veces anteriores"). Probado también el fallback a
+    Groq apagando la key de OpenAI a propósito — funcionó igual de bien.
+  - **Hallazgo honesto, no oculto:** el proyecto OpenAI de Shomer no tiene habilitado `gpt-4o`
+    (403 `model_not_found`, confirmado en la prueba real) — solo `gpt-4o-mini`, el mismo que ya
+    usa el chat interactivo. `BRAIN_MODEL` quedó en `gpt-4o-mini` por ahora; para el salto de
+    calidad que pidió Juan Pablo ("pagar otra IA") falta solo habilitar `gpt-4o` en
+    `platform.openai.com` (Project → Limits/Models) y cambiar una variable en `.env` — sin
+    tocar código.
+  - Desplegado en Ópera (commit `e868812`, reiniciado y verificado sin errores) + sincronizado
+    a los 3 labs vía `fleet_sync.sh`.
+
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
 
