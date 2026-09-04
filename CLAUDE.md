@@ -1096,6 +1096,23 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
 - **Fix en vivo: el resumen matutino se mandó dos veces hoy** por reiniciar el bot justo en la
   ventana 07:00-07:02 — el día del último envío ahora se guarda en disco (`bot_state` en
   `knowledge.db`), sobrevive a reinicios. Mismo fix en el resumen de las 22:00.
+- **Auditoría completa de mensajes del día (3:30am-ahora) — 3 hallazgos reales, los 3
+  corregidos, versión 1.2.0:**
+  1. **Sistema de "pendientes" (tickets) nuevo**, conectando el patrón crónico (opción 3) con
+     un ciclo de vida real: se abre un pendiente una sola vez, se recuerda 3x/día (10am/3pm/8pm),
+     y el técnico lo cierra o lo pausa (reusa `/silenciar`) — antes un crónico simplemente
+     dejaba de avisar para siempre, sin ninguna acción posible. Tabla `chronic_tickets` +
+     módulo `core/chronic_tickets.py` + comando `/pendientes`, en shomer-agent.
+  2. **Fix: Hunter avisaba doble** cada bloqueo Wazuh (una vez directo, otra vez el bot ~1 min
+     después) — ahora el bot recuerda qué ya avisó la vía directa y no repite.
+  3. **Fix: hueco real — el aviso directo de "falló el reinicio" (network_monitor) no
+     respetaba el patrón crónico**, aunque el bot sí lo hacía. Un AP con 17 ocurrencias desde
+     junio (AP PASILLO HAB 701-702) igual interrumpía por este camino aparte. Corregido en
+     `app/api/shomer_guardian_nodes.py` (`_es_patron_cronico()`, lee `knowledge.db` de solo
+     lectura, mismo umbral que el bot).
+  Pendiente aparte, no atacado hoy (mencionado, no arreglado): el aviso "REINICIO EN PROGRESO"
+  (mismo archivo) tampoco respeta la opción 1 (auto-reboot exitoso no interrumpe) — es un
+  camino directo distinto al que se arregló en el bot. Revisar si hace falta.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
