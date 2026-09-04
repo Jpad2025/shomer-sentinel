@@ -65,6 +65,36 @@ _POLL_INTERVAL_SEC = int(os.environ.get("SHOMER_POLL_INTERVAL_SEC", "10"))
 GUARDIAN_POLL_INTERVAL_SEC = _POLL_INTERVAL_SEC
 _poller_task = None
 
+_CHRONIC_KNOWLEDGE_DB = "/storage/shomer-agent/data/knowledge.db"
+_CHRONIC_MIN_OCURRENCIAS = int(os.environ.get("BOT_CHRONIC_ALERT_MIN_OCURRENCIAS", "5"))
+
+
+def _es_patron_cronico(entidad_name: str) -> bool:
+    """Consulta si un equipo ya es un patrón crónico confirmado (mismo
+    criterio que pattern_analysis.get_pattern_for_entity del lado del bot,
+    leído directo de knowledge.db -- son 2 repos separados).
+
+    Sesión 80 (3 sep 2026): el aviso directo de "falló el reinicio" vivía
+    aparte del filtro de crónico que ya aplica watch_guardian_nodes del bot
+    -- un equipo ya reconocido como crónico (ej. AP PASILLO HAB 701-702,
+    17 ocurrencias desde junio) igual interrumpía por esta vía. Mismo
+    umbral y misma tabla que usa el bot, solo de lectura."""
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{_CHRONIC_KNOWLEDGE_DB}?mode=ro", uri=True, timeout=3)
+        try:
+            row = con.execute(
+                "SELECT ocurrencias FROM patrones_detectados "
+                "WHERE estado='activo' AND entidad=? "
+                "ORDER BY fecha_deteccion DESC LIMIT 1",
+                (entidad_name,),
+            ).fetchone()
+        finally:
+            con.close()
+        return bool(row and (row[0] or 0) >= _CHRONIC_MIN_OCURRENCIAS)
+    except Exception:
+        return False
+
 # Límites de concurrencia — evitan saturar el pool de hilos y la red del sitio.
 SSH_SEM = asyncio.Semaphore(4)
 HC_SEM = asyncio.Semaphore(8)
@@ -566,16 +596,24 @@ def _persist_guardian_tick(
                 )
             except Exception:
                 pass
-            send_telegram_safe(
-                f"🚨 <b>PÉRDIDA DE SERVICIO</b> SHOMER\n"
-                f"<b>Equipo:</b> {reboot['dev_name']} ({reboot['ip']})\n"
-                f"<b>Error al reiniciar:</b> {msg}\n"
-                f"<b>Motivo:</b> {reboot['reason']} — {reboot['count']} fallos consecutivos"
-            )
-            log_event(
-                r, "error", "AUTO-REBOOT",
-                f"Fallo al reiniciar {reboot['dev_name']} ({reboot['ip']}): {msg}",
-            )
+            if _es_patron_cronico(reboot["dev_name"]):
+                log_event(
+                    r, "info", "AUTO-REBOOT",
+                    f"Fallo al reiniciar {reboot['dev_name']} ({reboot['ip']}): {msg} "
+                    f"— patrón crónico ya conocido, no se interrumpe por Telegram "
+                    f"(ver pendientes del bot)",
+                )
+            else:
+                send_telegram_safe(
+                    f"🚨 <b>PÉRDIDA DE SERVICIO</b> SHOMER\n"
+                    f"<b>Equipo:</b> {reboot['dev_name']} ({reboot['ip']})\n"
+                    f"<b>Error al reiniciar:</b> {msg}\n"
+                    f"<b>Motivo:</b> {reboot['reason']} — {reboot['count']} fallos consecutivos"
+                )
+                log_event(
+                    r, "error", "AUTO-REBOOT",
+                    f"Fallo al reiniciar {reboot['dev_name']} ({reboot['ip']}): {msg}",
+                )
 
     try:
         r.setex(
