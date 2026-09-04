@@ -1110,9 +1110,21 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
      junio (AP PASILLO HAB 701-702) igual interrumpía por este camino aparte. Corregido en
      `app/api/shomer_guardian_nodes.py` (`_es_patron_cronico()`, lee `knowledge.db` de solo
      lectura, mismo umbral que el bot).
-  Pendiente aparte, no atacado hoy (mencionado, no arreglado): el aviso "REINICIO EN PROGRESO"
-  (mismo archivo) tampoco respeta la opción 1 (auto-reboot exitoso no interrumpe) — es un
-  camino directo distinto al que se arregló en el bot. Revisar si hace falta.
+- **Auditoría de los 18 `send_telegram_safe()` directos de network_monitor (Sesión 80,
+  commit `0d83b4d`): 4 huecos más encontrados y cerrados, 14 revisados y están bien así.**
+  - **Opción 1** (auto-reboot exitoso no interrumpe): "REINICIO EN PROGRESO" se mandaba en 2
+    caminos de código distintos (poller por lotes y heartbeat individual) apenas se emitía el
+    comando de reinicio, sin saber si de verdad funcionó — ahora solo queda en `log_event`,
+    igual que ya hacía el bot; el bot avisa solo si sigue caído a los 3 min.
+  - **Opción 3** (patrón crónico no interrumpe): "CALIDAD DEGRADADA" y el "falló el reinicio"
+    del camino heartbeat (distinto del que ya se arregló, que era el del poller por lotes)
+    tampoco revisaban crónico. `_es_patron_cronico()` ahora acepta IP además de nombre
+    (resuelve el nombre desde `devices` si hace falta) — antes solo funcionaba si se tenía el
+    nombre a mano.
+  - **Revisados y correctos, sin tocar:** mantenimiento (global y por nodo, son cambios
+    humanos, no ruido automático), salud del servidor (RAM/CPU/WAN, ya con su propio cooldown
+    de 1h), reinicio manual (respuesta directa a una acción del técnico, debe avisar siempre),
+    reportes de caída masiva (ya con su propio dedup por causa/ventana).
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
