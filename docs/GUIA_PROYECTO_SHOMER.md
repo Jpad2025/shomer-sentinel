@@ -1,99 +1,36 @@
-# Guía de Proyecto — Shomer Sentinel (Lab Utah .205)
+# Guía de Proyecto — Shomer Sentinel
 
-## Para: Juan y Laura (Lala)
+> **Corregido 4 sep 2026** — esta guía describía un plan de repos/cuentas GitHub
+> y unos scripts (`deploy-all.sh`, `sync-from-opera.sh`) que ya no existen. El
+> proyecto evolucionó a un esquema distinto: git vive directamente en los 4
+> servidores, bajo una sola cuenta. Ver `CLAUDE.md` (network_monitor) y
+> `CHANGELOG.md` (shomer-agent) para el detalle sesión por sesión.
 
----
-
-## Resumen
+## Resumen (estado real, 4 sep 2026)
 
 | Elemento | Detalle |
 |----------|---------|
-| Servidor | Mini PC Utah — `192.168.1.205` / Tailscale `100.100.188.87` |
-| Panel Shomer | `/opt/network_monitor/` |
-| Bot Telegram | `/storage/shomer-agent/` |
-| GitHub dueño | `usbingenieria` (Laura administra) |
-| GitHub colaborador | `jpad2025` (Juan) |
-| Repo panel | https://github.com/usbingenieria/shomer-sentinel |
-| Repo bot | https://github.com/usbingenieria/shomer-agent |
+| Producción | Hotel Ópera — `shomer-hotelopera` (Tailscale `100.103.148.119`) |
+| Labs | `shomer205`, `shomer245`, `shomer243` — futuras instalaciones de clientes reales |
+| Panel (network_monitor) | `/opt/network_monitor/` en los 4 servidores |
+| Bot Telegram (shomer-agent) | `/storage/shomer-agent/` en los 4 servidores |
+| Cuenta GitHub | `Jpad2025` (Juan Pablo) — dueño de ambos repos |
+| Repo panel | `git@github.com:Jpad2025/shomer-sentinel.git` |
+| Repo bot | `git@github.com:jpad2025/shomer-agent.git` |
 
----
-
-## Infraestructura
-
-```
-PC Juan (Cursor)
-       │ SSH Remote
-       ▼
-Utah .205 (USB-SHOMER)  ← repos git aquí
-       │
-       │ deploy-all / sync-from-opera
-       ▼
-Opera, shomer245, shomer243  ← solo copias, sin git
-```
-
----
-
-## Repositorios GitHub (privados)
-
-Crear en https://github.com/usbingenieria (cuenta Laura):
-
-| Repo | Nombre | Vacío (sin README) |
-|------|--------|--------------------|
-| Panel | `shomer-sentinel` | Sí |
-| Bot | `shomer-agent` | Sí |
-
-Agregar `jpad2025` como colaborador en ambos (Settings → Collaborators).
-
----
-
-## Llave SSH Utah → GitHub
-
-En Utah (.205), la clave pública está en:
-
-```bash
-cat ~/.ssh/id_ed25519_github.pub
-```
-
-Subirla en GitHub → Settings → SSH keys → título: **USB-SHOMER-205**
-
----
-
-## Primer push (desde Utah)
-
-```bash
-# Panel
-cd /opt/network_monitor
-git push -u origin main
-
-# Bot
-cd /storage/shomer-agent
-git push -u origin main
-```
-
----
+**Los 4 servidores tienen git configurado directamente** (panel y bot), todos apuntando a la misma cuenta. No hay un servidor "maestro sin copias" — cualquiera puede tener cambios locales, por eso el flujo de trabajo diario es explícito (ver abajo).
 
 ## Comandos de trabajo diario
 
-| Acción | Comando |
-|--------|---------|
-| Cambiaste en Utah | `~/deploy-all.sh` |
-| Cambiaste en opera | `~/sync-from-opera.sh` → commit → `~/deploy-all.sh` |
-| Guardar en GitHub | `git add -A && git commit -m "..." && git push` |
+| Acción | Cómo |
+|--------|------|
+| Cambio en shomer-agent (bot) | Editar en el host → `git commit` + `git push` → `docker restart shomer-agent` (en ese host) → `bash tools/fleet_sync.sh` desde Ópera para propagar a los 3 labs |
+| Cambio en network_monitor (panel) | Editar en Ópera → `git commit` + `git push` → `sudo systemctl restart shomer-guardian` → `bash tools/deploy.sh` (excluye producción por defecto; requiere `SHOMER_DEPLOY_AUTHORIZED=1` para incluir Ópera) |
+| Ver estado real de un servidor | `ssh <host> "systemctl is-active shomer-guardian shomer-tools; sudo docker ps --filter name=shomer-agent"` |
 
----
+## Reglas
 
-## Reglas (igual que Vultr)
-
-- **NO** subir `.env`, bases de datos, tokens
-- **NO** commitear secretos de clientes
-- **NO** push a main sin avisar
-- Commits en español, mensajes claros
-
----
-
-## Cuentas GitHub
-
-| Persona | Cuenta | Rol |
-|---------|--------|-----|
-| Laura | `usbingenieria` | Dueña repos |
-| Juan | `jpad2025` | Colaborador |
+- **NO** subir `.env`, bases de datos, ni credenciales/tokens de clientes.
+- **NO** hacer push a `main` de producción sin avisar.
+- Commits en español, mensajes claros.
+- Antes de afirmar el estado de un servidor ("le falta X", "está pendiente Y"), **verificar en vivo por SSH** — la documentación puede estar desactualizada (misma lección aprendida en `EQUIPOS.md`).
