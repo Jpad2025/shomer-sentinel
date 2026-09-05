@@ -2,7 +2,16 @@
 
 **Fecha:** 24 jun 2026  
 **Alcance:** `inframonitor_poller.py`, `_poll_once()`, `_poller_tick()`, Redis, lógica offline, arquitectura 24/7  
-**Estado:** informe + plan de cambios propuesto — **sin implementar en código**  
+**Estado (verificado contra código real 4 sep 2026 — sesión 81 cont.):** plan de trabajo **parcialmente implementado**, no un informe cerrado. Detalle real por ítem:
+
+| Ítem | Estado real (4 sep 2026) |
+|------|--------------------------|
+| A.1 — reboot fuera del event loop | Hecho en 2 de 3 sitios (`shomer_guardian_nodes.py` líneas 1093, 1188) — **falta 1** (línea 594, sigue síncrono) |
+| A.2 — sondeo paralelo con semáforo | **Hecho** — `asyncio.gather` + semáforos (`SSH_SEM`, `HC_SEM`, `SNMP_SEM`) en uso |
+| A.3 — `KEYS` → `SCAN` | A medias — existe función `SCAN` (línea 240) pero `r.keys("status:*")` (línea 923) sigue en uso |
+| D.1 — heartbeat de poller | **A medias, esta era la parte pendiente real:** `guardian:poller:last_ok` / `infra:poller:last_ok` **sí se escriben** en Redis cada ciclo, pero **nada los vigilaba** hasta la sesión 81 cont. (4 sep 2026) — resuelto con `watch_poller_heartbeat` en `shomer-agent/core/monitor.py`. |
+| B, C, E, F | No verificado en esta pasada — pendiente de revisión si se retoma este plan |
+
 **Documento relacionado:** `docs/AUDITORIA_POLL_ONCE_INFRAMONITOR.md` (auditoría profunda solo de `_poll_once` + plan mínimo v1)
 
 ---

@@ -3,7 +3,7 @@
 **Archivo auditado:** `app/api/shomer_inframonitor.py` (función `_poll_once`, líneas ~665–880)  
 **Fecha auditoría:** 24 jun 2026  
 **Contexto:** ciclo cada 30 s; en Hotel Ópera ~52 equipos activos, ~9 con SNMP; poller standalone (`app/scripts/inframonitor_poller.py`) o embebido en Guardian si no hay `shomer-inframonitor-poller.service`.  
-**Estado:** solo informe — **sin cambios de código aplicados** en el momento de redactar este documento.
+**Estado (verificado contra código real 4 sep 2026 — sesión 81 cont.):** ver tabla de estado real por ítem en `AUDITORIA_POLLERS_CONSOLIDADA.md` — varios puntos de este plan **sí se implementaron** después de escrito este informe (no quedó "sin cambios" como decía originalmente).
 
 **Documento ampliado:** ver `AUDITORIA_POLLERS_CONSOLIDADA.md` — auditoría de `inframonitor_poller.py`, `_poller_tick()`, Redis, offline, 24/7, arquitectura y **plan de cambios completo** (Fases A–F).
 
@@ -449,4 +449,4 @@ await asyncio.sleep(max(0.1, POLL_INTERVAL_SEC - elapsed))
 - CLAUDE.md §AU — pool hilos, debounce bot, saturación poller Ópera
 - CLAUDE.md §BB — `record_status_event(conn=)`, guards `_init_tables`
 - CLAUDE.md §BC — ping 3 paquetes, `degraded`, `host_network_blip`
-- `docs/AUDITORIA_ASYNC_BLOQUEANTE.md` — patrón async + SQLite bloqueante
+- `docs/archivo/AUDITORIA_ASYNC_BLOQUEANTE.md` — patrón async + SQLite bloqueante (cerrado, archivado)
