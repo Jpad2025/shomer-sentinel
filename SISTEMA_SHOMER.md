@@ -73,7 +73,7 @@ Ruta base: `app/`.
 - **Canónico:** `STORAGE_DB` → `/storage/db/` con al menos:
   - `network_monitor.db` — Guardian, `system_state`, métricas, *infra_nodes*, *failsafe_state*, etc.
   - `inventory.db` — *assets*, *network_credentials*, *inventory_snapshots* (Tracker).
-- **No** depender de `/opt/network_monitor/database/` en entregas nuevas; documentación de réplica: `docs/RUTAS_Y_REPLICACION.md`.
+- **No** depender de `/opt/network_monitor/database/` en entregas nuevas — usar `/storage/db/` (canónico, ver arriba).
 - **Logs:** `/var/log/shomer/api.log` (8000), `tools_api.log` (8001), `tracker.log`, `protector.log`, etc.
 - **Restic / Protector:** repositorio y contraseña vía entorno o BD; no versionar secretos.
 - **Redis:** claves `status:*`, `failures:*`, mantenimiento `shomer_maintenance`, contadores de *degraded* / reboot — documentados en `CLAUDE.md` §10.
@@ -160,7 +160,6 @@ Reinicio limpio 8000/8001 (evitar *restart* ciego con huérfanos en puerto): par
 | `app/static/docs/Tracker_cuenta_servicio_inventario.md` | Cuenta de servicio / WMI / SSH en equipos del cliente. |
 | `app/static/docs/Hunter_pruebas_campo_checklist.md` | Checklist una página: espejo, Suricata, alerta de lab, Wazuh. |
 | `app/static/docs/Anexo_MikroTik_TFTP_OpenWrt.md` | Anexo **detallado** (p. ej. TFTP, OpenWrt en MikroTik). La guía prioritaria es `Instalacion_*`. |
-| `docs/MODULOS_INSTALADOS_ARCHIVOS_Y_URLS.md` | Referencia de URLs y módulos. |
 
 ---
 
