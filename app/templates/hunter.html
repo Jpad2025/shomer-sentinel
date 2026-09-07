@@ -515,6 +515,13 @@ tbody tr:last-child { border-bottom:none; }
           <button class="btn btn-red btn-sm" onclick="resetCircuitBreaker()" title="Resetear circuit breaker si el firewall fue inaccesible">⚡ Resetear Circuit Breaker</button>
           <span id="fw-sync-result" style="font-size:11px;color:var(--muted);"></span>
         </div>
+        <!-- 7 sep 2026 (re-auditoría Hunter): GET /remedies/firewall/status
+             ya existía y funcionaba, pero nada en el panel lo leía -- un
+             operador solo se enteraba de que el circuit breaker estaba
+             abierto cuando un bloqueo ya había fallado. -->
+        <div class="cfg-row">
+          <span id="fw-cb-status" style="font-size:12px;color:var(--muted);">Estado del firewall: cargando…</span>
+        </div>
       </div>
 
       <div class="cfg-section" id="hunter-wazuh-section">
@@ -898,13 +905,13 @@ tbody tr:last-child { border-bottom:none; }
           showToast('Error al revertir: ' + (d.detail || ''), 'error');
           return;
         }
-        if (d.firewall_ok === false) {
-          addLog('error', 'UNBLOCK', (d.message || 'Firewall no pudo quitar la regla') + ' — ' + ip);
-          showToast((d.message || 'Listado actualizado; el firewall pudo no haber quitado la regla.'), 'error');
-        } else {
-          addLog('success', 'UNBLOCK', `Bloqueo de ${ip} revertido en firewall`);
-          showToast(`${ip} desbloqueada`, 'success');
-        }
+        // 7 sep 2026 (re-auditoría Hunter): la rama "firewall_ok === false"
+        // que vivía acá quedó inalcanzable desde el fix de unblock_ip() --
+        // ahora el backend responde con error HTTP (ya cubierto arriba en
+        // "!r.ok") en vez de success:true + firewall_ok:false, así que un
+        // 200 acá siempre significa que el firewall sí quitó la regla.
+        addLog('success', 'UNBLOCK', `Bloqueo de ${ip} revertido en firewall`);
+        showToast(`${ip} desbloqueada`, 'success');
         const badge = document.getElementById('status-' + idx);
         if (badge) { badge.className = 'status-badge status-new'; badge.textContent = 'new'; }
       })
@@ -1065,7 +1072,10 @@ tbody tr:last-child { border-bottom:none; }
   function resetCircuitBreaker() {
     shomerFetch('/remedies/firewall/reset', { method: 'POST' })
       .then(r => r.json())
-      .then(d => showToast(d.message || 'Circuit breaker reseteado', d.success ? 'success' : 'error'))
+      .then(d => {
+        showToast(d.message || 'Circuit breaker reseteado', d.success ? 'success' : 'error');
+        if (typeof loadFirewallStatus === 'function') loadFirewallStatus();
+      })
       .catch(() => showToast('Error al resetear circuit breaker', 'error'));
   }
 
@@ -1470,11 +1480,32 @@ tbody tr:last-child { border-bottom:none; }
       .catch(() => showToast('Error de red', 'error'));
   }
 
-  // Cargar reglas al abrir la sección de configuración
+  // 7 sep 2026 (re-auditoría Hunter): estado del circuit breaker del
+  // firewall -- antes nadie lo leía en el panel.
+  function loadFirewallStatus() {
+    const el = document.getElementById('fw-cb-status');
+    if (!el) return;
+    shomerFetch('/remedies/firewall/status')
+      .then(r => r.json())
+      .then(d => {
+        if (!d.success) { el.textContent = 'Estado del firewall: no se pudo consultar'; return; }
+        if (d.circuit_open) {
+          el.innerHTML = `🔴 Circuit breaker ABIERTO (${d.fail_count}/${d.threshold} fallos) — el firewall no responde. Usá "Resetear Circuit Breaker" tras confirmar que ya es alcanzable.`;
+          el.style.color = '#f87171';
+        } else {
+          el.textContent = `✅ ${d.message || 'Firewall operativo'}`;
+          el.style.color = 'var(--muted)';
+        }
+      })
+      .catch(() => { el.textContent = 'Estado del firewall: error de red'; });
+  }
+
+  // Cargar reglas y estado del firewall al abrir la sección de configuración
   const _origToggleHunterConfig = window.toggleHunterConfig;
   window.toggleHunterConfig = function() {
     if (typeof _origToggleHunterConfig === 'function') _origToggleHunterConfig();
     loadSuricataRules();
+    loadFirewallStatus();
   };
 
   // ── Toggle Hunter (Suricata) ─────────────────────────────────────────

@@ -520,10 +520,15 @@ async def list_blocked(user=Depends(get_current_user)):
 async def list_history(limit: int = 200, user=Depends(get_current_user)):
     """Historial de IPs que ya fueron desbloqueadas (unblocked_at IS NOT NULL).
 
+    7 sep 2026 (re-auditoría Hunter): `limit` sin validar -- SQLite
+    interpreta LIMIT -1 como "sin límite", así que ?limit=-1 devolvía la
+    tabla completa. Acotado a [1, 1000].
+
     7 sep 2026 (auditoría Hunter): UNION con blocked_ips_history -- si una IP
     se reincidió y se volvió a bloquear, su ciclo anterior quedó archivado
     ahí (ver _write_block_row) en vez de perderse.
     """
+    limit = max(1, min(int(limit), 1000))
     try:
         with get_connection(timeout=10) as conn:
             rows = conn.execute(
@@ -754,8 +759,11 @@ async def hunter_stats(user=Depends(get_current_user)):
             for r in rows:
                 k = (r["blocked_by"] or "manual").strip().lower()
                 by_origin[k] = by_origin.get(k, 0) + 1
-    except Exception:
-        pass
+    except Exception as e:
+        # 7 sep 2026 (re-auditoría Hunter): un error real de BD acá quedaba
+        # invisible -- el panel mostraba "0 bloqueos activos" (parece buena
+        # noticia) en vez de reflejar que la consulta falló.
+        _log.warning("hunter_stats: no se pudo leer blocked_ips: %s", e)
 
     # Alertas hoy desde EVE (archivo completo — sin tope 2000 del tail)
     alerts_today = 0
