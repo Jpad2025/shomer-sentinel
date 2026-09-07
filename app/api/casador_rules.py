@@ -13,6 +13,7 @@ from app.api.casador_support import (
     _ensure_local_rules_file,
     _next_local_sid,
     _parse_local_rules,
+    _reload_suricata,
 )
 
 router = APIRouter()
@@ -59,7 +60,16 @@ async def add_suricata_rule(body: Dict[str, Any] = Body(...), user=Depends(get_c
     try:
         with open(SURICATA_LOCAL_RULES, "a") as f:
             f.write(f"\n{raw_rule}\n")
-        return {"success": True, "message": "Regla agregada", "rule": raw_rule}
+        # 7 sep 2026 (auditoría Hunter): _reload_suricata() existía y
+        # funcionaba pero nunca se llamaba desde acá -- una regla agregada
+        # quedaba inerte (Suricata no la aplicaba) hasta que alguien
+        # llamara manualmente a /remedies/rules/reload.
+        reloaded = _reload_suricata()
+        return {
+            "success": True,
+            "message": "Regla agregada" + ("" if reloaded else " (recarga de Suricata falló, aplicar manualmente)"),
+            "rule": raw_rule,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -79,6 +89,7 @@ async def delete_suricata_rule(
             raise HTTPException(status_code=404, detail=f"SID {sid} no encontrado")
         with open(SURICATA_LOCAL_RULES, "w") as f:
             f.writelines(new_lines)
+        _reload_suricata()
         return {"success": True, "message": f"Regla SID {sid} eliminada"}
     except HTTPException:
         raise
@@ -117,6 +128,7 @@ async def toggle_suricata_rule(
             raise HTTPException(status_code=404, detail=f"SID {sid} no encontrado")
         with open(SURICATA_LOCAL_RULES, "w") as f:
             f.writelines(new_lines)
+        _reload_suricata()
         return {
             "success": True,
             "message": f"SID {sid} {'activado' if enabled else 'desactivado'}",

@@ -27,7 +27,14 @@ async def _mikrotik_block(ip: str) -> tuple[bool, str]:
             known_hosts=None,
             connect_timeout=connect_timeout,
         ) as conn:
-            result = await conn.run(f"iptables -I FORWARD -s {ip} -j DROP", timeout=run_timeout)
+            # 7 sep 2026 (auditoría Hunter): antes era un "-I" sin chequeo
+            # previo -- misma condición de carrera que _mikrotik_sync_block
+            # ya evita con "-C ... || -I ...". Dos llamadas casi simultáneas
+            # a la misma IP (panel + poller Wazuh, por ejemplo) podían
+            # apilar reglas DROP duplicadas; un solo "-D" al desbloquear
+            # solo quita una, dejando la IP bloqueada igual.
+            cmd = f"iptables -C FORWARD -s {ip} -j DROP 2>/dev/null || iptables -I FORWARD -s {ip} -j DROP"
+            result = await conn.run(cmd, timeout=run_timeout)
             if result.exit_status != 0:
                 err = (result.stderr or "").strip()
                 opened = _cb_record_failure()
@@ -107,7 +114,14 @@ async def _mikrotik_unblock(ip: str) -> tuple[bool, str]:
             known_hosts=None,
             connect_timeout=connect_timeout,
         ) as conn:
-            result = await conn.run(f"iptables -D FORWARD -s {ip} -j DROP", timeout=run_timeout)
+            # 7 sep 2026 (auditoría Hunter): "-D" solo quita UNA regla que
+            # coincida -- si _mikrotik_block() llegó a apilar duplicados
+            # (ver fix arriba), un solo -D dejaba la IP bloqueada en la red
+            # real mientras la BD la marcaba como desbloqueada. El bucle
+            # quita todas las copias; "|| true" para que no falle cuando ya
+            # no queda ninguna.
+            cmd = f"while iptables -D FORWARD -s {ip} -j DROP 2>/dev/null; do :; done; true"
+            result = await conn.run(cmd, timeout=run_timeout)
             if result.exit_status != 0:
                 err = (result.stderr or "").strip()
                 return False, f"iptables error (exit {result.exit_status}): {err}"

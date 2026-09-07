@@ -146,6 +146,24 @@ async def execute_hunter_block(
     integration_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Bloqueo central — panel, Wazuh, poller servidor y bot."""
+    # 7 sep 2026 (auditoría Hunter): antes solo la ruta HTTP manual validaba
+    # el formato de la IP con ipaddress.ip_address() -- esta función central
+    # (compartida con el poller automático, que toma src_ip directo de
+    # eve.json sin validar) no lo hacía. Esa IP termina en un comando de
+    # shell remoto por SSH (iptables/RouterOS) -- sin este chequeo, un
+    # src_ip malformado en el log de Suricata sería ejecución de comandos
+    # en el firewall real. Defensa en profundidad, no una explotación
+    # confirmada (Suricata no emite esto hoy), pero es la única barrera.
+    try:
+        import ipaddress as _ipaddress
+        _ipaddress.ip_address(ip)
+    except ValueError:
+        return {
+            "success": False,
+            "detail": f"Formato de IP inválido: {ip!r}",
+            "_http_status": 400,
+        }
+
     blocked_by = (blocked_by or "manual").strip().lower()
     if blocked_by not in ("manual", "auto", "wazuh"):
         blocked_by = "manual"
@@ -185,6 +203,14 @@ async def execute_hunter_block(
 
     # Defensa en backend: el autobloqueo NO depende solo del frontend.
     if blocked_by == "auto":
+        # 7 sep 2026 (auditoría Hunter): antes el contador de recurrencia
+        # (más abajo) se incrementaba ANTES de este chequeo -- una IP ya
+        # bloqueada que sigue generando alertas (tráfico que llega y se
+        # dropea, pero que Suricata ya registró) seguía inflando el
+        # contador de recurrencia sin ningún efecto real, solo ruido en
+        # las estadísticas.
+        if _is_blocked(ip):
+            return {"success": False, "skipped": True, "detail": "Ya bloqueada", "already_blocked": True}
         policy = _auto_block_policy()
         if not policy["enabled"]:
             return {
@@ -266,6 +292,19 @@ async def execute_hunter_block(
 
     def _write_block_row():
         with get_connection(timeout=10) as conn:
+            # 7 sep 2026 (auditoría Hunter): archivar la fila cerrada
+            # existente ANTES de que INSERT OR REPLACE la borre -- ip es
+            # UNIQUE en blocked_ips, así que re-bloquear un reincidente
+            # destruía su historial de bloqueos/desbloqueos anteriores.
+            conn.execute(
+                """
+                INSERT INTO blocked_ips_history
+                    (ip, blocked_at, blocked_by, alert_sid, alert_signature, severity, unblocked_at, firewall_blocked)
+                SELECT ip, blocked_at, blocked_by, alert_sid, alert_signature, severity, unblocked_at, firewall_blocked
+                FROM blocked_ips WHERE ip = ? AND unblocked_at IS NOT NULL
+                """,
+                (ip,),
+            )
             conn.execute(
                 "INSERT OR REPLACE INTO blocked_ips (ip, blocked_at, blocked_by, alert_sid, alert_signature, severity, firewall_blocked) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
@@ -393,6 +432,17 @@ async def unblock_ip(body: Dict[str, Any] = Body(...), user=Depends(get_current_
 
     ok, msg = await _fw_unblock(ip)
 
+    # 7 sep 2026 (auditoría Hunter): antes esto marcaba unblocked_at aunque
+    # el firewall hubiera rechazado el comando -- la IP quedaba bloqueada
+    # de verdad en la red pero desaparecía de /remedies/blocked, así que
+    # nadie podía volver a encontrarla para reintentar. Asimétrico con
+    # block_ip(), que sí se niega a escribir la BD si el firewall falla.
+    if not ok:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Firewall rechazó el desbloqueo — IP sigue bloqueada en la red: {msg}",
+        )
+
     try:
         with get_connection(timeout=10) as conn:
             conn.execute(
@@ -441,12 +491,23 @@ async def list_blocked(user=Depends(get_current_user)):
 
 @router.get("/history")
 async def list_history(limit: int = 200, user=Depends(get_current_user)):
-    """Historial de IPs que ya fueron desbloqueadas (unblocked_at IS NOT NULL)."""
+    """Historial de IPs que ya fueron desbloqueadas (unblocked_at IS NOT NULL).
+
+    7 sep 2026 (auditoría Hunter): UNION con blocked_ips_history -- si una IP
+    se reincidió y se volvió a bloquear, su ciclo anterior quedó archivado
+    ahí (ver _write_block_row) en vez de perderse.
+    """
     try:
         with get_connection(timeout=10) as conn:
             rows = conn.execute(
-                "SELECT ip, blocked_at, unblocked_at, blocked_by, alert_signature, severity, firewall_blocked "
-                "FROM blocked_ips WHERE unblocked_at IS NOT NULL ORDER BY unblocked_at DESC LIMIT ?",
+                """
+                SELECT ip, blocked_at, unblocked_at, blocked_by, alert_signature, severity, firewall_blocked
+                FROM blocked_ips WHERE unblocked_at IS NOT NULL
+                UNION ALL
+                SELECT ip, blocked_at, unblocked_at, blocked_by, alert_signature, severity, firewall_blocked
+                FROM blocked_ips_history
+                ORDER BY unblocked_at DESC LIMIT ?
+                """,
                 (limit,),
             ).fetchall()
         from app.api.hunter_signature_labels import enrich_hunter_row
@@ -474,8 +535,14 @@ async def export_history_csv(user=Depends(get_current_user)):
     try:
         with get_connection(timeout=10) as conn:
             rows = conn.execute(
-                "SELECT ip, blocked_at, unblocked_at, blocked_by, alert_signature, severity, firewall_blocked "
-                "FROM blocked_ips WHERE unblocked_at IS NOT NULL ORDER BY unblocked_at DESC"
+                """
+                SELECT ip, blocked_at, unblocked_at, blocked_by, alert_signature, severity, firewall_blocked
+                FROM blocked_ips WHERE unblocked_at IS NOT NULL
+                UNION ALL
+                SELECT ip, blocked_at, unblocked_at, blocked_by, alert_signature, severity, firewall_blocked
+                FROM blocked_ips_history
+                ORDER BY unblocked_at DESC
+                """
             ).fetchall()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -615,8 +682,13 @@ async def firewall_sync(user=Depends(get_current_user)):
                     (1 if ok else 0, ip),
                 )
                 conn.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            # 7 sep 2026 (auditoría Hunter): antes se tragaba en silencio --
+            # el sync podía reportar éxito general mientras la bandera
+            # firewall_blocked de esta IP puntual quedaba desactualizada,
+            # sin ningún rastro de que la escritura a BD falló.
+            _log.warning("firewall_sync: no se pudo actualizar firewall_blocked para %s: %s", ip, e)
+            errors.append({"ip": ip, "error": f"Sync OK pero no se pudo guardar en BD: {e}"})
 
     total = len(rows)
     cb_open = skipped > 0
@@ -668,12 +740,18 @@ async def hunter_stats(user=Depends(get_current_user)):
         pass
 
     # Alta recurrencia activa (claves hunter:rec:* en Redis)
+    # 7 sep 2026 (auditoría Hunter): el patrón "*.*.*.*" intentaba matchear
+    # la forma de una IPv4, pero el glob de Redis no entiende esa
+    # estructura -- "*" también matchea ":", así que las claves de
+    # anti-spam de aviso (hunter:rec:warn:<ip>:<sid>, escritas por
+    # casador_support_hunter_recurrence.py) también entraban en el conteo,
+    # duplicando el número de "IPs con alta recurrencia" en el panel.
     high_rec_ips = 0
     try:
         r = _get_redis()
         if r:
-            keys = r.keys("hunter:rec:*.*.*.*:*")
-            high_rec_ips = len(keys) if keys else 0
+            keys = r.keys("hunter:rec:*")
+            high_rec_ips = sum(1 for k in (keys or []) if not str(k).startswith("hunter:rec:warn:"))
     except Exception:
         pass
 

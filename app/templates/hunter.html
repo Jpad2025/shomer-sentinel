@@ -586,6 +586,46 @@ tbody tr:last-child { border-bottom:none; }
         </div>
       </div>
 
+      <!-- Reglas Suricata personalizadas -->
+      <!-- 7 sep 2026 (auditoría Hunter): esta sección no existía -- el JS
+           (loadSuricataRules, addSuricataRule, etc.) ya estaba escrito
+           esperando estos elementos, pero nunca se construyó el HTML.
+           Abrir "Configuración Hunter" tiraba un error de JS de inmediato
+           porque #suricata-rules-list no existía. -->
+      <div class="cfg-section">
+        <div class="cfg-section-title">Reglas Suricata personalizadas</div>
+        <p style="font-size:11px;color:var(--muted);line-height:1.45;max-width:640px;">
+          Reglas propias además de las oficiales de Emerging Threats. Formato Suricata:
+          <code>action proto src_ip src_port -&gt; dst_ip dst_port (opciones)</code>.
+        </p>
+        <div id="suricata-rules-list" style="margin:8px 0;"></div>
+        <div class="cfg-row" style="gap:8px;">
+          <button class="btn btn-outline btn-sm btn-cfg-save" onclick="document.getElementById('rule-form').style.display='flex'">+ Nueva Regla</button>
+          <button class="btn btn-outline btn-sm" onclick="reloadSuricata()" title="Recargar Suricata manualmente (ya se recarga solo al agregar/borrar/activar)">↺ Recargar Suricata</button>
+        </div>
+        <div id="rule-form" style="display:none;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:6px;">
+          <select id="rule-action" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:12px;">
+            <option value="alert">alert</option>
+            <option value="drop">drop</option>
+            <option value="reject">reject</option>
+            <option value="pass">pass</option>
+          </select>
+          <select id="rule-proto" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:12px;">
+            <option value="tcp">tcp</option>
+            <option value="udp">udp</option>
+            <option value="icmp">icmp</option>
+            <option value="http">http</option>
+          </select>
+          <input type="text" id="rule-src" placeholder="src (any)" style="width:110px;">
+          <input type="text" id="rule-dst" placeholder="dst (any)" style="width:110px;">
+          <input type="text" id="rule-port" placeholder="puerto (any)" style="width:90px;">
+          <input type="text" id="rule-msg" placeholder="Mensaje de alerta (obligatorio)" style="width:220px;">
+          <input type="text" id="rule-content" placeholder="content (opcional)" style="width:160px;">
+          <button class="btn btn-outline btn-sm btn-cfg-save" onclick="addSuricataRule()">Guardar Regla</button>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('rule-form').style.display='none'">Cancelar</button>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -664,6 +704,15 @@ tbody tr:last-child { border-bottom:none; }
 
   // ── Build table ───────────────────────────────────────
   const _alertsData = [];
+  // 7 sep 2026 (auditoría Hunter): fetchAlerts() corre cada 30s y re-renderiza
+  // la misma cola de alertas recientes -- sin este dedup, autoBlock() se
+  // reenviaba para la MISMA alerta en cada ciclo. Con el umbral de
+  // reincidencia por defecto (3 en 10 min), 90 segundos con la pestaña
+  // abierta bastaban para "cumplir" el umbral con una sola alerta real,
+  // no un ataque sostenido como se diseñó la política. Set en memoria de
+  // sesión del navegador (no persiste, no hace falta -- si se recarga la
+  // página es una sesión de vigilancia nueva).
+  const _autoBlockAttempted = new Set();
 
   function buildAlertsTable(alerts) {
     const tbody = document.querySelector('#alerts-table tbody');
@@ -689,7 +738,9 @@ tbody tr:last-child { border-bottom:none; }
       const isBlocked = a.is_blocked || false;
 
       // Auto-bloqueo según política cargada desde /config/system
-      if (_shouldAutoBlock(a) && !isBlocked) {
+      const _abKey = `${a.src_ip}|${a.sid}|${a.timestamp}`;
+      if (_shouldAutoBlock(a) && !isBlocked && !_autoBlockAttempted.has(_abKey)) {
+        _autoBlockAttempted.add(_abKey);
         autoBlock(a.src_ip, a.sid, a.signature, a.severity);
       }
 
@@ -1316,6 +1367,16 @@ tbody tr:last-child { border-bottom:none; }
     .catch(function () { _applyWazuhDashboardButtonHref(); });
 
   /* ── Reglas Suricata ─────────────────────────────────────── */
+  // 7 sep 2026 (auditoría Hunter): rule.raw/rule.msg vienen de texto que un
+  // técnico escribió (msg / content del formulario) y se interpolaban sin
+  // escapar -- un rule.msg real siempre trae msg:"..." con comillas, que
+  // cerraba el atributo title="" antes de tiempo y rompía el markup.
+  function _escAttr(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
   function loadSuricataRules() {
     const container = document.getElementById('suricata-rules-list');
     container.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:6px;">Cargando…</div>';
@@ -1329,7 +1390,7 @@ tbody tr:last-child { border-bottom:none; }
         container.innerHTML = data.rules.map(rule => `
           <div class="rule-row ${rule.enabled ? '' : 'disabled'}" id="rule-${rule.sid}">
             <span class="rule-sid">SID ${rule.sid || '—'}</span>
-            <span class="rule-msg" title="${rule.raw}">${rule.msg}</span>
+            <span class="rule-msg" title="${_escAttr(rule.raw)}">${_escAttr(rule.msg)}</span>
             <button class="rule-toggle ${rule.enabled ? 'on' : ''}"
               onclick="toggleRule(${rule.sid}, ${!rule.enabled})">
               ${rule.enabled ? 'ON' : 'OFF'}
@@ -1458,13 +1519,18 @@ tbody tr:last-child { border-bottom:none; }
       const d = await r.json();
       if (d.success) {
         _updateHunterToggleUI(d.enabled, d.running);
-        addLog(d.message, d.enabled ? 'success' : 'warning');
+        // 7 sep 2026 (auditoría Hunter): addLog(level, source, msg) --
+        // estas 6 llamadas en esta función y en toggleAutoblock() traían
+        // los argumentos invertidos (msg en el lugar de level), así que
+        // las 2 acciones más sensibles de la página (activar/desactivar
+        // Suricata y autobloqueo) quedaban en el log como "undefined".
+        addLog(d.enabled ? 'success' : 'warning', 'HUNTER', d.message);
       } else {
-        addLog('Error: ' + (d.error || 'desconocido'), 'error');
+        addLog('error', 'HUNTER', 'Error: ' + (d.error || 'desconocido'));
         await loadHunterToggleStatus();
       }
     } catch(e) {
-      addLog('Error de conexión', 'error');
+      addLog('error', 'HUNTER', 'Error de conexión');
       await loadHunterToggleStatus();
     } finally {
       btn.disabled = false;
@@ -1511,17 +1577,18 @@ tbody tr:last-child { border-bottom:none; }
       if (d.success) {
         _updateAutoblockToggleUI(next);
         addLog(
-          next ? 'Seguro Hunter (autobloqueo) ACTIVADO' : 'Seguro Hunter (autobloqueo) desactivado',
-          next ? 'success' : 'warning'
+          next ? 'success' : 'warning',
+          'AUTO-BLOCK',
+          next ? 'Seguro Hunter (autobloqueo) ACTIVADO' : 'Seguro Hunter (autobloqueo) desactivado'
         );
         showToast(next ? 'Autobloqueo activado' : 'Autobloqueo desactivado', next ? 'success' : 'warning');
       } else {
         showToast('Error al cambiar autobloqueo', 'error');
-        addLog('Error al cambiar autobloqueo', 'error');
+        addLog('error', 'AUTO-BLOCK', 'Error al cambiar autobloqueo');
       }
     } catch (e) {
       showToast('Error de red', 'error');
-      addLog('Error de conexión al cambiar autobloqueo', 'error');
+      addLog('error', 'AUTO-BLOCK', 'Error de conexión al cambiar autobloqueo');
     } finally {
       btn.disabled = false;
     }
