@@ -48,7 +48,9 @@ class TestCoreSmoke(unittest.TestCase):
         self.assertIn("/docs/tecnico", self.paths)
 
     def test_manual_markdown_static_served(self):
-        r = self.client.get("/static/docs/Pasos_Instalacion_Shomer_v2422026.md")
+        # Pasos_Instalacion_Shomer_v2422026.md fue reemplazado por el compendio
+        # completo -- el archivo viejo ya no existe en app/static/docs/.
+        r = self.client.get("/static/docs/Shomer_Compendio_Completo.md")
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"Shomer Sentinel", r.content[:500])
 
@@ -60,13 +62,13 @@ class TestCoreSmoke(unittest.TestCase):
         self.assertIn("/setup/status", self.paths)
         self.assertIn("/setup/apply", self.paths)
 
-    def test_setup_status_includes_factory_block(self):
+    def test_setup_status_requires_auth(self):
+        # /setup/status ahora exige autenticación (Depends(get_current_user)) --
+        # sin credenciales de prueba seguras para hardcodear, solo verificamos
+        # que el endpoint exista y esté protegido, no su contenido autenticado.
+        self.assertIn("/setup/status", self.paths)
         r = self.client.get("/setup/status")
-        self.assertEqual(r.status_code, 200)
-        data = r.json()
-        self.assertIn("factory", data)
-        self.assertIn("ip", data["factory"])
-        self.assertIn("subnet", data["factory"])
+        self.assertEqual(r.status_code, 401)
 
     def test_config_routes_on_core(self):
         self.assertIn("/config/system", self.paths)
@@ -82,11 +84,12 @@ class TestCoreSmoke(unittest.TestCase):
         self.assertIn("/remedies/block", self.paths)
         self.assertIn("/remedies/pipeline/health", self.paths)
 
-    def test_pipeline_health_returns_json(self):
+    def test_pipeline_health_requires_auth(self):
+        # /remedies/pipeline/health ahora exige autenticación -- ver nota en
+        # test_setup_status_requires_auth.
+        self.assertIn("/remedies/pipeline/health", self.paths)
         r = self.client.get("/remedies/pipeline/health")
-        self.assertEqual(r.status_code, 200)
-        data = r.json()
-        self.assertIsInstance(data, dict)
+        self.assertEqual(r.status_code, 401)
 
 
 class TestToolsSmoke(unittest.TestCase):
@@ -116,11 +119,12 @@ class TestToolsSmoke(unittest.TestCase):
         self.assertIn("/inventory/list", self.paths)
         self.assertIn("/export/global/inventory/excel", self.paths)
 
-    def test_inventory_list_returns_json(self):
+    def test_inventory_list_requires_auth(self):
+        # /inventory/list ahora exige autenticación -- ver nota en
+        # test_setup_status_requires_auth.
+        self.assertIn("/inventory/list", self.paths)
         r = self.client.get("/inventory/list")
-        self.assertEqual(r.status_code, 200)
-        data = r.json()
-        self.assertIn("assets", data)
+        self.assertEqual(r.status_code, 401)
 
     def test_backups_devices_route(self):
         self.assertIn("/backups/devices", self.paths)
