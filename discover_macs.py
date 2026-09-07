@@ -1,4 +1,4 @@
-"""
+"""Descubre y actualiza direcciones MAC de dispositivos activos vía ping + tabla ARP."""
 import sys
 import os
 import subprocess
