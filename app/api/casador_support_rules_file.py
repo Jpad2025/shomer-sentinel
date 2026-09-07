@@ -58,13 +58,24 @@ def _parse_local_rules() -> List[Dict]:
             if stripped.startswith("#"):
                 inner = stripped[1:].strip()
                 # 7 sep 2026 (auditoría Hunter): las 2 líneas de encabezado
-                # del archivo (comentarios descriptivos, sin "->") pasaban
-                # este chequeo y se mostraban como reglas fantasma con
+                # del archivo se mostraban como reglas fantasma con
                 # sid=None -- sus botones de encender/borrar apuntaban a
-                # /remedies/rules/null (422). Una regla Suricata real
-                # siempre tiene el operador de dirección "->"; un comentario
-                # descriptivo normal no.
-                if not inner or inner.startswith("#") or "->" not in inner:
+                # /remedies/rules/null (422).
+                #
+                # 7 sep 2026, re-auditoría: el primer fix solo exigía "->",
+                # pero la SEGUNDA línea del encabezado ("Formato Suricata:
+                # ... -> ...") también contiene esa flecha como parte del
+                # texto explicativo -- seguía colándose. Una regla Suricata
+                # real (y toda regla que este mismo código genera, ver
+                # casador_rules.py) siempre trae "sid:NNNN"; un comentario
+                # descriptivo, aunque mencione "->", no. Exigir ambos
+                # elimina las 2 líneas de encabezado sin excepción.
+                if (
+                    not inner
+                    or inner.startswith("#")
+                    or "->" not in inner
+                    or not re.search(r"\bsid\s*:\s*\d+", inner)
+                ):
                     continue
                 content = inner
                 enabled = False

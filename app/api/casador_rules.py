@@ -38,13 +38,31 @@ async def add_suricata_rule(body: Dict[str, Any] = Body(...), user=Depends(get_c
     raw_rule = (body.get("rule") or "").strip()
 
     if not raw_rule:
+        # 7 sep 2026 (re-auditoría Hunter): esta rama construye la regla
+        # desde campos sueltos del formulario del panel -- sin whitelist en
+        # action/proto ni escape en msg/content, un técnico podía escribir
+        # texto libre (comillas sin cerrar, saltos de línea) directo en el
+        # archivo de reglas de Suricata, generando una regla corrupta o
+        # partiendo el archivo en líneas inválidas. El camino "rule" crudo
+        # de más abajo (pegar una regla Suricata completa) sigue sin
+        # restricción a propósito -- ese SÍ necesita sintaxis libre.
+        _VALID_ACTIONS = {"alert", "drop", "reject", "pass"}
+        _VALID_PROTOS = {"tcp", "udp", "icmp", "http", "tls", "dns", "ssh", "ftp", "smtp"}
+
+        def _clean(s: str, max_len: int) -> str:
+            return re.sub(r'[\r\n"]', "", str(s or "")).strip()[:max_len]
+
         action = body.get("action", "alert")
         proto = body.get("proto", "tcp")
-        src = body.get("src", "any")
-        dst = body.get("dst", "any")
-        port = body.get("port", "any")
-        msg = body.get("msg", "Regla Shomer")
-        content = body.get("content", "").strip()
+        if action not in _VALID_ACTIONS:
+            raise HTTPException(status_code=400, detail=f"action inválida: {action!r}")
+        if proto not in _VALID_PROTOS:
+            raise HTTPException(status_code=400, detail=f"proto inválido: {proto!r}")
+        src = _clean(body.get("src", "any"), 100) or "any"
+        dst = _clean(body.get("dst", "any"), 100) or "any"
+        port = _clean(body.get("port", "any"), 40) or "any"
+        msg = _clean(body.get("msg", "Regla Shomer"), 200) or "Regla Shomer"
+        content = _clean(body.get("content", ""), 200)
         sid = _next_local_sid()
 
         content_opt = f' content:"{content}";' if content else ""

@@ -115,12 +115,27 @@ async def _mikrotik_unblock(ip: str) -> tuple[bool, str]:
             connect_timeout=connect_timeout,
         ) as conn:
             # 7 sep 2026 (auditoría Hunter): "-D" solo quita UNA regla que
-            # coincida -- si _mikrotik_block() llegó a apilar duplicados
-            # (ver fix arriba), un solo -D dejaba la IP bloqueada en la red
-            # real mientras la BD la marcaba como desbloqueada. El bucle
-            # quita todas las copias; "|| true" para que no falle cuando ya
-            # no queda ninguna.
-            cmd = f"while iptables -D FORWARD -s {ip} -j DROP 2>/dev/null; do :; done; true"
+            # coincida -- si _mikrotik_block() llegó a apilar duplicados,
+            # un solo -D dejaba la IP bloqueada en la red real mientras la
+            # BD la marcaba como desbloqueada. El bucle quita todas las
+            # copias.
+            #
+            # 7 sep 2026, re-auditoría: la primera versión de este fix tenía
+            # un "; true" al final -- eso hace que el comando SIEMPRE
+            # devuelva éxito, sin importar si iptables realmente falló
+            # (permiso denegado, comando no encontrado, etc.), anulando el
+            # fix de unblock_ip() que depende de este resultado para decidir
+            # si tocar la BD. Probado en local con un iptables simulado: la
+            # versión de abajo distingue correctamente "ya no hay más
+            # reglas que coincidan" (mensaje "Bad rule...", éxito real) de
+            # cualquier otro error (permiso denegado, comando no
+            # encontrado, etc. -- falla real, con el mensaje intacto).
+            cmd = (
+                f'out=$(iptables -D FORWARD -s {ip} -j DROP 2>&1); rc=$?; '
+                f'while [ $rc -eq 0 ]; do out=$(iptables -D FORWARD -s {ip} -j DROP 2>&1); rc=$?; done; '
+                f'if echo "$out" | grep -qi "bad rule\\|does a matching rule exist"; then exit 0; '
+                f'else echo "$out" >&2; exit 1; fi'
+            )
             result = await conn.run(cmd, timeout=run_timeout)
             if result.exit_status != 0:
                 err = (result.stderr or "").strip()
