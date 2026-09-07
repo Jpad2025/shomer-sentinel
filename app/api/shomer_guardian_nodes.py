@@ -49,6 +49,7 @@ from app.api.shomer_guardian_lib import (
     _redis_bool,
     _run_ssh_reboot,
     _save_node_data_redis,
+    is_network_unreachable_error,
 )
 from app.api.shomer_status_events import _context_snapshots, record_status_event
 from app.api.shomer_network_blip import evaluate_host_network_blip_async, metrics_to_status
@@ -466,6 +467,44 @@ def _build_node_outcome(
                     f"({new_streak} ticks sostenidos)"
                 )
                 outcome["log_events"].append(("warning", "DEGRADED", f"Nodo {ip} degradado: {reason}"))
+
+        # Reinicio preventivo (7 sep 2026): un equipo "offline" ya no tiene
+        # ninguna ruta de red -- SSH no puede llegarle, punto (confirmado
+        # revisando por que la mayoria de los AUTO-REBOOT reales fallan con
+        # "Connection timed out"/"No route to host": is_router=False para
+        # un AP significa que su UNICO camino a offline es 0% de respuesta
+        # LAN, ahi ya es tarde). Mientras sigue en "degraded" SI hay
+        # conectividad parcial -- es la unica ventana real donde un reinicio
+        # por software tiene chance de funcionar antes de que sea demasiado
+        # tarde. Cuenta aparte de `failures`/threshold (el camino de offline
+        # no se toca) para no interferir con esa logica ya probada; mismo
+        # cooldown/fail_retry anti-bucle que ya usa el reinicio por offline.
+        preventive_ticks = int(health_cfg.get("degraded_preventive_reboot_ticks") or 0)
+        if (
+            preventive_ticks > 0
+            and new_streak >= preventive_ticks
+            and not global_maint
+            and not redis_snap.get("node_maint")
+            and not host_network_blip
+        ):
+            now_ts = int(datetime.utcnow().timestamp())
+            last_raw = redis_snap.get("last_reboot")
+            last_attempt = redis_snap.get("last_reboot_attempt")
+            cooldown_ok = not (last_raw and now_ts - int(last_raw) < cooldown)
+            retry_ok = not (last_attempt and now_ts - int(last_attempt) < fail_retry)
+            if cooldown_ok and retry_ok:
+                reboot_via = "SNMP" if dev.get("reboot_method") == "snmp" else "SSH"
+                outcome["reboot"] = {
+                    "ip": ip,
+                    "dev_name": dev_name,
+                    "reason": f"preventivo — degradado sostenido: {reason}",
+                    "count": new_streak,
+                    "reboot_via": reboot_via,
+                    "lr_key": f"{LAST_REBOOT_KEY_PREFIX}{ip}",
+                    "attempt_key": f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}",
+                    "now_ts": now_ts,
+                    "fail_retry": fail_retry,
+                }
         outcome["tick_result"] = {"ip": ip, "status": "degraded", "latency_ms": lat_ms}
         return outcome
 
@@ -628,12 +667,26 @@ def _persist_guardian_tick(
                     f"(ver pendientes del bot)",
                 )
             else:
-                send_telegram_safe(
-                    f"🚨 <b>PÉRDIDA DE SERVICIO</b> SHOMER\n"
-                    f"<b>Equipo:</b> {reboot['dev_name']} ({reboot['ip']})\n"
-                    f"<b>Error al reiniciar:</b> {msg}\n"
-                    f"<b>Motivo:</b> {reboot['reason']} — {reboot['count']} fallos consecutivos"
-                )
+                # 7 sep 2026: sin ruta de red, ni SSH ni SNMP le llegan al
+                # equipo -- no tiene caso sonar a que el software puede
+                # seguir intentando y quizas lo resuelva solo. Ver
+                # is_network_unreachable_error() y CLAUDE.md §D.3.
+                if is_network_unreachable_error(msg):
+                    send_telegram_safe(
+                        f"🔌 <b>SIN RUTA DE RED — REQUIERE ATENCIÓN FÍSICA</b> SHOMER\n"
+                        f"<b>Equipo:</b> {reboot['dev_name']} ({reboot['ip']})\n"
+                        f"El equipo no tiene ninguna ruta de red — no se puede reiniciar "
+                        f"por software. Revisar cable, PoE o energía en sitio.\n"
+                        f"<b>Motivo original:</b> {reboot['reason']} — "
+                        f"{reboot['count']} fallos consecutivos"
+                    )
+                else:
+                    send_telegram_safe(
+                        f"🚨 <b>PÉRDIDA DE SERVICIO</b> SHOMER\n"
+                        f"<b>Equipo:</b> {reboot['dev_name']} ({reboot['ip']})\n"
+                        f"<b>Error al reiniciar:</b> {msg}\n"
+                        f"<b>Motivo:</b> {reboot['reason']} — {reboot['count']} fallos consecutivos"
+                    )
                 log_event(
                     r, "error", "AUTO-REBOOT",
                     f"Fallo al reiniciar {reboot['dev_name']} ({reboot['ip']}): {msg}",
