@@ -255,23 +255,6 @@ def list_snapshots(limit: int = 50) -> List[Dict[str, Any]]:
         return []
 
 
-def sync_to_cloud() -> Dict[str, Any]:
-    """
-    Simula la sincronización a un destino externo (rclone sync / restic copy).
-    En producción se reemplazaría por ejecución real de rclone o restic copy.
-    Devuelve dict con success y log de resultado.
-    """
-    import time
-    _log("sync_to_cloud: inicio (simulado)")
-    time.sleep(1)  # simula trabajo
-    log_msg = (
-        "Sincronización simulada a destino externo. "
-        "Para producción: configurar RCLONE_DEST o restic copy a segundo repositorio."
-    )
-    _log("sync_to_cloud: %s" % log_msg)
-    return {"success": True, "log": log_msg}
-
-
 def repository_health() -> Dict[str, Any]:
     """
     Comprueba que el repositorio sea accesible (restic snapshots).

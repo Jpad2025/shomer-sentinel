@@ -104,8 +104,72 @@ class TopologyProvider(ABC):
         ...
 
 
+# LLDP-MIB (RFC 2922 / IEEE 802.1AB) — estándar, funciona igual en Cisco/HP/etc.
+_OID_IFDESCR        = "1.3.6.1.2.1.2.2.1.2"       # ifIndex -> nombre de puerto local
+_OID_LLDP_REM_SYSNAME = "1.0.8802.1.1.2.1.4.1.1.9"  # lldpRemSysName (nombre del vecino)
+_OID_LLDP_REM_PORTID  = "1.0.8802.1.1.2.1.4.1.1.7"  # lldpRemPortId (MAC/puerto del vecino)
+
+
+def _snmpwalk_qn(snmpwalk_bin: str, ip: str, community: str, oid: str, timeout: int = 5) -> Dict[str, str]:
+    """Ejecuta snmpwalk -Oqn (OID numérico, valor limpio) y devuelve {oid_completo: valor}.
+    Mismo patrón (subprocess + binario CLI) que _snmp_health_probes en
+    shomer_guardian_health_checks.py -- consistente con el resto del proyecto."""
+    import subprocess
+    try:
+        r = subprocess.run(
+            [snmpwalk_bin, "-v2c", "-c", community, "-t", str(timeout), "-r", "1",
+             "-Oqn", ip, oid],
+            capture_output=True, text=True, timeout=timeout + 5,
+        )
+        if r.returncode != 0:
+            return {}
+        out: Dict[str, str] = {}
+        for line in r.stdout.splitlines():
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                continue
+            full_oid = parts[0].lstrip(".")
+            value = parts[1].strip().strip('"')
+            # Errores SNMP reales (agente sin ese sub-árbol MIB, ej. LLDP deshabilitado
+            # o switch que no lo soporta) vienen como texto plano, no como OID walkeado
+            # -- detectado en producción el 6 sep 2026 contra SW Piso 7 (192.168.0.118).
+            if not full_oid.startswith(oid) or value.lower().startswith(
+                ("no such object", "no such instance", "end of mib", "timeout")
+            ):
+                continue
+            out[full_oid] = value
+        return out
+    except Exception as e:
+        logger.debug("topology snmpwalk %s oid=%s: %s", ip, oid, e)
+        return {}
+
+
+def _lldp_neighbors(snmpwalk_bin: str, ip: str, community: str) -> List[tuple[str, str, str]]:
+    """Consulta LLDP-MIB real vía SNMP. Devuelve [(puerto_local, nombre_vecino, id_puerto_vecino)].
+    Verificado contra switch real (Cisco Sx220, 192.168.0.146) el 6 sep 2026 --
+    responde nombres de vecino reales (ej. 'P1OFCCONTABILIDAD'), no simulado."""
+    ifdescr  = _snmpwalk_qn(snmpwalk_bin, ip, community, _OID_IFDESCR)
+    sysnames = _snmpwalk_qn(snmpwalk_bin, ip, community, _OID_LLDP_REM_SYSNAME)
+    portids  = _snmpwalk_qn(snmpwalk_bin, ip, community, _OID_LLDP_REM_PORTID)
+
+    results: List[tuple[str, str, str]] = []
+    for full_oid, sysname in sysnames.items():
+        if not sysname:
+            continue
+        # full_oid = "1.0.8802.1.1.2.1.4.1.1.9.<timemark>.<localport>.<index>"
+        parts = full_oid.split(".")
+        if len(parts) < 2:
+            continue
+        local_port_num = parts[-2]
+        local_port_name = ifdescr.get(f"{_OID_IFDESCR}.{local_port_num}", f"if{local_port_num}")
+        remote_port_id = portids.get(full_oid.replace(_OID_LLDP_REM_SYSNAME, _OID_LLDP_REM_PORTID, 1), "")
+        results.append((local_port_name, sysname, remote_port_id))
+    return results
+
+
 class SnmpSwitchProvider(TopologyProvider):
-    """Usa equipos switch de infra_devices + poll SNMP existente en Inframonitor."""
+    """Descubrimiento real de topología vía LLDP-MIB (SNMP), usando los switches
+    activos de infra_devices y su snmp_community individual."""
 
     name = "snmp"
 
@@ -118,25 +182,69 @@ class SnmpSwitchProvider(TopologyProvider):
         return n > 0
 
     def discover_links(self) -> List[NetworkLink]:
-        """Placeholder: enlaces manuales + futura correlación MAC/LLDP."""
+        """Descubrimiento real: consulta LLDP por SNMP a cada switch activo y
+        resuelve el nombre del vecino contra infra_devices cuando coincide
+        (revela enlaces switch-switch/AP reales, no solo lo cargado a mano)."""
+        import shutil
         _ensure_tables()
+        snmpwalk_bin = shutil.which("snmpwalk")
+        if not snmpwalk_bin:
+            logger.warning("topology: snmpwalk no disponible en el sistema -- sin descubrimiento SNMP")
+            return []
+
         with get_db() as conn:
-            rows = conn.execute(
-                "SELECT child_ip, parent_ip, parent_port, link_type, source, child_name, parent_name "
-                "FROM network_links WHERE source IN ('manual', 'snmp', 'unifi')"
+            switches = conn.execute(
+                "SELECT ip, name, snmp_community FROM infra_devices "
+                "WHERE active=1 AND device_type='switch'"
             ).fetchall()
-        return [
-            NetworkLink(
-                child_ip=r["child_ip"],
-                parent_ip=r["parent_ip"],
-                parent_port=r["parent_port"] or "",
-                link_type=r["link_type"] or "unknown",
-                source=r["source"] or "manual",
-                child_name=r["child_name"] or "",
-                parent_name=r["parent_name"] or "",
-            )
-            for r in rows
-        ]
+            known_by_name = {
+                (r["name"] or "").strip().lower(): r["ip"]
+                for r in conn.execute(
+                    "SELECT ip, name FROM infra_devices WHERE active=1 AND name IS NOT NULL"
+                ).fetchall()
+            }
+
+        # Cada switch es una consulta de red independiente -- en paralelo evita que
+        # un switch sin LLDP (agota su timeout) alargue serialmente todo el ciclo.
+        # Medido en producción el 6 sep 2026: 8 switches en serie con 1-2 caídos
+        # de LLDP se acercaba a 2 minutos; en paralelo baja a ~10s.
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _query(sw) -> tuple[str, str, list]:
+            ip = sw["ip"]
+            name = sw["name"] or ip
+            community = (sw["snmp_community"] or "public").strip() or "public"
+            try:
+                return ip, name, _lldp_neighbors(snmpwalk_bin, ip, community)
+            except Exception as e:
+                logger.debug("topology: descubrimiento LLDP falló para %s: %s", ip, e)
+                return ip, name, []
+
+        links: List[NetworkLink] = []
+        seen: set[tuple[str, str, str]] = set()  # (parent_ip, parent_port, child_name)
+        with ThreadPoolExecutor(max_workers=max(1, len(switches))) as pool:
+            futures = [pool.submit(_query, sw) for sw in switches]
+            for fut in as_completed(futures):
+                ip, name, neighbors = fut.result()
+                for local_port, remote_name, remote_port_id in neighbors:
+                    # Un mismo puerto puede reportar el mismo vecino varias veces
+                    # (entradas LLDP acumuladas sin limpiar en el propio switch --
+                    # visto en producción el 6 sep 2026, 4x "MK-OPERA" en un puerto).
+                    dedup_key = (ip, local_port, remote_name)
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+                    child_ip = known_by_name.get(remote_name.strip().lower(), "")
+                    links.append(NetworkLink(
+                        child_ip=child_ip,
+                        parent_ip=ip,
+                        parent_port=local_port,
+                        link_type="lldp",
+                        source="snmp",
+                        child_name=remote_name,
+                        parent_name=name,
+                    ))
+        return links
 
 
 class UniFiControllerProvider(TopologyProvider):
@@ -237,6 +345,30 @@ def upsert_link(link: NetworkLink) -> None:
         conn.commit()
 
 
+def run_discovery() -> Dict[str, Any]:
+    """Corre discover_links() de todos los proveedores configurados y persiste
+    los resultados. Nada llamaba a esto antes del 6 sep 2026 -- discover_links()
+    existía pero estaba completamente desconectado de cualquier flujo real."""
+    _ensure_tables()
+    results: Dict[str, int] = {}
+    total = 0
+    for provider in get_providers():
+        if not provider.is_configured():
+            results[provider.name] = 0
+            continue
+        try:
+            links = provider.discover_links()
+        except Exception as e:
+            logger.warning("topology: proveedor %s falló: %s", provider.name, e)
+            results[provider.name] = 0
+            continue
+        for link in links:
+            upsert_link(link)
+        results[provider.name] = len(links)
+        total += len(links)
+    return {"success": True, "total_links": total, "by_provider": results}
+
+
 class LinkBody(BaseModel):
     child_ip: str
     parent_ip: str
@@ -251,6 +383,15 @@ class LinkBody(BaseModel):
 async def api_topology_config(user=Depends(get_current_user)):
     _ensure_tables()
     return {"success": True, "config": get_topology_config()}
+
+
+@router.post("/api/topology/discover")
+async def api_topology_discover(user=Depends(get_current_user)):
+    """Dispara el descubrimiento real (LLDP/SNMP + UniFi si está configurado)
+    y persiste los enlaces encontrados. Antes del 6 sep 2026 no existía forma
+    de invocar discover_links() -- quedaba código muerto sin conectar."""
+    import asyncio
+    return await asyncio.to_thread(run_discovery)
 
 
 @router.get("/api/topology/links")
