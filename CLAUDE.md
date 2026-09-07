@@ -1170,6 +1170,80 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   - Desplegado en Ópera (commit `e868812`, reiniciado y verificado sin errores) + sincronizado
     a los 3 labs vía `fleet_sync.sh`.
 
+## Sesión 82 (5-7 sep 2026) — KB CompTIA completa + auditoría de seguridad + topología LLDP real + Fases 5-8 del cerebro + Guardian: causa raíz del reinicio automático
+
+Sesión larga, varios días. Resumen por bloques (ver `CHANGELOG.md` de shomer-agent v1.20.0 a
+v1.29.0 para el detalle línea por línea de cada fix):
+
+- **KB técnica (`conocimiento_general.py`, shomer-agent):** cobertura exhaustiva de las 6
+  certificaciones CompTIA pedida por Juan Pablo (436 entradas: 173 reglas + 263 teoría, solo
+  temario oficial + contenido escrito por Claude, nunca respuestas de examen real). Auditada dos
+  veces a pedido explícito de Juan Pablo (desconfiaba de auditorías "básicas y rápidas"): sample
+  audit (18/19 correctas) y luego auditoría completa vía 8 agentes en paralelo (397/436
+  correctas, 39 fixes, v1.20.0) + unificación de metodología de troubleshooting a una sola
+  versión de 7 pasos (v1.20.1). Primera suite de pruebas automatizadas de shomer-agent (0→31
+  pruebas, v1.21.0).
+- **Auditoría de seguridad completa** (asumiendo erróneamente que el sistema no estaba expuesto):
+  encontrado y corregido un error real de UFW — reglas #7/#8 permitían TCP 80/8443 desde
+  "Anywhere" (todo internet), pese a un comentario engañoso de "cualquier LAN". Confirmado por
+  logs reales de nginx que Tailscale era el único acceso histórico; eliminadas las reglas,
+  probado sin corte desde Ópera y desde un lab remoto por Tailscale.
+- **Limpieza de datos muertos:** `backups/` (150MB legacy, ya migrado a `_archivo_obsoleto/` en
+  sesión previa) y `logs/` (52MB, 0 archivos modificados desde marzo) eliminados por completo.
+  `discover_macs.py` tenía un `"""` suelto desde su primer commit (string sin cerrar) — corregido.
+  `_calc_uptime_24h`/`_calc_uptime_24h_batch` trataban cualquier evento de `infra_events` como
+  transición binaria online/offline, corrompiendo el cálculo con eventos `degraded`/`pulse_*` —
+  filtrado a `event IN ('online','offline')`.
+- **Descubrimiento de topología real por LLDP/SNMP** (`shomer_topology.py`) construido desde cero
+  tras encontrar que `SnmpSwitchProvider`/`UniFiControllerProvider` eran placeholders no
+  funcionales — y `protector.py::sync_to_cloud()` (simulado con `time.sleep()`, sin caller real)
+  eliminado por completo. Usa `lldpRemManAddrTable` (IP de gestión real del vecino) como fuente
+  principal de resolución, no coincidencia de nombres (que resolvía 0/19 enlaces). Corre solo
+  cada 5 min (`inframonitor_poller.py`), 19 enlaces reales descubiertos.
+- **Cerebro (shomer-agent) — Fases 5 a 8, todas probadas contra datos reales antes de desplegar:**
+  Fase 5 (topología LLDP confirmada como evidencia de switch compartido), Fase 6 (cambios de IP
+  por MAC, incidentes Hunter abiertos, hallazgos de auditoría pendientes, errores de puerto —
+  bug real corregido en el camino: `get_hunter_incidents` con ventana de 24h no encontraba nada
+  porque los incidentes de Hunter quedan abiertos semanas), Fase 7 (estado real del WAN +
+  fallas/reboots por nodo), Fase 8 (mantenimiento por-nodo, razón exacta de `classify_health`,
+  resultado del último auto-reinicio — ver más abajo).
+- **Cierre automático de ruido de Hunter confirmado** (+14 días, solo "Poor Reputation" externo,
+  criterio explícitamente aprobado por Juan Pablo vía pregunta directa): bug arquitectónico real
+  encontrado y corregido en el camino — la primera versión escribía SQL directo al `.db` de
+  network_monitor desde el contenedor de shomer-agent, que lo monta `:ro` a propósito; fallaba en
+  silencio (`log.debug` no visible en el nivel real del contenedor). Corregido con un endpoint
+  HTTP nuevo (`POST /incidents/close_stale_noise`) en vez de escritura directa.
+- **KB conectada al chat interactivo** (antes solo la usaba cerebro y el comando manual
+  `/conocimiento` — el chat natural del técnico respondía sin verla). Bug de costo encontrado y
+  corregido el mismo día: el fallback genérico a dominio "metodologia" inyectaba ~325 tokens
+  hasta en un saludo casual sin ningún match técnico real — nuevo parámetro `strict=True` para
+  el chat, cerebro sin cambios.
+- **Guardian — causa raíz real de por qué fallan la mayoría de los auto-reinicios:** un AP normal
+  (`device_type='access_point'`) solo puede llegar a `offline` (0% respuesta LAN) antes de que
+  Guardian intente reiniciarlo por SSH — la clasificación `no-internet` (WAN caída, LAN viva) es
+  exclusiva de routers. Sin ruta de red, ningún protocolo remoto puede llegarle — no es bug de
+  credenciales. Verificado con evidencia real: AP HAB 103 en mantenimiento por-nodo desde hace
+  ~2 meses (`node_maintenance:192.168.0.148`, `offline_streak` en 580k+ ciclos, cortando el flujo
+  antes de tocar el contador de fallas — confirmado correcto) y varios AUTO-REBOOT reales
+  fallando con "Connection timed out"/"No route to host" contra AP CONTABILIDAD, AP HAB 215-216,
+  AP REST MIRADOR, AP OFC-MANTENIMIENTO. Ver §D.3 para la propuesta de recuperación por PoE/SNMP,
+  documentada como pendiente (requiere validación en campo, equipos ya en tránsito a Bogotá).
+  Dos mejoras construidas y probadas (commit `3ba3ac9`): reinicio preventivo cuando `degraded` se
+  sostiene sobre `guardian.degraded_preventive_reboot_ticks` (60 ticks ≈ 10 min por defecto,
+  mientras aún hay conectividad parcial) y `is_network_unreachable_error()` para un aviso de
+  Telegram distinto ("requiere atención física") cuando el fallo es por falta total de ruta.
+- **Reinicio manual probado en vivo contra hardware real** (AP CONTABILIDAD, de madrugada sin
+  nadie en oficina): funcionó de principio a fin (~2 min offline→online). Bug real encontrado en
+  el camino — el timeout del cliente (`shomer_api.py::reboot_guardian_node`, shomer-agent) era de
+  15s pero el servidor prueba hasta 3 métodos SSH en cadena (~30s en el peor caso); subido a 40s.
+  Segundo bug encontrado después: esa llamada (y `_try_remediate_ip`) bloqueaba el único hilo de
+  eventos del bot de Telegram entero mientras esperaba — ahora envueltas en `asyncio.to_thread`.
+- **Corrección propia importante:** subí `BRAIN_MODEL` a `gpt-4o` sin releer primero esta misma
+  nota de la Sesión 81 (arriba) que ya documentaba que este proyecto de OpenAI no tiene acceso a
+  ese modelo (403). Cerebro estuvo unas horas fallando en silencio a OpenAI y cayendo a Groq sin
+  ninguna mejora real. Revertido a `gpt-4o-mini` en Ópera y en los 3 labs (que tenían el mismo
+  problema desde antes, sin relación con este cambio).
+
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
 
