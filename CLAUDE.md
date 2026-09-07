@@ -1286,6 +1286,35 @@ v1.29.0 para el detalle línea por línea de cada fix):
     (`guardian.fail_threshold`) es 3 — ahora lee el valor real en vez de un número fijo.
   - Todo verificado con `pytest` (117/117 network_monitor, 31/31 shomer-agent) + pruebas en vivo
     contra el servicio real antes de desplegar en Ópera y los 3 labs.
+- **Auditoría dedicada de Tracker (código + botones + escaneo básico/profundo) — 10
+  hallazgos, 9 corregidos y verificados en vivo** (commit `a659384`):
+  - **La detección de sistema operativo del escaneo profundo nunca había funcionado** (probado
+    en vivo antes y después): combinar `-O` con `-sV`/`-A` en una sola pasada de nmap hace que
+    la detección de SO nunca complete dentro del `--host-timeout` — confirmado 3 veces seguidas
+    contra un servidor Windows real conocido (IIS, RDP, MSSQL). Separado en dos pasadas de nmap
+    (una solo para SO, otra para versión de servicio) — ahora detecta correctamente ("Microsoft
+    Windows Server 2012" 93%, "Linux 2.6.32" en el MikroTik) donde antes nunca devolvía nada
+    para ningún equipo real. También faltaba `--osscan-guess` (sin él, nmap solo llena el XML
+    con coincidencia casi perfecta).
+  - Dos endpoints de exportación en el puerto 8001 sin autenticación en ningún lado (a
+    diferencia del caso de Guardian, acá no había una segunda validación aguas abajo) —
+    corregido, verificado 401 en vivo.
+  - Condición de carrera real: el propio sondeo de estado de la UI (cada 5s) podía borrar el
+    candado de un escaneo que apenas arrancaba, permitiendo dos `scanner.py` concurrentes sobre
+    la misma red — confirmado simulando la carrera exacta, corregido con margen de 10s.
+  - La subred configurada del Tracker se ignoraba en el escaneo básico (autodetectaba la red
+    real sin importar lo configurado) — corregido y verificado con un escaneo real.
+  - Contraseña de override en texto plano expuesta a cualquier usuario autenticado —
+    enmascarada igual que el otro campo de credenciales del módulo, verificado en vivo.
+  - `pkill`/timer de limpieza con `192.168.` fijo (no funcionaría en ningún cliente con otra
+    red), truncamiento silencioso a una sola subred en ambos proxies de escaneo, `DROP TABLE`
+    incondicional en cada lectura sondeada cada 5s, PATCH creando activos fantasma, botón de
+    "rescanear" apuntando a un proxy que nunca resolvía IP desde MAC — todos corregidos.
+  - `inventory_sync.py` eliminado: script huérfano que además creaba una tabla duplicada con
+    esquema distinto en la base de datos equivocada.
+  - **Pendiente a propósito**: la contraseña SSH en texto plano en git (misma de Guardian, ya
+    documentada) — ninguna decisión nueva aquí, sigue esperando a Juan Pablo.
+  - 117/117 pruebas + verificación en vivo de cada fix antes de desplegar en Ópera y los 3 labs.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
