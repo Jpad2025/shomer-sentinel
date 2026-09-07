@@ -40,6 +40,7 @@ async def main() -> None:
         FAST_POLL_INTERVAL_SEC,
         SNMP_POLL_INTERVAL_SEC,
     )
+    from app.api.shomer_topology import get_topology_config, run_discovery
 
     logger.info(
         "Inframonitor standalone poller arrancando (fast=%ss snmp=%ss)",
@@ -73,12 +74,33 @@ async def main() -> None:
             except asyncio.TimeoutError:
                 pass
 
+    async def _topology_loop():
+        """Descubrimiento LLDP/SNMP periódico -- antes (6 sep 2026) discover_links()
+        solo se podía disparar a mano vía POST /api/topology/discover. Respeta
+        topology.enabled (default false, opt-in explícito) y topology.poll_interval_sec."""
+        while not _stop_event.is_set():
+            try:
+                cfg = get_topology_config()
+                if cfg.get("enabled"):
+                    result = await asyncio.to_thread(run_discovery)
+                    logger.info("Topología: descubrimiento automático -- %s", result)
+                interval = max(60, int(cfg.get("poll_interval_sec") or 300))
+            except Exception as exc:
+                logger.error("Error en ciclo topología: %s", exc)
+                interval = 300
+            try:
+                await asyncio.wait_for(_stop_event.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                pass
+
     fast_task = asyncio.create_task(_fast_loop())
     snmp_task = asyncio.create_task(_snmp_loop())
+    topology_task = asyncio.create_task(_topology_loop())
     await _stop_event.wait()
     fast_task.cancel()
     snmp_task.cancel()
-    for t in (fast_task, snmp_task):
+    topology_task.cancel()
+    for t in (fast_task, snmp_task, topology_task):
         try:
             await t
         except asyncio.CancelledError:

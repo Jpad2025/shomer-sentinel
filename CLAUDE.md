@@ -1273,10 +1273,13 @@ Mezclar config de un sitio con otro **puede ser fatal**. Detalle: `docs/REGLAS_D
 
 | Módulo | Puerto interno | Código entrada | Funciones |
 |--------|----------------|----------------|-----------|
-| Core | **8000** | `app.api.main:app` | Auth, proxies `shomer_proxies` hacia tracker/backups en 8001, Guardian, Hunter |
+| Core | **8000** | `app.api.main:app` | Auth, proxies `shomer_proxies` hacia tracker/backups en 8001, Guardian, Hunter, Topología (LLDP/SNMP) |
 | Tools | **8001** | `app.api.main_tools:app` | Tracker inventario (`inventory.db`), Protector Restic+B2 |
+| Inframonitor | *(sin puerto propio — proceso standalone)* | `app.scripts.inframonitor_poller` | Monitorea `infra_devices` (switches, servidores, cámaras, POS, impresoras, router — **todo lo que NO es AP**; los APs los cubre Guardian vía `infra_nodes`). Capa rápida ping/tcp/mac cada `INFRA_FAST_POLL_INTERVAL_SEC`, SNMP en paralelo cada `INFRA_SNMP_POLL_INTERVAL_SEC`. Servicio systemd propio (`shomer-inframonitor-poller`, `MemoryMax=200M`, `Restart=on-failure`), independiente de Core/Tools — puede reiniciarse sin afectar Guardian/Hunter/Tracker/Protector. En Ópera: 53 dispositivos reales (ap:30 vía Guardian, switch:8, pos:5, camera:3, printer:3, server:2, router:1, controller:1 vía Inframonitor). |
 
-`system_state` en `network_monitor.db` guarda prefijos `base.* guardian.* hunter.* tracker.* protector.* modules.enabled`.
+`system_state` en `network_monitor.db` guarda prefijos `base.* guardian.* hunter.* tracker.* protector.* topology.* modules.enabled`.
+
+**Ojo con la confusión de nombres**: "Guardian" NO es el sistema completo — es específicamente el módulo que monitorea nodos/APs (`infra_nodes`, heartbeat rápido). El sistema completo se llama **Shomer** (o "Shomer Sentinel"). Guardian, Hunter y el módulo de Topología comparten el mismo proceso/puerto 8000 por conveniencia de despliegue, pero son lógicamente distintos entre sí y distintos de Inframonitor (proceso separado) y de Tracker/Protector (puerto 8001).
 
 Rutas lógicas: importar rutas físicas sólo desde `app.backend.db` (evita rutas tipo `/opt/network_monitor/hardcoded` dispersas).
 
