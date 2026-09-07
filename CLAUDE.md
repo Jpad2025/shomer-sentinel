@@ -1243,6 +1243,49 @@ v1.29.0 para el detalle línea por línea de cada fix):
   ese modelo (403). Cerebro estuvo unas horas fallando en silencio a OpenAI y cayendo a Groq sin
   ninguna mejora real. Revertido a `gpt-4o-mini` en Ópera y en los 3 labs (que tenían el mismo
   problema desde antes, sin relación con este cambio).
+- **Auditoría dedicada de Guardian (código + lógica) — 10 hallazgos reales, 9 corregidos, 1
+  pendiente a propósito** (commit `bf6a7db`): **🔴 sin corregir, a pedido explícito** — la clave
+  `SSH_FALLBACK_PASSWORD` en texto plano committeada a git (`start_api_with_fallback.sh`,
+  commit `d888b07`) requiere rotación + limpieza de historial git, decisión que le corresponde
+  a Juan Pablo, no algo para resolver solo. Los 9 restantes, corregidos y verificados en vivo:
+  - Dos endpoints sin autenticación (`/node_maintenance/{ip}`, `/api/server-metrics`) —
+    verificado en vivo antes (200 sin login) y después (401) del fix.
+  - **Reloj sesgado +5 horas**: `datetime.utcnow().timestamp()` reinterpreta un datetime naive
+    como hora LOCAL en vez de UTC — corrompía cada timestamp de reinicio que Guardian escribe
+    (el técnico veía "último reinicio: hace -5h", la ventana de "reinició hace poco" de cerebro
+    duraba en realidad 29h, el guardián de frescura de 10 min de `monitor.py` quedaba
+    completamente inútil). Corregido a `datetime.now(timezone.utc).timestamp()` en los 5 sitios
+    reales. Verificado contra los 16 `last_reboot:*` reales en Redis antes de desplegar —
+    ninguno estaba dentro de la ventana de cooldown de 5 min, cero riesgo de migración.
+  - Fallback SNMP en `_run_ssh_reboot()` nunca se alcanzaba en producción (el paso SSH de
+    respaldo retornaba siempre, éxito o fallo) — ahora solo retorna en éxito y cae al SNMP.
+  - El heartbeat `guardian:poller:last_ok` (usado por `watch_poller_heartbeat` en shomer-agent
+    para detectar "Guardian congelado") se refrescaba solo al final del bucle de reinicios —
+    con 2+ reinicios en un mismo ciclo podía vencer su TTL de 40s y disparar una alerta crítica
+    falsa. Justo el riesgo que el reinicio preventivo de hoy (arriba) aumentaba. Refrescado
+    ahora antes del bucle y entre cada intento.
+  - `_clean_redis_for_ip()` duplicada 3 veces con listas de claves divergentes — la copia usada
+    al desactivar un equipo dejaba huérfana para siempre la clave `node:{ip}` (sin TTL).
+    Unificada a una sola fuente en `shomer_guardian_discovery.py`.
+  - `GET /maintenance` devolvía `null` en vez de `false` cuando no había fila — verificado
+    corregido en vivo.
+  - `get_nodes()` usaba `KEYS` (bloquea todo Redis) en vez de `SCAN`, ya disponible en el mismo
+    archivo (`_redis_scan_keys()`).
+  - `checks_ms` sumaba la duración individual de cada ping concurrente en vez de medir tiempo
+    real de reloj — un log real mostraba "checks=213975ms" dentro de un ciclo de 18s, inútil
+    para diagnosticar ciclos lentos.
+  - Código muerto eliminado: `_probe_guardian_device()` (cero referencias) y una rama
+    inalcanzable en `_gw_ping_triplet()`. `send_telegram_safe()` y las 2 funciones de lectura
+    de credenciales SSH/SNMP ahora loguean en vez de tragarse errores en silencio (antes una
+    alerta de Telegram podía desaparecer sin ningún rastro, justo cuando más importa).
+  - **13 archivos `.bak.UTAH.202605222357`** (~500KB) en `app/templates/`, todos del 22 mayo,
+    cero referencias — confirmados huérfanos, quedan como hallazgo para limpieza (no borrados
+    en este pase, ver decisión de Juan Pablo).
+  - Bonus cross-repo: `bot.py` (shomer-agent) le decía al técnico "Guardian reinicia al llegar
+    a 5" con el número fijo en el texto, pero el umbral real configurado
+    (`guardian.fail_threshold`) es 3 — ahora lee el valor real en vez de un número fijo.
+  - Todo verificado con `pytest` (117/117 network_monitor, 31/31 shomer-agent) + pruebas en vivo
+    contra el servicio real antes de desplegar en Ópera y los 3 labs.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
