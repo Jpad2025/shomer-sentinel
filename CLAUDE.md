@@ -1315,6 +1315,39 @@ v1.29.0 para el detalle línea por línea de cada fix):
   - **Pendiente a propósito**: la contraseña SSH en texto plano en git (misma de Guardian, ya
     documentada) — ninguna decisión nueva aquí, sigue esperando a Juan Pablo.
   - 117/117 pruebas + verificación en vivo de cada fix antes de desplegar en Ópera y los 3 labs.
+- **Auditoría dedicada de Hunter (código + botones + bloqueo/desbloqueo real) — 10 hallazgos +
+  1 bonus encontrado probando en vivo, los 11 corregidos y verificados** (commits `799c44e` +
+  `8455de4`):
+  - **Bonus, encontrado probando el bloqueo real antes de tocar código**: `/firewall/routeros/
+    verify` siempre reportaba "falta la regla DROP" (104 IPs "bloqueadas" pero supuestamente sin
+    enforcement) — investigado a fondo contra el router real por SSH: RouterOS no evalúa
+    correctamente `where ... src-address-list=X` en modo `count-only` (el `print` normal sí
+    muestra las reglas con ese mismo filtro). La regla SÍ existía y SÍ bloqueaba — el bug era
+    de reporte, no de protección real. Cambiado a filtrar por `comment="Shomer-Hunter"`.
+    Efecto colateral: mi propio intento de "arreglarlo" antes de encontrar la causa real creó
+    una regla duplicada (inofensiva, redundante) — removida con autorización explícita.
+  - Un operador (no admin) podía reescribir la contraseña SSH real del firewall o el token de
+    integración Wazuh vía `POST /config/system` (el `GET` ya exigía admin, el `POST` no) —
+    corregido y verificado que el admin real sigue pudiendo guardar config.
+  - Desbloquear marcaba la IP como desbloqueada en la BD aunque el firewall rechazara el
+    comando — quedaba bloqueada de verdad en la red pero invisible para el sistema.
+  - `execute_hunter_block()` (compartida por panel, Wazuh y el poller automático) no validaba
+    el formato de IP — solo la ruta HTTP manual lo hacía. Riesgo de ejecución de comandos si
+    Suricata alguna vez registrara un `src_ip` malformado.
+  - `INSERT OR REPLACE` en `blocked_ips` (columna `ip` UNIQUE) borraba el historial completo de
+    un reincidente al volver a bloquearlo — nueva tabla `blocked_ips_history` archiva la fila
+    cerrada antes de sobrescribir; probado en copia aislada antes de tocar producción.
+  - El panel reintentaba auto-bloquear la misma alerta cada 30s sin deduplicar — con la política
+    de "3 en 10 min" para severidad alta, 90 segundos de una pestaña abierta bastaban para
+    cumplir el umbral con una sola alerta real, no un ataque sostenido.
+  - El editor de reglas de Suricata no existía en el HTML pese a que el JS ya lo esperaba —
+    abrir "Configuración Hunter" tiraba un error de inmediato. Construida la sección completa.
+  - Reglas fantasma (comentarios de encabezado mostrados como reglas con botones rotos),
+    recarga de Suricata que existía pero nunca se llamaba tras editar una regla, 6 llamadas de
+    log con argumentos invertidos, bloqueo por iptables sin chequeo de duplicados, fallo
+    silencioso en sync, doble conteo por un glob de Redis mal armado — todos corregidos.
+  - 117/117 pruebas + verificación en vivo (ciclo real de bloqueo/desbloqueo, historial,
+    reglas) antes de desplegar en Ópera y los 3 labs.
 
 ---
 # Parte A — Estado del sistema (realidad cotidiana)
