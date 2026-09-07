@@ -108,6 +108,7 @@ class TopologyProvider(ABC):
 _OID_IFDESCR        = "1.3.6.1.2.1.2.2.1.2"       # ifIndex -> nombre de puerto local
 _OID_LLDP_REM_SYSNAME = "1.0.8802.1.1.2.1.4.1.1.9"  # lldpRemSysName (nombre del vecino)
 _OID_LLDP_REM_PORTID  = "1.0.8802.1.1.2.1.4.1.1.7"  # lldpRemPortId (MAC/puerto del vecino)
+_OID_LLDP_REM_MANADDR = "1.0.8802.1.1.2.1.4.2.1"    # lldpRemManAddrTable (IP de gestión real del vecino)
 
 
 def _snmpwalk_qn(snmpwalk_bin: str, ip: str, community: str, oid: str, timeout: int = 5) -> Dict[str, str]:
@@ -144,15 +145,43 @@ def _snmpwalk_qn(snmpwalk_bin: str, ip: str, community: str, oid: str, timeout: 
         return {}
 
 
-def _lldp_neighbors(snmpwalk_bin: str, ip: str, community: str) -> List[tuple[str, str, str]]:
-    """Consulta LLDP-MIB real vía SNMP. Devuelve [(puerto_local, nombre_vecino, id_puerto_vecino)].
+def _lldp_management_ips(snmpwalk_bin: str, ip: str, community: str) -> Dict[str, str]:
+    """lldpRemManAddrTable: IP de GESTIÓN real que el propio vecino anuncia por
+    LLDP -- mucho más confiable que cruzar nombres (el nombre que un equipo se
+    pone a sí mismo casi nunca coincide exactamente con el nombre amigable del
+    inventario; la IP sí es un hecho verificable). En esta tabla la dirección
+    va embebida en el propio OID (índice), no en el valor devuelto.
+    Verificado en producción el 6 sep 2026: SW2-P28-OFC-SISTEMAS reportó
+    192.168.0.1 como IP de gestión de su vecino -- coincide EXACTO con
+    'MikroTik Router (Gateway)' en infra_devices.
+    Devuelve {timemark.localport.index: "a.b.c.d"} (solo IPv4, subtype=1/len=4)."""
+    raw = _snmpwalk_qn(snmpwalk_bin, ip, community, _OID_LLDP_REM_MANADDR)
+    prefix = _OID_LLDP_REM_MANADDR + "."
+    out: Dict[str, str] = {}
+    for full_oid in raw:
+        if not full_oid.startswith(prefix):
+            continue
+        parts = full_oid[len(prefix):].split(".")
+        # parts = [columna, timemark, localport, index, subtype, len, octetos...]
+        if len(parts) < 10 or parts[4] != "1" or parts[5] != "4":
+            continue  # solo IPv4 (subtype 1, longitud 4) -- se omite IPv6
+        octets = parts[6:10]
+        row_key = ".".join(parts[1:4])  # timemark.localport.index
+        out.setdefault(row_key, ".".join(octets))
+    return out
+
+
+def _lldp_neighbors(snmpwalk_bin: str, ip: str, community: str) -> List[tuple[str, str, str, str]]:
+    """Consulta LLDP-MIB real vía SNMP. Devuelve
+    [(puerto_local, nombre_vecino, id_puerto_vecino, ip_gestion_vecino)].
     Verificado contra switch real (Cisco Sx220, 192.168.0.146) el 6 sep 2026 --
     responde nombres de vecino reales (ej. 'P1OFCCONTABILIDAD'), no simulado."""
     ifdescr  = _snmpwalk_qn(snmpwalk_bin, ip, community, _OID_IFDESCR)
     sysnames = _snmpwalk_qn(snmpwalk_bin, ip, community, _OID_LLDP_REM_SYSNAME)
     portids  = _snmpwalk_qn(snmpwalk_bin, ip, community, _OID_LLDP_REM_PORTID)
+    manaddrs = _lldp_management_ips(snmpwalk_bin, ip, community)
 
-    results: List[tuple[str, str, str]] = []
+    results: List[tuple[str, str, str, str]] = []
     for full_oid, sysname in sysnames.items():
         if not sysname:
             continue
@@ -161,9 +190,11 @@ def _lldp_neighbors(snmpwalk_bin: str, ip: str, community: str) -> List[tuple[st
         if len(parts) < 2:
             continue
         local_port_num = parts[-2]
+        row_key = ".".join(parts[-3:])  # timemark.localport.index -- misma clave que manaddrs
         local_port_name = ifdescr.get(f"{_OID_IFDESCR}.{local_port_num}", f"if{local_port_num}")
         remote_port_id = portids.get(full_oid.replace(_OID_LLDP_REM_SYSNAME, _OID_LLDP_REM_PORTID, 1), "")
-        results.append((local_port_name, sysname, remote_port_id))
+        remote_mgmt_ip = manaddrs.get(row_key, "")
+        results.append((local_port_name, sysname, remote_port_id, remote_mgmt_ip))
     return results
 
 
@@ -226,7 +257,7 @@ class SnmpSwitchProvider(TopologyProvider):
             futures = [pool.submit(_query, sw) for sw in switches]
             for fut in as_completed(futures):
                 ip, name, neighbors = fut.result()
-                for local_port, remote_name, remote_port_id in neighbors:
+                for local_port, remote_name, remote_port_id, remote_mgmt_ip in neighbors:
                     # Un mismo puerto puede reportar el mismo vecino varias veces
                     # (entradas LLDP acumuladas sin limpiar en el propio switch --
                     # visto en producción el 6 sep 2026, 4x "MK-OPERA" en un puerto).
@@ -234,7 +265,14 @@ class SnmpSwitchProvider(TopologyProvider):
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)
-                    child_ip = known_by_name.get(remote_name.strip().lower(), "")
+                    # Prioridad: IP de gestión real anunciada por el propio vecino
+                    # (lldpRemManAddr, un hecho verificable) sobre cruce de nombre
+                    # (el nombre que un equipo se pone a sí mismo -- ej. "MK-OPERA",
+                    # "P7-SW7" -- casi nunca coincide exacto con el nombre amigable
+                    # del inventario -- ej. "MikroTik Router (Gateway)", "SW Piso 7
+                    # (SW7)" -- probado en producción el 6 sep 2026: 0 de 19 enlaces
+                    # resolvían por nombre, todos resuelven por IP de gestión).
+                    child_ip = remote_mgmt_ip or known_by_name.get(remote_name.strip().lower(), "")
                     links.append(NetworkLink(
                         child_ip=child_ip,
                         parent_ip=ip,
