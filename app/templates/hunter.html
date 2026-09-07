@@ -741,7 +741,7 @@ tbody tr:last-child { border-bottom:none; }
       const _abKey = `${a.src_ip}|${a.sid}|${a.timestamp}`;
       if (_shouldAutoBlock(a) && !isBlocked && !_autoBlockAttempted.has(_abKey)) {
         _autoBlockAttempted.add(_abKey);
-        autoBlock(a.src_ip, a.sid, a.signature, a.severity);
+        autoBlock(a.src_ip, a.sid, a.signature, a.severity, a.timestamp);
       }
 
       // Botones — todas las alertas tienen las 3 opciones
@@ -823,10 +823,15 @@ tbody tr:last-child { border-bottom:none; }
   }
 
   // ── Block / Unblock / Ignore ──────────────────────────
-  function autoBlock(ip, sid, signature, severity) {
+  function autoBlock(ip, sid, signature, severity, timestamp) {
+    // 7 sep 2026 (re-auditoría Hunter): alert_timestamp permite al backend
+    // deduplicar entre este llamado del panel y el poller automático del
+    // servidor, que procesan la misma alerta real por separado -- sin
+    // esto, ambos contaban el mismo evento para la política de
+    // recurrencia (severidad ALTA), duplicando el conteo.
     shomerFetch('/remedies/block', {
       method: 'POST',
-      body: JSON.stringify({ ip, blocked_by: 'auto', alert_sid: sid, alert_signature: signature, severity: Number(severity) })
+      body: JSON.stringify({ ip, blocked_by: 'auto', alert_sid: sid, alert_signature: signature, severity: Number(severity), alert_timestamp: timestamp || '' })
     })
     .then(r => r.json())
     .then(d => {
@@ -1749,7 +1754,7 @@ tbody tr:last-child { border-bottom:none; }
       const r = await shomerFetch('/audit/network/scan', { method: 'POST' });
       const d = await r.json();
       if (d.success) {
-        addLog('Auditoría de red iniciada (scan_id=' + d.scan_id + ')', 'info');
+        addLog('info', 'RIESGOS-RED', 'Auditoría de red iniciada (scan_id=' + d.scan_id + ')');
         document.getElementById('risk-scan-info').textContent = '';
         showProcessBanner('Auditoría de red en progreso…');
         if (!_auditPollTimer) _auditPollTimer = setInterval(_pollAuditStatus, 5000);

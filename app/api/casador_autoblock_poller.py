@@ -89,6 +89,7 @@ async def _poller_tick() -> None:
                 alert_sid=alert.get("sid"),
                 alert_signature=str(alert.get("signature") or ""),
                 severity=int(alert.get("severity") or 3),
+                alert_timestamp=str(alert.get("timestamp") or ""),
             )
             if result.get("success") and not result.get("already_blocked"):
                 logger.warning(

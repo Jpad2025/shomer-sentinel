@@ -146,8 +146,22 @@ async def get_system_config(user=Depends(require_admin)):
     }
 
 
+        # 7 sep 2026 (auditoría Hunter): campos que exigen admin -- ver
+        # docstring de save_system_config más abajo para el porqué.
+_ADMIN_ONLY_FIELDS = {
+    ("hunter", "firewall_ip"),
+    ("hunter", "firewall_user"),
+    ("hunter", "firewall_pass"),
+    ("hunter", "firewall_type"),
+    ("hunter", "firewall_port"),
+    ("hunter", "firewall_timeout"),
+    ("hunter", "integration_key"),
+    ("guardian", "telegram_token"),
+}
+
+
 @router.post("/config/system")
-async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(require_admin)):
+async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(get_current_user)):
     """
     Guarda configuración del sistema por módulo.
     Solo guarda los campos que vengan en el payload — no sobreescribe los demás.
@@ -155,14 +169,29 @@ async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(r
     7 sep 2026 (auditoría Hunter): antes exigía solo login (get_current_user)
     mientras que el GET de esta misma ruta ya exigía admin -- un operador
     podía reescribir hunter.firewall_ip/user/pass, integration_key, o
-    guardian.telegram_token sin ser admin. Efecto secundario real que esto
-    también corrige: como el operador no podía LEER la contraseña actual
-    (GET admin-only), el panel se la mostraba vacía y al guardar cualquier
-    otra cosa la borraba sin darse cuenta -- ahora simplemente no puede
-    guardar esta sección en absoluto si no es admin.
+    guardian.telegram_token sin ser admin.
+
+    Primer intento de fix: exigir admin para TODO el endpoint. Re-auditoría
+    encontró que esa misma ruta la usan 4 paneles más (setup.html, con un
+    flujo diseñado a propósito para que un operador guarde
+    guardian.telegram_chat_id sin poder tocar el token; guardian.html;
+    backups.html; inventory.html) -- bloquear todo el endpoint rompía esos
+    flujos de operador legítimos con un "Error al guardar" sin explicación.
+    Ahora el chequeo de rol es por campo: _ADMIN_ONLY_FIELDS son las
+    credenciales reales (SSH del firewall, clave de integración Wazuh,
+    token de Telegram) -- el resto de campos (subredes, umbrales,
+    chat_id, retención de backups, etc.) sigue disponible para operador.
     """
+    is_admin = (user.get("role") or "").lower() == "admin"
     saved = []
     errors = []
+
+    def _admin_gate(module: str, field: str) -> bool:
+        """True si el campo se puede guardar con el rol actual."""
+        if (module, field) in _ADMIN_ONLY_FIELDS and not is_admin:
+            errors.append(f"{module}.{field}: requiere rol admin")
+            return False
+        return True
 
     base = payload.get("base", {})
     for field in ["interface", "subnet", "gateway", "server_ip", "site_timezone"]:
@@ -186,6 +215,8 @@ async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(r
         "ram_alert_pct", "heartbeat_hours",
     ]:
         if field in guardian:
+            if not _admin_gate("guardian", field):
+                continue
             if set_config(f"guardian.{field}", guardian[field]):
                 saved.append(f"guardian.{field}")
             else:
@@ -223,6 +254,8 @@ async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(r
         "routeros_auto_drop_enabled",
     ]:
         if field in hunter:
+            if not _admin_gate("hunter", field):
+                continue
             if set_config(f"hunter.{field}", hunter[field]):
                 saved.append(f"hunter.{field}")
             else:

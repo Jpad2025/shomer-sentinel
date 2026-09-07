@@ -144,8 +144,22 @@ async def execute_hunter_block(
     alert_signature: str = "",
     severity=3,
     integration_key: Optional[str] = None,
+    alert_timestamp: str = "",
 ) -> Dict[str, Any]:
-    """Bloqueo central — panel, Wazuh, poller servidor y bot."""
+    """Bloqueo central — panel, Wazuh, poller servidor y bot.
+
+    `alert_timestamp` (7 sep 2026, re-auditoría Hunter): el panel (navegador)
+    y el poller automático del servidor procesan el mismo eve.json cada uno
+    por su cuenta, con su propio dedup en memoria -- pero son dos procesos
+    distintos, así que cada uno cree ser "la primera vez que ve" la MISMA
+    alerta real, y ambos llaman a esta función para severidad ALTA,
+    inflando el contador de recurrencia al doble. El dedup por sesión del
+    navegador (ver hunter.html) no alcanza a cubrir esto porque el poller
+    corre en un proceso aparte. Con el timestamp propio de la alerta (el
+    mismo campo que ya usa el poller para SU dedup interno, _alert_key),
+    un SET NX de Redis de corta duración asegura que solo el primer
+    llamador (panel o poller, el que llegue primero) cuenta el evento.
+    """
     # 7 sep 2026 (auditoría Hunter): antes solo la ruta HTTP manual validaba
     # el formato de la IP con ipaddress.ip_address() -- esta función central
     # (compartida con el poller automático, que toma src_ip directo de
@@ -243,6 +257,18 @@ async def execute_hunter_block(
         wsec = max(30, int(policy.get("high_recurrence_window_sec") or 600))
         warn_at = int(policy.get("high_recurrence_warn_at") or 0)
         if sev_i == 2 and hmin > 1:
+            if alert_timestamp:
+                try:
+                    r_dedup = _get_redis()
+                    dedup_key = f"hunter:evtdedup:{ip}:{alert_sid}:{alert_timestamp}"
+                    if r_dedup and not r_dedup.set(dedup_key, "1", nx=True, ex=120):
+                        return {
+                            "success": False,
+                            "skipped": True,
+                            "detail": "Alerta ya procesada por otro origen (panel/poller) — recurrencia no duplicada",
+                        }
+                except Exception:
+                    pass  # si Redis falla acá, seguir sin dedup -- no bloquear el autobloqueo real
             cnt = hunter_recurrence_bump(
                 ip, alert_sid, str(alert_signature or ""), wsec
             )
@@ -413,6 +439,7 @@ async def block_ip(
         alert_signature=body.get("alert_signature", ""),
         severity=body.get("severity", 3),
         integration_key=x_shomer_integration_key,
+        alert_timestamp=str(body.get("alert_timestamp") or ""),
     )
     status = result.pop("_http_status", None)
     if status:
@@ -751,7 +778,16 @@ async def hunter_stats(user=Depends(get_current_user)):
         r = _get_redis()
         if r:
             keys = r.keys("hunter:rec:*")
-            high_rec_ips = sum(1 for k in (keys or []) if not str(k).startswith("hunter:rec:warn:"))
+            # 7 sep 2026, re-auditoría: el primer fix usaba str(k) sobre
+            # bytes -- _get_redis() no usa decode_responses=True, así que
+            # str(b'hunter:rec:warn:...') da literalmente "b'hunter:rec:
+            # warn:...'", que nunca empieza con "hunter:rec:warn:" --
+            # seguía contando doble. Probado en vivo contra el Redis real
+            # (2 claves de prueba, una normal y una de warn): el bug daba
+            # 2, esto da 1 (correcto).
+            def _kstr(k):
+                return k.decode("utf-8", "ignore") if isinstance(k, bytes) else str(k)
+            high_rec_ips = sum(1 for k in (keys or []) if not _kstr(k).startswith("hunter:rec:warn:"))
     except Exception:
         pass
 
