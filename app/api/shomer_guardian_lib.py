@@ -208,6 +208,26 @@ def _run_snmp_reboot(node_ip: str, community_write: str) -> Tuple[bool, str]:
         return False, str(e)
 
 
+_NETWORK_UNREACHABLE_MARKERS = (
+    "no route to host",
+    "connection timed out",
+    "network is unreachable",
+    "no route to network",
+)
+
+
+def is_network_unreachable_error(msg: str) -> bool:
+    """True si el mensaje de fallo de `_run_ssh_reboot` indica que no hay
+    NINGUNA ruta de red hacia el equipo (7 sep 2026) -- distinto de una falla
+    de credenciales o autenticación. Sin ruta de red, ningún protocolo remoto
+    (SSH, SNMP) puede llegarle -- el reinicio automático seguirá fallando
+    hasta que alguien intervenga físicamente (cable, PoE, energía). Se usa
+    para avisarle eso al técnico en vez del mensaje genérico de "error al
+    reiniciar", que suena a que el software podría resolverlo solo."""
+    low = (msg or "").lower()
+    return any(marker in low for marker in _NETWORK_UNREACHABLE_MARKERS)
+
+
 def _run_ssh_reboot(node_ip: str) -> Tuple[bool, str]:
     """Ejecuta reboot (SSH/SNMP). Bloqueante — solo desde ``asyncio.to_thread()`` o persist sync."""
     if not ALLOWED_IP_PATTERN.match(node_ip):

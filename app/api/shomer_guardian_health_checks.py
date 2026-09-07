@@ -38,6 +38,14 @@ _PING_COUNT_DEFAULT = int(os.environ.get("SHOMER_PING_COUNT", "3"))
 _PING_LOSS_DEGRADED_PCT = int(os.environ.get("SHOMER_PING_LOSS_DEGRADED_PCT", "60"))
 _PING_RTT_DEGRADED_MS = int(os.environ.get("SHOMER_PING_RTT_DEGRADED_MS", "400"))
 _DEGRADED_PERSIST_TICKS = int(os.environ.get("SHOMER_DEGRADED_PERSIST_TICKS", "3"))
+# Reinicio preventivo (7 sep 2026): 60 ticks al poll de 10s = ~10 min sostenido
+# en "degraded" antes de intentar reiniciar por software -- mucho mas alto que
+# los 3 ticks que ya bastan para solo avisar, a proposito, para no reiniciar
+# equipos por un pico de latencia pasajero. Ver CLAUDE.md §D.3 para el
+# contexto completo (por que "offline" ya es demasiado tarde para SSH).
+_DEGRADED_PREVENTIVE_REBOOT_TICKS = int(
+    os.environ.get("SHOMER_DEGRADED_PREVENTIVE_REBOOT_TICKS", "60")
+)
 _OFFLINE_PERSIST_TICKS = int(os.environ.get("SHOMER_OFFLINE_PERSIST_TICKS", "3"))
 _DEGRADED_ALERT_COOLDOWN_SEC = int(os.environ.get("SHOMER_DEGRADED_ALERT_COOLDOWN_SEC", "1800"))
 _HTTP_PROBE_URL = os.environ.get(
@@ -94,6 +102,9 @@ def _get_health_config() -> Dict[str, Any]:
             "degraded_alert_cooldown_sec": _cfg_int(
                 "guardian.degraded_alert_cooldown_sec", _DEGRADED_ALERT_COOLDOWN_SEC
             ),
+        "degraded_preventive_reboot_ticks": _cfg_int(
+            "guardian.degraded_preventive_reboot_ticks", _DEGRADED_PREVENTIVE_REBOOT_TICKS
+        ),
         "http_probe_url": _cfg_str("guardian.http_probe_url", _HTTP_PROBE_URL),
         "http_probe_expect": _cfg_str("guardian.http_probe_expect", _HTTP_PROBE_EXPECT),
         "dns_probe_host": _cfg_str("guardian.dns_probe_host", _DNS_PROBE_HOST),

@@ -1409,6 +1409,46 @@ Config de subnets/excepciones por sitio → **`SITE.md` del servidor** (nunca ha
 - **`hunter.auto_block_*`** y **`hunter.subnets`** revalidar tras cambiar la LAN del cliente (quitar VLANs fantasma evita falsos “internos”).
 - Integración Telegram: probar **`POST`** a `/remedies/block` y luego `/remedies/unblock` en **127.0.0.1:8000** con **`X-Shomer-Integration-Key`**, usando IP de prueba reservada (p. ej. `198.51.100.1`), **nunca** direcciones operativas del hotel.
 
+## D.3 Pendiente — Recuperación remota de AP sin ruta de red (PoE vía SNMP)
+
+**Origen (7 sep 2026):** al probar el reinicio automático real de Guardian se confirmó la
+causa raíz de por qué la mayoría de los intentos fallan con `ssh: connect ... Connection
+timed out` / `No route to host`: un AP normal (`device_type='access_point'`) solo puede
+llegar al estado `offline` vía `classify_health()` cuando tiene **0% de respuesta en la
+LAN** — la clasificación `no-internet` (WAN caída pero LAN viva) está reservada solo a
+`device_type in ('router','gateway')`. Es decir: el reinicio automático de un AP **siempre**
+se dispara justo cuando ya no hay ninguna ruta de red hacia él — y si no hay ruta, ningún
+protocolo remoto (SSH, SNMP, lo que sea) puede llegarle tampoco. No es un bug de
+credenciales ni de configuración por equipo — es una limitación física: sin ruta de red no
+hay forma de mandarle ningún comando. Para un AP genuinamente caído (energía, PoE, firmware
+colgado con la NIC muerta) hoy no existe ningún mecanismo remoto de recuperación —
+solo intervención física.
+
+**Propuesta pendiente (requiere estar en sitio / equipos ya viajaron a Bogotá, no se puede
+validar ahora):** usar el descubrimiento de topología real por LLDP ya construido
+(`shomer_topology.py`, tabla `network_links` — sabe a qué switch y qué puerto físico está
+conectado cada AP) para, cuando SSH falle por falta total de ruta, apagar y volver a
+prender por SNMP el puerto PoE específico de ese AP en su switch padre — un power-cycle
+remoto real, capaz de revivir un equipo que SSH nunca podrá alcanzar.
+
+**Qué falta confirmar antes de construirlo (todo requiere acceso físico a los switches):**
+1. Que los switches reales tengan la comunidad SNMP configurada con **permiso de
+   escritura** (`snmp_community_write`, ya existe el campo en `infra_devices` pero no se
+   verificó que esté poblado con un valor que realmente autorice escritura en cada switch).
+2. El OID correcto de control PoE por puerto para los modelos reales en sitio — el estándar
+   es POWER-ETHERNET-MIB (`pethPsePortAdminEnable`, `1.3.6.1.2.1.105.1.1.1.3.1.<indice>`),
+   pero varios fabricantes (TP-Link, Mikrotik, Ubiquiti) usan OIDs propietarios en vez del
+   estándar — hay que confirmarlo contra el switch real, no asumir.
+3. Probar el toggle en un puerto de prueba (con un equipo no crítico conectado) antes de
+   usarlo contra un AP de producción — un OID equivocado podría apagar el puerto equivocado.
+
+**Prioridad:** 🟡 Media — mejora real de disponibilidad, pero solo aplica al subconjunto de
+caídas que son "AP realmente muerto" (no cubre WAN, DNS, ni degradación). De las 3 mejoras
+discutidas el 7 sep 2026 para este mismo hallazgo, esta es la única que queda pendiente de
+validación en campo — las otras dos (A: reinicio preventivo en `degraded` sostenido, B:
+aviso diferenciado al técnico cuando SSH falla por falta total de ruta) no dependen de
+acceso físico y se evalúan aparte.
+
 ## E.1 Bugs corregidos Hunter — Sesión 23 (10 mayo 2026)
 
 Todos los cambios en `app/api/casador_blocking.py` y `app/api/casador_support_firewall.py` / `casador_support_state.py`.
