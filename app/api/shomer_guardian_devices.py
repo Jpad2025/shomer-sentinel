@@ -4,14 +4,8 @@ from typing import Any, Dict
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from app.api.auth_api import get_current_user, require_admin
-from app.api.shomer_common import get_db, get_redis
-from app.api.shomer_guardian_discovery import _sync_nodos_gl_from_devices
-from app.api.shomer_guardian_lib import (
-    FAILURES_KEY_PREFIX,
-    LAST_REBOOT_ATTEMPT_KEY_PREFIX,
-    LAST_REBOOT_KEY_PREFIX,
-    NODE_MAINTENANCE_PREFIX,
-)
+from app.api.shomer_common import get_db
+from app.api.shomer_guardian_discovery import _clean_redis_for_ip, _sync_nodos_gl_from_devices
 
 router = APIRouter(tags=["Shomer Guardian"])
 
@@ -92,36 +86,9 @@ async def delete_router_device(
         conn.commit()
 
     if row:
-        ip = row["ip_address"]
-        r = get_redis()
-        if r:
-            for key in (
-                f"status:{ip}",
-                f"{FAILURES_KEY_PREFIX}{ip}",
-                f"{LAST_REBOOT_KEY_PREFIX}{ip}",
-                f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}",
-                f"{NODE_MAINTENANCE_PREFIX}{ip}",
-                f"degraded_notified:{ip}",
-                f"degraded_streak:{ip}",
-            ):
-                r.delete(key)
+        _clean_redis_for_ip(row["ip_address"])
 
     return {"success": True, "message": "Dispositivo eliminado"}
-
-
-def _clean_redis_for_ip(ip: str) -> None:
-    r = get_redis()
-    if r:
-        for key in (
-            f"status:{ip}",
-            f"{FAILURES_KEY_PREFIX}{ip}",
-            f"{LAST_REBOOT_KEY_PREFIX}{ip}",
-            f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}",
-            f"{NODE_MAINTENANCE_PREFIX}{ip}",
-            f"degraded_notified:{ip}",
-            f"degraded_streak:{ip}",
-        ):
-            r.delete(key)
 
 
 @router.post("/api/router-devices/by-ip/{ip}/deactivate")

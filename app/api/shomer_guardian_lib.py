@@ -44,12 +44,17 @@ EVENTS_MAX = 200
 
 
 def send_telegram_safe(msg: str) -> None:
-    """Envía mensaje Telegram sin lanzar excepción si falla."""
+    """Envía mensaje Telegram sin lanzar excepción si falla.
+
+    7 sep 2026 (auditoría Guardian): antes el `except` no dejaba ningún rastro
+    -- si el token del bot se revoca o el chat_id cambia justo cuando más
+    importa avisar (una caída de WAN, por ejemplo), la alerta desaparecía sin
+    ninguna huella en ningún log. Ahora al menos queda en warning."""
     try:
         from app.scripts.alerts import send_telegram_alert
         send_telegram_alert(msg)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("send_telegram_safe: no se pudo enviar (%s): %s", e, msg[:120])
 
 
 def _get_guardian_thresholds() -> Tuple[int, int]:
@@ -145,8 +150,13 @@ def _get_device_ssh_credentials(
                 return row["ssh_user"], row["ssh_password"], port, cmd
         finally:
             conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        # 7 sep 2026 (auditoría Guardian): antes esto era indistinguible de
+        # "el equipo genuinamente no tiene credenciales configuradas" -- un
+        # timeout de BD (plausible, Guardian/Hunter/Inframonitor/Protector
+        # escriben el mismo archivo) generaba un falso "Sin credenciales en
+        # BD" para un equipo perfectamente configurado.
+        logger.warning("_get_device_ssh_credentials(%s): error de BD -- %s", node_ip, e)
     return None, None, 22, "reboot"
 
 
@@ -167,8 +177,8 @@ def _get_device_snmp_credentials(node_ip: str) -> Tuple[Optional[str], Optional[
                 return row["reboot_method"], row["snmp_community"], row["snmp_community_write"]
         finally:
             conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("_get_device_snmp_credentials(%s): error de BD -- %s", node_ip, e)
     return None, None, None
 
 
@@ -311,11 +321,15 @@ def _run_ssh_reboot(node_ip: str) -> Tuple[bool, str]:
             r2 = subprocess.run(cmd_fb, capture_output=True, text=True, timeout=SSH_CONNECT_TIMEOUT + 5)
             if r2.returncode == 0:
                 return True, "Reboot enviado (fallback global)"
-            return False, r2.stderr or r2.stdout or f"fallback exit code {r2.returncode}"
+            err_msg = r2.stderr or r2.stdout or f"fallback exit code {r2.returncode}"
         except subprocess.TimeoutExpired:
-            return False, "Timeout SSH (fallback global)"
+            err_msg = "Timeout SSH (fallback global)"
         except Exception as e2:
-            return False, f"Fallback error: {e2}"
+            err_msg = f"Fallback error: {e2}"
+        # 7 sep 2026: antes este bloque retornaba SIEMPRE (exito, fallo,
+        # timeout o excepcion), asi que el paso 4 (SNMP) nunca se alcanzaba
+        # en produccion -- ver auditoria Guardian. Ahora solo retorna en
+        # exito; en fallo guarda err_msg y sigue al fallback SNMP si existe.
 
     # 4) Fallback SNMP si SSH falló y el dispositivo tiene comunidad write
     if snmp_write:

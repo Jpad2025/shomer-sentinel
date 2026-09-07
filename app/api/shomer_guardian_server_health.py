@@ -437,7 +437,7 @@ def start_server_health_tasks() -> None:
 
 
 @router.get("/api/server-metrics")
-async def get_server_metrics(limit: int = 20):
+async def get_server_metrics(limit: int = 20, user=Depends(get_current_user)):
     """Últimas N muestras de cpu/ram/temperatura + lectura en vivo."""
     try:
         cpu_now, ram_now, temp_now = _get_server_metrics()
