@@ -74,6 +74,14 @@ def normalize_asset_for_frontend(asset: Dict[str, Any]) -> Dict[str, Any]:
             out[k] = ""
         elif out[k] is None:
             out[k] = ""
+    # 7 sep 2026 (auditoría Tracker): override_pass viajaba en texto plano a
+    # cualquier usuario autenticado (no solo admin) via GET /tracker/assets
+    # -- contradice el enmascaramiento que ya existe para el otro campo de
+    # credenciales en inventory.py. Mismo patrón: *** + flag booleano, y
+    # sanitize_asset_updates() descarta *** al guardar para no sobrescribir
+    # la contraseña real con el placeholder.
+    out["has_override_pass"] = bool((out.get("override_pass") or "").strip())
+    out["override_pass"] = "***" if out["has_override_pass"] else ""
     return out
 
 

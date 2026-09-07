@@ -110,8 +110,15 @@ _SYSTEMINFO_REQUIRED_COLUMNS = [
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     _ensure_network_credentials(conn)
-    conn.execute("DROP TABLE IF EXISTS inventory_assets")
-    conn.commit()
+    # 7 sep 2026 (auditoría Tracker): DROP incondicional de una tabla legacy
+    # ya renombrada hace tiempo -- ver mismo fix en inventory_db_schema.py.
+    # Acá corre solo una vez por escaneo (no por lectura), impacto menor,
+    # pero el chequeo previo evita el commit de escritura innecesario igual.
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_assets'"
+    ).fetchone():
+        conn.execute("DROP TABLE inventory_assets")
+        conn.commit()
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS assets (

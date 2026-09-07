@@ -66,6 +66,7 @@ rescan_router = APIRouter(prefix="/rescan", tags=["rescan"])
 @router.post("/discovery_scan")
 async def discovery_scan(
     background_tasks: BackgroundTasks,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
     _user: Dict[str, Any] = Depends(get_current_user),
 ):
     if not os.path.isfile(DISCOVERY_SCRIPT_PATH):
@@ -83,7 +84,12 @@ async def discovery_scan(
                 "message": f"Ya hay un escaneo activo ({status.get('mode','')}) — {status.get('elapsed_label','')} en progreso.",
             },
         )
-    background_tasks.add_task(run_inventory_quick_scan_background)
+    # 7 sep 2026 (auditoría Tracker): el proxy /tracker/scan (puerto 8000) ya
+    # resuelve y manda la subred configurada en el body -- este endpoint
+    # nunca la leía, así que el escaneo básico siempre detectaba la red
+    # automáticamente sin importar lo que el operador hubiera configurado.
+    subnet = (payload or {}).get("subnet") if isinstance(payload, dict) else None
+    background_tasks.add_task(run_inventory_quick_scan_background, subnet)
     return JSONResponse(
         status_code=202,
         content={
@@ -245,7 +251,7 @@ async def export_labels_sheet_pdf(
 
 
 @export_router.get("/asset/label/{mac}")
-async def export_asset_label_pdf(mac: str) -> Response:
+async def export_asset_label_pdf(mac: str, user=Depends(get_current_user)) -> Response:
     from urllib.parse import unquote
 
     mac_key = unquote(mac).strip()
@@ -270,7 +276,7 @@ async def export_asset_label_pdf(mac: str) -> Response:
 
 
 @export_router.get("/global/inventory/excel")
-async def export_global_inventory_excel() -> Response:
+async def export_global_inventory_excel(user=Depends(get_current_user)) -> Response:
     with get_connection_inventory(timeout=30) as conn:
         rows = fetch_all_assets_normalized(conn)
     content = render_global_client_excel_bytes(rows)
@@ -327,6 +333,12 @@ async def update_asset(
     with get_connection_inventory(timeout=30) as conn:
         ensure_network_credentials(conn)
         ensure_assets_table(conn)
+        # 7 sep 2026 (auditoría Tracker): PATCH a un MAC inexistente creaba
+        # un activo fantasma en silencio en vez de devolver 404 -- una PATCH
+        # nunca debería crear un recurso nuevo.
+        existing = conn.execute("SELECT 1 FROM assets WHERE mac = ?", (mac,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Activo no encontrado")
         upsert_asset_row(conn, mac, updates)
     return {"success": True, "message": "Asset actualizado", "last_audit": now_ts}
 
