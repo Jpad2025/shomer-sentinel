@@ -232,8 +232,18 @@ async def _routeros_unblock(ip: str) -> tuple[bool, str]:
 
 _ROS_DROP_COUNT_CMD = (
     f'/ip firewall filter print count-only where chain=forward action=drop '
-    f'src-address-list={_ROS_LIST}'
+    f'comment="Shomer-Hunter"'
 )
+# 7 sep 2026 (auditoría Hunter): confirmado contra el router real -- RouterOS
+# 7.x no evalúa correctamente "where ... src-address-list=X" en modo
+# count-only (devuelve 0 siempre, aunque el print normal SÍ muestra las
+# reglas con ese mismo src-address-list). Probado en vivo: mismo filtro sin
+# src-address-list -> 2 (correcto); con comment="Shomer-Hunter" -> 2
+# (correcto, y más preciso porque identifica justo la regla que este código
+# administra). El bug hacía que /firewall/routeros/verify SIEMPRE reportara
+# "falta la regla DROP" aunque sí existiera, y que /ensure-drop-rule creara
+# una regla duplicada cada vez que se llamaba (confirmado: había 2 reglas
+# idénticas "Shomer-Hunter" en el router antes de este fix).
 _ROS_DROP_ADD_CMD = (
     f'/ip firewall filter add chain=forward action=drop '
     f'src-address-list={_ROS_LIST} place-before=0 comment="Shomer-Hunter"'
