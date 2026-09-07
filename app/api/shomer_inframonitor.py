@@ -979,15 +979,21 @@ def _calc_uptime_24h_batch(conn, ips: list, status_map: dict) -> dict:
     ph = ",".join("?" * len(ips))
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(hours=24)
+    # Solo online/offline representan un cambio real de alcanzabilidad -- eventos como
+    # degraded/pulse_degrading/pulse_recovered no deben "atascar" el estado del cálculo
+    # (bug detectado: dejaban el uptime en ~0% aunque el equipo siguiera online).
     rows_in = conn.execute(
         f"SELECT ip, event, ts FROM infra_events WHERE ip IN ({ph}) "
+        f"AND event IN ('online','offline') "
         f"AND ts >= datetime('now','-24 hours') ORDER BY ip, ts",
         ips,
     ).fetchall()
     prev_rows = conn.execute(
         f"""SELECT ip, event FROM infra_events ie
             WHERE ip IN ({ph})
+              AND event IN ('online','offline')
               AND ts = (SELECT max(ts) FROM infra_events WHERE ip=ie.ip
+                        AND event IN ('online','offline')
                         AND ts < datetime('now','-24 hours'))""",
         ips,
     ).fetchall()
@@ -1023,8 +1029,12 @@ def _calc_uptime_24h_batch(conn, ips: list, status_map: dict) -> dict:
 
 
 def _calc_uptime_24h(conn, ip: str, current_status: str) -> Optional[float]:
+    # Solo online/offline representan un cambio real de alcanzabilidad -- eventos como
+    # degraded/pulse_degrading/pulse_recovered no deben "atascar" el estado del cálculo
+    # (bug detectado: dejaban el uptime en ~0% aunque el equipo siguiera online).
     rows = conn.execute(
-        "SELECT event, ts FROM infra_events WHERE ip=? AND ts >= datetime('now','-24 hours') ORDER BY ts",
+        "SELECT event, ts FROM infra_events WHERE ip=? AND event IN ('online','offline') "
+        "AND ts >= datetime('now','-24 hours') ORDER BY ts",
         (ip,)
     ).fetchall()
 
@@ -1033,7 +1043,8 @@ def _calc_uptime_24h(conn, ip: str, current_status: str) -> Optional[float]:
         return 100.0 if current_status == "online" else 0.0
 
     prev = conn.execute(
-        "SELECT event FROM infra_events WHERE ip=? AND ts < datetime('now','-24 hours') ORDER BY ts DESC LIMIT 1",
+        "SELECT event FROM infra_events WHERE ip=? AND event IN ('online','offline') "
+        "AND ts < datetime('now','-24 hours') ORDER BY ts DESC LIMIT 1",
         (ip,)
     ).fetchone()
 
