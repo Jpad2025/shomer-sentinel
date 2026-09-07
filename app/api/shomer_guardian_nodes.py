@@ -5,7 +5,7 @@ import logging
 import os
 import subprocess
 import time as _time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -487,7 +487,7 @@ def _build_node_outcome(
             and not redis_snap.get("node_maint")
             and not host_network_blip
         ):
-            now_ts = int(datetime.utcnow().timestamp())
+            now_ts = int(datetime.now(timezone.utc).timestamp())
             last_raw = redis_snap.get("last_reboot")
             last_attempt = redis_snap.get("last_reboot_attempt")
             cooldown_ok = not (last_raw and now_ts - int(last_raw) < cooldown)
@@ -560,7 +560,7 @@ def _build_node_outcome(
     if new_failures < threshold or not reboot_confirmed_ok:
         return outcome
 
-    now_ts = int(datetime.utcnow().timestamp())
+    now_ts = int(datetime.now(timezone.utc).timestamp())
     lr_key = f"{LAST_REBOOT_KEY_PREFIX}{ip}"
     # Cooldown largo: solo tras reboot OK (AP arrancando — anti-bucle)
     last_raw = redis_snap.get("last_reboot")
@@ -615,6 +615,26 @@ def _persist_guardian_tick(
             _apply_redis_op(pipe, op)
     pipe.execute()
 
+    # 7 sep 2026 (auditoría Guardian): este refresco vivía DESPUÉS del bucle
+    # de reinicios de más abajo. Los reinicios son seriales y bloqueantes
+    # (hasta ~30s cada uno en el peor caso, ver auditoría del 7 sep sobre
+    # por qué la mayoría falla) -- con 2+ reinicios en el mismo ciclo, el
+    # TTL de 40s (GUARDIAN_POLL_INTERVAL_SEC*4) podía vencer ANTES de que
+    # el bucle terminara, y watch_poller_heartbeat (shomer-agent) dispara
+    # una alerta crítica falsa de "Guardian congelado". El reinicio
+    # preventivo agregado hoy en degraded suma una segunda cola de
+    # candidatos a este mismo bucle, haciendo esto más probable, no menos.
+    # Adelantar el refresco desacopla "Guardian sigue vivo" de cuánto
+    # tarden los reinicios de este ciclo en particular.
+    try:
+        r.setex(
+            "guardian:poller:last_ok",
+            GUARDIAN_POLL_INTERVAL_SEC * 4,
+            datetime.utcnow().isoformat(),
+        )
+    except Exception:
+        pass
+
     for oc in outcomes:
         pl = oc.get("poller_log")
         if pl:
@@ -630,6 +650,17 @@ def _persist_guardian_tick(
         reboot = oc.get("reboot")
         if not reboot:
             continue
+        # Refresco adicional antes de cada intento (no solo al inicio del
+        # ciclo, ver más arriba): si este mismo ciclo tiene 2+ candidatos a
+        # reinicio, el bucle entero puede superar los 40s de TTL aunque se
+        # haya refrescado al empezar. Costo mínimo (un SETEX ya en curso),
+        # cubre justo el caso "dos nodos reiniciando en el mismo ciclo" que
+        # encontró la auditoría del 7 sep.
+        try:
+            r.setex("guardian:poller:last_ok", GUARDIAN_POLL_INTERVAL_SEC * 4,
+                    datetime.utcnow().isoformat())
+        except Exception:
+            pass
         ok, msg = _run_ssh_reboot(reboot["ip"])
         if ok:
             # 5 min (cooldown_sec): AP recibió reboot y está arrancando
@@ -758,21 +789,9 @@ async def _probe_guardian_extended(
     }, ssh_ms, snmp_ms
 
 
-async def _probe_guardian_device(
-    dev: Dict[str, Any],
-    health_cfg: Dict[str, Any],
-) -> Tuple[Dict[str, Any], int, int, int]:
-    """Ping + SSH/SNMP (ruta completa cuando no hay blip)."""
-    (lan_ok, lan_loss, lan_rtt), ping_ms = await _probe_guardian_ping(dev, health_cfg)
-    probe, ssh_ms, snmp_ms = await _probe_guardian_extended(
-        dev, health_cfg, lan_ok, lan_loss, lan_rtt,
-    )
-    return probe, ping_ms, ssh_ms, snmp_ms
-
-
 async def _poller_tick() -> None:
     t_total = _time.monotonic()
-    batch_id = f"g-{int(datetime.utcnow().timestamp())}"
+    batch_id = f"g-{int(datetime.now(timezone.utc).timestamp())}"
 
     try:
         ctx = await asyncio.to_thread(_load_guardian_poll_read)
@@ -800,10 +819,17 @@ async def _poller_tick() -> None:
     gateway_ip = ctx.get("gateway_ip") or ""
 
     # Fase 1 — ping paralelo a todos los nodos
+    t_checks = _time.monotonic()
     ping_tasks = [_probe_guardian_ping(dev, health_cfg) for dev in devices]
     ping_out = await asyncio.gather(*ping_tasks, return_exceptions=True)
+    # 7 sep 2026 (auditoría Guardian): antes se sumaba la duración
+    # individual de cada ping (`p_ms`) sobre un `checks_ms` acumulado --
+    # como los pings corren en paralelo, eso podía dar "checks=213975ms"
+    # dentro de un ciclo real de 18s, inútil para diagnosticar. Ahora mide
+    # el tiempo real de reloj alrededor del `gather`, igual que el resto
+    # de las fases de este mismo ciclo (read_ms, ssh_ms, snmp_ms, write_ms).
+    checks_ms = int((_time.monotonic() - t_checks) * 1000)
 
-    checks_ms = 0
     ping_by_ip: Dict[str, Tuple[bool, float, Optional[float]]] = {}
     cycle_status: Dict[str, str] = {}
     existing_status: Dict[str, str] = {}
@@ -815,7 +841,6 @@ async def _poller_tick() -> None:
             cycle_status[ip] = "offline"
         else:
             (lan_ok, lan_loss, lan_rtt), p_ms = pr
-            checks_ms += p_ms
             ping_by_ip[ip] = (lan_ok, lan_loss, lan_rtt)
             cycle_status[ip] = metrics_to_status(
                 lan_ok, lan_loss, lan_rtt,
@@ -826,8 +851,10 @@ async def _poller_tick() -> None:
     loss_deg = float(health_cfg.get("loss_degraded_pct") or 60)
 
     async def _gw_ping_triplet():
-        if not gateway_ip:
-            return "online", 0.0, None
+        # 7 sep 2026 (auditoría Guardian): el chequeo `if not gateway_ip`
+        # que había acá era inalcanzable -- evaluate_host_network_blip_async
+        # ya retorna antes de llamar a este closure si gateway_ip es falsy
+        # (ver shomer_network_blip.py). Removido, no cambia el comportamiento.
         ok, loss, rtt = await asyncio.to_thread(
             _ping_metrics, gateway_ip, health_cfg["ping_count"],
         )
@@ -973,7 +1000,10 @@ async def get_nodes(user=Depends(get_current_user)):
 
     if r is not None:
         try:
-            keys = r.keys("status:*")
+            # 7 sep 2026 (auditoría Guardian): KEYS bloquea todo Redis en
+            # producción -- ya existe _redis_scan_keys() con SCAN para esto
+            # mismo (ver línea 236), simplemente no se usaba acá.
+            keys = _redis_scan_keys(r, "status:*")
             for key in keys:
                 ip = key.replace("status:", "")
                 status = r.get(key) or "unknown"
@@ -1109,7 +1139,7 @@ async def heartbeat(request: Request, user=Depends(get_current_user)):
         except Exception:
             pass
         if not maintenance_on and count >= _threshold:
-            now_ts = int(datetime.utcnow().timestamp())
+            now_ts = int(datetime.now(timezone.utc).timestamp())
             lr_key = f"{LAST_REBOOT_KEY_PREFIX}{node_id}"
             attempt_key = f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{node_id}"
             fail_retry = _get_fail_retry_sec()
@@ -1249,7 +1279,7 @@ async def reboot_node(ip: str, user=Depends(get_current_user)):
 
     if r is not None:
         try:
-            now_ts = int(datetime.utcnow().timestamp())
+            now_ts = int(datetime.now(timezone.utc).timestamp())
             r.set(f"{LAST_REBOOT_KEY_PREFIX}{ip}", str(now_ts))
             r.delete(f"{FAILURES_KEY_PREFIX}{ip}")
             log_event(r, "warning", "MANUAL-REBOOT", f"Reboot manual enviado a {ip}")

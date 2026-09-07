@@ -57,7 +57,7 @@ async def get_maintenance(user=Depends(get_current_user)):
             conn.commit()
             cur.execute("SELECT value FROM system_state WHERE key = 'maintenance'")
             row = cur.fetchone()
-            return {"success": True, "maintenance": (row and row[0] == "1")}
+            return {"success": True, "maintenance": bool(row and row[0] == "1")}
     except Exception:
         pass
     return {"success": True, "maintenance": False}
@@ -140,7 +140,7 @@ class NodeMaintenanceRequest(BaseModel):
 
 
 @router.get("/node_maintenance/{ip}")
-async def get_node_maintenance(ip: str):
+async def get_node_maintenance(ip: str, user=Depends(get_current_user)):
     """Estado de mantenimiento de un nodo específico."""
     if not ALLOWED_IP_PATTERN.match(ip):
         raise HTTPException(status_code=400, detail="IP no válida")
