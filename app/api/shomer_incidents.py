@@ -339,6 +339,49 @@ async def close_incident(incident_id: int, body: CloseBody, user=Depends(get_cur
     return {"success": True, "message": f"Incidente {incident_id} cerrado"}
 
 
+@router.post("/incidents/close_stale_noise")
+async def close_stale_noise_incidents(days: int = 14, user=Depends(get_current_user)):
+    """Cierra en bloque SOLO ruido de internet ya confirmado y documentado
+    (ver conocimiento_general.py en shomer-agent, dominio siem_analisis) --
+    IPs EXTERNAS (no 192.168.x) con firma 'Poor Reputation' que llevan `days`
+    días abiertas sin que nadie las cierre. Decisión explícita de Juan Pablo
+    (7 sep 2026), tras encontrar 108 incidentes de Hunter jamás reconocidos
+    (el más viejo desde junio): NUNCA toca IPs internas ni firmas distintas --
+    esas siempre esperan revisión humana, sin excepción.
+
+    Existe como endpoint HTTP (no como escritura directa a la BD desde
+    shomer-agent) porque /storage/db está montado solo-lectura en el
+    contenedor del bot a propósito -- el bot nunca debe poder escribir la
+    base de datos de Guardian directamente, solo a través de esta API con
+    la misma lógica de auditoría (status/closed_by/notes) que el cierre
+    manual de un solo incidente."""
+    _init_table()
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        candidatos = conn.execute(
+            "SELECT id, ip, alert_signature, opened_at FROM incidents "
+            "WHERE status != ? AND ip NOT LIKE '192.168.%' "
+            "AND alert_signature LIKE '%Poor Reputation%' "
+            "AND opened_at <= datetime('now', ?)",
+            (STATUS_CLOSED, f"-{days} days"),
+        ).fetchall()
+        cerrados = []
+        for c in candidatos:
+            conn.execute(
+                "UPDATE incidents SET status=?, closed_at=?, closed_by=?, "
+                "notes=CASE WHEN notes='' THEN ? ELSE notes||' | '||? END WHERE id=?",
+                (
+                    STATUS_CLOSED, now, "auto-noise-cleanup",
+                    f"Cierre automático: ruido externo confirmado, +{days} días sin actividad",
+                    f"Cierre automático: ruido externo confirmado, +{days} días sin actividad",
+                    c["id"],
+                ),
+            )
+            cerrados.append(dict(c))
+        conn.commit()
+    return {"success": True, "count": len(cerrados), "closed": cerrados}
+
+
 @router.get("/incidents/export/csv")
 async def export_incidents_csv(
     status: Optional[str] = Query(None),
