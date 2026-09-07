@@ -63,6 +63,12 @@ def sanitize_asset_updates(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     for k, v in (payload or {}).items():
         if k not in ASSET_EDITABLE_FIELDS:
             continue
+        if k == "override_pass" and v == "***":
+            # 7 sep 2026: el panel muestra *** cuando ya hay password guardado
+            # y lo reenvía tal cual si el técnico no lo tocó -- sin este
+            # chequeo se sobrescribiría la contraseña real con el string
+            # literal "***".
+            continue
         updates[k] = (v or "").strip() if isinstance(v, str) else (v if v is not None else "")
     return updates
 

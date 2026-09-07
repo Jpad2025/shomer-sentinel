@@ -70,9 +70,27 @@ def ensure_network_credentials(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+_LEGACY_TABLE_CHECKED = False
+
+
 def ensure_assets_table(conn: sqlite3.Connection) -> None:
-    conn.execute("DROP TABLE IF EXISTS inventory_assets")
-    conn.commit()
+    # 7 sep 2026 (auditoría Tracker): esto se llama en CADA lectura de
+    # /tracker/assets (sondeado por la UI cada 5s) y hacía un DROP TABLE +
+    # commit incondicional de una tabla legacy (`inventory_assets`, ya
+    # renombrada a `assets` hace tiempo) -- dos transacciones de escritura
+    # por cada lectura, compitiendo por el lock con el escaneo profundo que
+    # mantiene una conexión de escritura abierta ~60s. Ahora solo lo
+    # verifica una vez por proceso (--workers 2 -> como mucho 2 veces en
+    # total, no miles de veces al día).
+    global _LEGACY_TABLE_CHECKED
+    if not _LEGACY_TABLE_CHECKED:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_assets'"
+        ).fetchone()
+        if exists:
+            conn.execute("DROP TABLE inventory_assets")
+            conn.commit()
+        _LEGACY_TABLE_CHECKED = True
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS assets (

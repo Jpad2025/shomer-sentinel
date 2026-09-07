@@ -406,61 +406,88 @@ def discovery_nmap(targets: List[str], use_pn: bool = False) -> List[Dict[str, A
     return hosts
 
 
+def _run_nmap_xml(cmd: List[str], label: str) -> Optional["ET.Element"]:
+    """Corre nmap con -oX - y devuelve el root del XML, o None si falla."""
+    import xml.etree.ElementTree as ET
+    log = _log()
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        log.warning("%s: timeout o nmap no encontrado", label)
+        return None
+    if proc.returncode not in (0, 1):
+        log.info("[INFO] %s finished: 0 results (exit %s)", label, proc.returncode)
+        return None
+    try:
+        return ET.fromstring(proc.stdout or "")
+    except Exception:
+        log.info("[INFO] %s finished: 0 results (parse error)", label)
+        return None
+
+
 def os_detection_aggressive(ip_list: List[str]) -> Dict[str, Dict[str, str]]:
-    """nmap -sS -A -T4 por IP; retorna dict ip -> {os_detected, asset_model, ...}."""
+    """OS + versión de servicio por IP. Dos pasadas de nmap separadas
+    (7 sep 2026, probado en vivo repetidamente): combinar `-O` con `-sV`/`-A`
+    en una sola pasada hace que la detección de SO NUNCA complete dentro del
+    host-timeout -- confirmado corriendo el comando real a mano contra un
+    servidor Windows conocido (IIS, RDP, MSSQL abiertos): `-sS -O
+    --osscan-guess` solo tarda ~12s y detecta el SO con 93% de confianza;
+    agregar `-sV` o `-A` al mismo comando hace que tarde ~50s (el
+    host-timeout completo) y no devuelva ningún resultado de SO, en el mismo
+    equipo, repetido 3 veces. El escaneo profundo llevaba meses corriendo
+    así -- consumiendo tiempo real, sin entregar nunca el dato de SO para
+    ningún equipo real. Separar en dos pasadas cuesta más tiempo total pero
+    es la única combinación que realmente entrega ambos datos.
+    """
     log = _log()
     result: Dict[str, Dict[str, str]] = {}
     if not ip_list:
         return result
-    log.info("[INFO] OS detection (aggressive) started: %d IPs", len(ip_list[:200]))
-    cmd = [
-        "sudo", "-n",
-        "/usr/bin/nmap", "-sS", "-A", "-T4", "-oX", "-",
-        "--host-timeout", "45",
-    ] + ip_list[:200]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        log.warning("OS detection nmap timeout or not found")
-        log.info("[INFO] OS detection finished: 0 results")
-        return result
-    if proc.returncode not in (0, 1):
-        log.info("[INFO] OS detection finished: 0 results (exit %s)", proc.returncode)
-        return result
-    raw = proc.stdout or ""
-    try:
-        import xml.etree.ElementTree as ET
-        root = ET.fromstring(raw)
-    except Exception:
-        log.info("[INFO] OS detection finished: 0 results (parse error)")
-        return result
-    for host in root.findall("host"):
-        ip = ""
-        for addr in host.findall("address"):
-            if addr.get("addrtype") == "ipv4":
-                ip = addr.get("addr", "")
-                break
-        if not ip:
-            continue
-        result[ip] = {}
-        os_el = host.find("os")
-        if os_el is not None:
-            for match in os_el.findall("osmatch"):
-                name = (match.get("name") or "").strip()
+    targets = ip_list[:200]
+    base = ["sudo", "-n", "/usr/bin/nmap", "-T4", "--host-timeout", "45", "-oX", "-"]
+
+    log.info("[INFO] OS detection started: %d IPs", len(targets))
+    root_os = _run_nmap_xml(base + ["-sS", "-O", "--osscan-guess"] + targets, "OS detection")
+    if root_os is not None:
+        for host in root_os.findall("host"):
+            ip = next(
+                (a.get("addr", "") for a in host.findall("address") if a.get("addrtype") == "ipv4"),
+                "",
+            )
+            if not ip:
+                continue
+            result.setdefault(ip, {})
+            os_el = host.find("os")
+            if os_el is not None:
+                match = os_el.find("osmatch")
+                name = (match.get("name") or "").strip() if match is not None else ""
                 if name:
                     result[ip]["os_detected"] = name[:400]
-                    break
-        for port in host.findall("ports/port"):
-            svc = port.find("service")
-            if svc is None:
+    log.info("[INFO] OS detection finished: %d IPs con SO detectado",
+              sum(1 for v in result.values() if "os_detected" in v))
+
+    log.info("[INFO] Service/version detection started: %d IPs", len(targets))
+    root_sv = _run_nmap_xml(base + ["-sS", "-sV"] + targets, "Service/version detection")
+    if root_sv is not None:
+        for host in root_sv.findall("host"):
+            ip = next(
+                (a.get("addr", "") for a in host.findall("address") if a.get("addrtype") == "ipv4"),
+                "",
+            )
+            if not ip:
                 continue
-            product = (svc.get("product") or "").strip()
-            version = (svc.get("version") or "").strip()
-            if product and ip in result and "asset_model" not in result[ip]:
-                val = (product + " " + version).strip()[:150]
-                if val.lower() != "microsoft windows rpc":
-                    result[ip]["asset_model"] = val
-    log.info("[INFO] OS detection finished: %d IPs with data", len(result))
+            result.setdefault(ip, {})
+            for port in host.findall("ports/port"):
+                svc = port.find("service")
+                if svc is None:
+                    continue
+                product = (svc.get("product") or "").strip()
+                version = (svc.get("version") or "").strip()
+                if product and "asset_model" not in result[ip]:
+                    val = (product + " " + version).strip()[:150]
+                    if val.lower() != "microsoft windows rpc":
+                        result[ip]["asset_model"] = val
+    log.info("[INFO] OS detection (total) finished: %d IPs with data", len(result))
     return result
 
 

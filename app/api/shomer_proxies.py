@@ -59,8 +59,16 @@ async def tracker_assets(request: Request, user=Depends(get_current_user)):
 async def tracker_scan(request: Request, user=Depends(get_current_user)):
     """Proxy: lanza discovery_scan en 8001 con subnet leída de system_state."""
     token = request.headers.get("Authorization", "")
-    subnet = get_config("tracker.subnets", [])
-    subnet = subnet[0] if isinstance(subnet, list) and subnet else get_config("base.subnet", "")
+    # 7 sep 2026 (auditoría Tracker): antes solo se usaba subnets[0] -- el
+    # operador podía agregar varias subredes en el panel, verlas guardadas,
+    # y todas menos la primera se ignoraban en silencio en cada escaneo.
+    raw_subnets = get_config("tracker.subnets", [])
+    if isinstance(raw_subnets, list) and raw_subnets:
+        subnet = " ".join(str(s).strip() for s in raw_subnets if str(s).strip())
+    elif isinstance(raw_subnets, str) and raw_subnets.strip():
+        subnet = raw_subnets.strip()
+    else:
+        subnet = get_config("base.subnet", "")
     if not subnet:
         raise HTTPException(
             status_code=400,
@@ -225,8 +233,18 @@ async def tracker_deep_scan(request: Request, user=Depends(get_current_user)):
 
     targets = body.get("targets") or body.get("subnet") or ""
     if not targets:
-        subnets = get_config("tracker.subnets", [])
-        targets = subnets[0] if subnets else get_config("base.subnet", "")
+        # 7 sep 2026 (auditoría Tracker): mismo fix que /tracker/scan --
+        # antes solo tomaba subnets[0] (ignorando el resto en silencio) y
+        # sin isinstance guard: si tracker.subnets alguna vez se guarda como
+        # string suelto en vez de lista, subnets[0] da el primer CARÁCTER,
+        # no la subred completa.
+        raw_subnets = get_config("tracker.subnets", [])
+        if isinstance(raw_subnets, list) and raw_subnets:
+            targets = " ".join(str(s).strip() for s in raw_subnets if str(s).strip())
+        elif isinstance(raw_subnets, str) and raw_subnets.strip():
+            targets = raw_subnets.strip()
+        else:
+            targets = get_config("base.subnet", "")
     if not targets:
         raise HTTPException(
             status_code=400,
@@ -288,7 +306,15 @@ async def tracker_save_credentials(request: Request, user=Depends(get_current_us
 @router.post("/tracker/rescan/{mac}")
 async def tracker_rescan_asset(mac: str, request: Request, user=Depends(get_current_user)):
     """
-    Proxy: rescanea un equipo individual usando credenciales override o globales.
+    Proxy: rescanea un equipo individual (resuelve IP desde el MAC si el
+    body no la trae).
+
+    7 sep 2026 (auditoría Tracker): antes este proxy exigía `ip` en el body
+    (400 si faltaba) y llamaba directo a `/inventory/scan`, dejando
+    inalcanzable el handler real `POST /rescan/{mac}` (`rescan_router` en
+    inventory.py) -- el ÚNICO que de verdad resuelve la IP a partir del MAC
+    cuando el botón "Rescanear" del panel no la manda. El botón fallaba con
+    400 cada vez que `a.ip` venía vacío. Ahora proxea al handler real.
     """
     token = request.headers.get("Authorization", "")
     try:
@@ -296,15 +322,11 @@ async def tracker_rescan_asset(mac: str, request: Request, user=Depends(get_curr
     except Exception:
         body = {}
 
-    ip = body.get("ip", "")
-    if not ip:
-        raise HTTPException(status_code=400, detail="ip requerida")
-
     try:
         async with httpx.AsyncClient() as client:
             r = await client.post(
-                _tools_url("/inventory/scan"),
-                json={"targets": ip},
+                _tools_url(f"/rescan/{mac}"),
+                json=body,
                 headers={
                     "Authorization": token,
                     "Content-Type": "application/json",
