@@ -1,4 +1,5 @@
 """Archivo shomer-local.rules y recarga Suricata."""
+import logging
 import os
 import re
 import subprocess
@@ -6,16 +7,24 @@ from typing import Dict, List
 
 from app.api.casador_support_constants import SURICATA_LOCAL_RULES, SURICATA_YAML_PATH
 
+_log = logging.getLogger("casador.rules_file")
+
 
 def _ensure_local_rules_file():
+    """7 sep 2026 (auditoría Hunter): antes fallaba en silencio -- se llama
+    en cada GET/POST /remedies/rules; si el proceso no tiene permiso de
+    escritura sobre suricata.yaml (no corre como root), esto nunca se
+    aplicaba y nadie se enteraba. El chequeo `if fname not in yaml_text`
+    ya evita reescribir el YAML si no hace falta -- solo agregamos log en
+    el camino de error, sin cambiar cuándo se llama."""
     if not os.path.isfile(SURICATA_LOCAL_RULES):
         try:
             os.makedirs(os.path.dirname(SURICATA_LOCAL_RULES), exist_ok=True)
             with open(SURICATA_LOCAL_RULES, "w") as f:
                 f.write("# Shomer Sentinel — Reglas locales personalizadas\n")
                 f.write("# Formato Suricata: action proto src_ip src_port -> dst_ip dst_port (opciones)\n")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning("_ensure_local_rules_file: no se pudo crear %s: %s", SURICATA_LOCAL_RULES, e)
 
     try:
         with open(SURICATA_YAML_PATH, "r") as f:
@@ -29,8 +38,8 @@ def _ensure_local_rules_file():
             if new_text != yaml_text:
                 with open(SURICATA_YAML_PATH, "w") as f:
                     f.write(new_text)
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning("_ensure_local_rules_file: no se pudo actualizar %s: %s", SURICATA_YAML_PATH, e)
 
 
 def _parse_local_rules() -> List[Dict]:
@@ -48,7 +57,14 @@ def _parse_local_rules() -> List[Dict]:
             enabled = True
             if stripped.startswith("#"):
                 inner = stripped[1:].strip()
-                if not inner or inner.startswith("#"):
+                # 7 sep 2026 (auditoría Hunter): las 2 líneas de encabezado
+                # del archivo (comentarios descriptivos, sin "->") pasaban
+                # este chequeo y se mostraban como reglas fantasma con
+                # sid=None -- sus botones de encender/borrar apuntaban a
+                # /remedies/rules/null (422). Una regla Suricata real
+                # siempre tiene el operador de dirección "->"; un comentario
+                # descriptivo normal no.
+                if not inner or inner.startswith("#") or "->" not in inner:
                     continue
                 content = inner
                 enabled = False

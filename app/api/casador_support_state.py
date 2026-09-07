@@ -28,6 +28,30 @@ def _ensure_blocked_ips_table():
             conn.execute("ALTER TABLE blocked_ips ADD COLUMN firewall_blocked INTEGER DEFAULT 0")
         except Exception:
             pass
+        # 7 sep 2026 (auditoría Hunter): blocked_ips.ip es UNIQUE, así que
+        # INSERT OR REPLACE al re-bloquear una IP ya desbloqueada antes
+        # BORRABA su fila anterior (con su unblocked_at real) -- justo el
+        # historial que el rastreador de reincidentes necesita. Esta tabla
+        # archiva esa fila antes de que se sobrescriba, sin tocar la
+        # restricción UNIQUE de la tabla viva (evita una migración de
+        # esquema arriesgada en producción). Sin UNIQUE en ip a propósito
+        # -- puede tener muchas filas por IP a lo largo del tiempo.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS blocked_ips_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip TEXT NOT NULL,
+                blocked_at TEXT NOT NULL,
+                blocked_by TEXT DEFAULT 'auto',
+                alert_sid INTEGER,
+                alert_signature TEXT,
+                severity INTEGER,
+                unblocked_at TEXT,
+                firewall_blocked INTEGER DEFAULT 0,
+                archived_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
         conn.commit()
 
 

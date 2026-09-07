@@ -147,10 +147,19 @@ async def get_system_config(user=Depends(require_admin)):
 
 
 @router.post("/config/system")
-async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(get_current_user)):
+async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(require_admin)):
     """
     Guarda configuración del sistema por módulo.
     Solo guarda los campos que vengan en el payload — no sobreescribe los demás.
+
+    7 sep 2026 (auditoría Hunter): antes exigía solo login (get_current_user)
+    mientras que el GET de esta misma ruta ya exigía admin -- un operador
+    podía reescribir hunter.firewall_ip/user/pass, integration_key, o
+    guardian.telegram_token sin ser admin. Efecto secundario real que esto
+    también corrige: como el operador no podía LEER la contraseña actual
+    (GET admin-only), el panel se la mostraba vacía y al guardar cualquier
+    otra cosa la borraba sin darse cuenta -- ahora simplemente no puede
+    guardar esta sección en absoluto si no es admin.
     """
     saved = []
     errors = []
