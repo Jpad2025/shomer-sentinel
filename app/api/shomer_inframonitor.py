@@ -241,6 +241,12 @@ def _init_tables():
             ("snmp_data",        "infra_status",  "TEXT"),
             ("snmp_ok",          "infra_status",  "INTEGER DEFAULT NULL"),
             ("monitor_profile",  "infra_devices", "TEXT DEFAULT ''"),
+            # Ruta RTSP por equipo: antes la URL de stream era fija
+            # ("rtsp://{ip}:554/stream1", genérica/TP-Link) y no servía contra
+            # el hardware real -- en Ópera son NVR Hikvision, que usan
+            # /Streaming/Channels/101 y piden credenciales. Hardcodear la marca
+            # del cliente además viola la norma B.1 del proyecto.
+            ("rtsp_path",        "infra_devices", "TEXT DEFAULT ''"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {defn}")
@@ -1793,6 +1799,8 @@ class DeviceIn(BaseModel):
     tcp_port: Optional[int] = None
     snmp_community: str = "public"
     pc_server_ip: Optional[str] = None
+    # Cámaras/NVR: ruta RTSP del fabricante (sin hardcodear marca, norma B.1).
+    rtsp_path: str = ""
 
 
 # ──────────────────────────────────────────────
@@ -1868,6 +1876,7 @@ def _build_device_row(
         "tcp_port": d["tcp_port"],
         "snmp_community": d["snmp_community"] if "snmp_community" in d.keys() else "public",
         "pc_server_ip": d["pc_server_ip"] if "pc_server_ip" in d.keys() else None,
+        "rtsp_path": d["rtsp_path"] if "rtsp_path" in d.keys() else "",
         "status": s["status"] if s else "unknown",
         "latency_ms": s["latency_ms"] if s else None,
         "loss_pct": s["loss_pct"] if (s and "loss_pct" in s.keys()) else None,
@@ -2026,10 +2035,12 @@ async def add_device(body: DeviceIn, user=Depends(get_current_user)):
         with get_db() as conn:
             conn.execute(
                 "INSERT INTO infra_devices "
-                "(ip, name, device_type, location, tcp_port, snmp_community, pc_server_ip, monitor_profile) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "(ip, name, device_type, location, tcp_port, snmp_community, pc_server_ip, "
+                "monitor_profile, rtsp_path) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (body.ip, body.name, body.device_type, body.location, body.tcp_port,
-                 body.snmp_community or "public", body.pc_server_ip or None, profile)
+                 body.snmp_community or "public", body.pc_server_ip or None, profile,
+                 (body.rtsp_path or "").strip())
             )
             conn.commit()
         return {"success": True, "message": f"Equipo {body.ip} agregado"}
@@ -2063,6 +2074,7 @@ class DeviceEdit(BaseModel):
     pc_server_ip: Optional[str] = None
     tcp_port: Optional[int] = None
     snmp_community: Optional[str] = None
+    rtsp_path: Optional[str] = None
 
 
 @router.patch("/infra/devices/{device_id}")
@@ -2104,6 +2116,8 @@ async def edit_device(device_id: int, body: DeviceEdit, user=Depends(get_current
             campos.append("tcp_port = ?"); valores.append(body.tcp_port)
     if body.snmp_community is not None:
         campos.append("snmp_community = ?"); valores.append(body.snmp_community.strip())
+    if body.rtsp_path is not None:
+        campos.append("rtsp_path = ?"); valores.append(body.rtsp_path.strip())
     if not campos:
         raise HTTPException(status_code=400, detail="Nada para actualizar")
 
@@ -2248,8 +2262,10 @@ async def device_action(device_id: int, payload: dict, user=Depends(get_current_
     """Acciones remotas por tipo de equipo.
 
     action=clear_queue  → limpiar cola de impresión vía SSH al PC asociado (printer/pos)
-    action=snmp_reboot  → reiniciar equipo vía SNMP SET (AP/switch con SNMP write)
-    action=stream_url   → devuelve URL de stream RTSP de la cámara
+    action=stream_url   → devuelve URL de stream RTSP de la cámara (usa rtsp_path del equipo)
+
+    El reinicio por SNMP vive en Guardian (shomer_guardian_lib._run_snmp_reboot),
+    no acá: duplicarlo para el mismo hardware solo daba dos caminos divergentes.
     """
     action = (payload.get("action") or "").strip()
     if not action:
@@ -2306,37 +2322,36 @@ async def device_action(device_id: int, payload: dict, user=Depends(get_current_
             logger.warning("clear_queue %s → %s: %s", ip, pc_ip, ex)
             raise HTTPException(status_code=502, detail=f"Error SSH a {pc_ip}: {ex}") from ex
 
-    # ── Reinicio SNMP ────────────────────────────────────────────────────────
-    elif action == "snmp_reboot":
-        community_write = (dev.get("snmp_community_write") or "").strip() or (dev.get("snmp_community") or "public")
-        # TP-Link EAP reboot OID
-        reboot_oid = "1.3.6.1.4.1.11863.10.1.2.1.0"
-        try:
-            result = await asyncio.to_thread(
-                subprocess.run,
-                ["snmpset", "-v2c", "-c", community_write, ip, reboot_oid, "i", "1"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode == 0:
-                return {"success": True, "message": f"Reinicio SNMP enviado a {ip}"}
-            raise HTTPException(status_code=502, detail=f"snmpset error: {result.stderr[:200]}")
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="Timeout enviando comando SNMP")
-        except HTTPException:
-            raise
-        except Exception as ex:
-            raise HTTPException(status_code=502, detail=str(ex)) from ex
+    # snmp_reboot eliminado (auditoría Sesión 82, decisión de Juan Pablo): era
+    # inalcanzable -- sin botón en la UI, snmp_community_write vacío en los 51
+    # equipos y no configurable, y su OID era específico de TP-Link EAP, pero
+    # los APs TP-Link los reinicia Guardian con su propia ruta SNMP. Mantener
+    # dos caminos de reinicio para el mismo hardware no aporta.
 
     # ── URL stream cámara ────────────────────────────────────────────────────
     elif action == "stream_url":
         if dtype != "camera":
             raise HTTPException(status_code=400, detail="Solo disponible para cámaras")
-        # Devuelve URL RTSP estándar — el técnico la abre en VLC
-        rtsp_url = f"rtsp://{ip}:554/stream1"
+        # La ruta RTSP depende del fabricante (Hikvision usa
+        # /Streaming/Channels/101, otros /stream1, /h264/ch1/main/av_stream...)
+        # y del canal del NVR, así que se configura por equipo. Sin ruta no se
+        # inventa una: se dice qué falta y dónde ponerla.
+        rtsp_path = (dev.get("rtsp_path") or "").strip()
+        if not rtsp_path:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Este equipo no tiene ruta RTSP configurada. Edítalo y agrega la "
+                    "ruta de tu fabricante — Hikvision: /Streaming/Channels/101 · "
+                    "Dahua: /cam/realmonitor?channel=1&subtype=0 · genérica: /stream1"
+                ),
+            )
+        rtsp_url = f"rtsp://{ip}:554/{rtsp_path.lstrip('/')}"
         return {
             "success": True,
             "stream_url": rtsp_url,
             "message": f"Abre esta URL en VLC: {rtsp_url}",
+            "note": "Si el equipo pide autenticación, usa rtsp://usuario:clave@" + ip + ":554/" + rtsp_path.lstrip("/"),
         }
 
     else:

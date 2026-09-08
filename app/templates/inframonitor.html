@@ -652,6 +652,23 @@ tr:last-child td { border-bottom:none; }
       payload.pc_server_ip = pcIp.trim();
     }
 
+    // Cámaras/NVR: la ruta RTSP depende del fabricante y del canal, no se
+    // puede asumir una sola (antes se generaba /stream1 fijo, que no sirve
+    // contra los NVR Hikvision reales del sitio).
+    if (type === 'camera') {
+      const dev = _devices.find(x => x.id === id) || {};
+      const path = prompt(
+        'Ruta RTSP del equipo (habilita el botón "Stream"):\n' +
+        '  Hikvision: /Streaming/Channels/101\n' +
+        '  Dahua:     /cam/realmonitor?channel=1&subtype=0\n' +
+        '  Genérica:  /stream1\n' +
+        'Vacío = sin stream configurado.',
+        dev.rtsp_path || ''
+      );
+      if (path === null) return;
+      payload.rtsp_path = path.trim();
+    }
+
     shomerFetch('/infra/devices/' + id, {
       method: 'PATCH',
       body: JSON.stringify(payload)
