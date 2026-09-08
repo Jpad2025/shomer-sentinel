@@ -249,13 +249,22 @@ tr:last-child td { border-bottom:none; }
   let _riskByIp = {};  // {ip: {critico:N, alto:N, medio:N, bajo:N, total:N}}
   let _statusInterval = null;
 
-  function ago(isoStr) {
-    if (!isoStr) return '—';
-    const diff = Math.floor((Date.now() - new Date(isoStr + 'Z').getTime()) / 1000);
-    if (diff < 5)    return 'ahora';
-    if (diff < 60)   return diff + 's';
-    if (diff < 3600) return Math.floor(diff/60) + 'm';
-    return Math.floor(diff/3600) + 'h ' + Math.floor((diff%3600)/60) + 'm';
+  // Mismo patrón que noc_cliente.html / system_status.html. El nombre y la
+  // ubicación los escribe un usuario del panel: sin escapar, un nombre con
+  // comilla simple (ej. "POS D'Angelo") rompía el onclick de Eliminar/Cola/
+  // Stream de esa fila (JS inválido, botón muerto), y un nombre con HTML se
+  // inyectaba tal cual en la tabla.
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  // Para incrustar dentro de un onclick="fn('...')": neutraliza la comilla
+  // simple y la barra invertida antes de que lo haga el parser de HTML.
+  function escAttr(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\/g,'\\\\').replace(/'/g,"\\'")
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   function formatPrinterPaper(p, detailed) {
@@ -385,7 +394,7 @@ tr:last-child td { border-bottom:none; }
       }
 
       const snmpBtn = (dev.snmp_ok !== null && dev.snmp_ok !== undefined)
-        ? `&nbsp;<button class="btn btn-outline btn-sm" onclick="openSnmpModal('${dev.ip}','${dev.name.replace(/'/g,"\\'")}')">
+        ? `&nbsp;<button class="btn btn-outline btn-sm" onclick="openSnmpModal('${escAttr(dev.ip)}','${escAttr(dev.name)}')">
             <svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2;vertical-align:middle;margin-right:3px;"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="7" y1="10" x2="7" y2="14"/><line x1="12" y1="10" x2="12" y2="14"/><line x1="17" y1="10" x2="17" y2="14"/></svg>SNMP
            </button>`
         : '';
@@ -408,38 +417,38 @@ tr:last-child td { border-bottom:none; }
           <span class="status-dot ${dotCls}" id="dot-${dev.ip}"></span>
           <span id="badge-${dev.ip}">${badgeHtml}</span>
         </td>
-        <td style="font-weight:600;">${TYPE_ICONS[dev.device_type] || TYPE_ICONS.generic}${dev.name}${snmpBadge}${riskBadge}${printerInline}</td>
+        <td style="font-weight:600;">${TYPE_ICONS[dev.device_type] || TYPE_ICONS.generic}${esc(dev.name)}${snmpBadge}${riskBadge}${printerInline}</td>
         <td>
-          <span style="font-family:monospace;color:var(--cyan);">${dev.ip}</span>${macHtml}
+          <span style="font-family:monospace;color:var(--cyan);">${esc(dev.ip)}</span>${macHtml}
         </td>
-        <td><span class="type-badge">${TYPE_LABELS[dev.device_type] || dev.device_type}</span></td>
-        <td style="color:var(--muted);">${dev.location || '—'}</td>
+        <td><span class="type-badge">${esc(TYPE_LABELS[dev.device_type] || dev.device_type)}</span></td>
+        <td style="color:var(--muted);">${esc(dev.location) || '—'}</td>
         <td id="lat-${dev.ip}">
           <span style="font-family:monospace;">${latStr}</span>
           <br><span id="tcp-${dev.ip}">${tcpCell(dev.tcp_ok, dev.tcp_port)}</span>
         </td>
         <td id="uptime-${dev.ip}">${uptimeBadge(dev.uptime_24h, dev.outages_today)}</td>
         <td style="text-align:right;white-space:nowrap;">
-          <button class="btn btn-outline btn-sm" onclick="pingDevice('${dev.ip}')" title="Ping manual">
+          <button class="btn btn-outline btn-sm" onclick="pingDevice('${escAttr(dev.ip)}')" title="Ping manual">
             <svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2;vertical-align:middle;margin-right:3px;"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Ping
           </button>
           ${snmpBtn}
           ${(dev.device_type==='printer'||dev.device_type==='pos') && dev.pc_server_ip
-            ? `&nbsp;<button class="btn btn-outline btn-sm" onclick="deviceAction(${dev.id},'clear_queue','${dev.name}')" title="Limpiar cola de impresión en ${dev.pc_server_ip}">
+            ? `&nbsp;<button class="btn btn-outline btn-sm" onclick="deviceAction(${dev.id},'clear_queue','${escAttr(dev.name)}')" title="Limpiar cola de impresión en ${esc(dev.pc_server_ip)}">
                 <svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2;vertical-align:middle;margin-right:3px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>Cola
                </button>`
             : ''}
           ${dev.device_type==='camera'
-            ? `&nbsp;<button class="btn btn-outline btn-sm" onclick="deviceAction(${dev.id},'stream_url','${dev.name}')" title="Ver URL de stream RTSP">
+            ? `&nbsp;<button class="btn btn-outline btn-sm" onclick="deviceAction(${dev.id},'stream_url','${escAttr(dev.name)}')" title="Ver URL de stream RTSP">
                 <svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2;vertical-align:middle;margin-right:3px;"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>Stream
                </button>`
             : ''}
           &nbsp;
-          <button class="btn btn-outline btn-sm" onclick="editDevice(${dev.id}, '${(dev.name||'').replace(/'/g, "\\'")}', '${dev.device_type}', '${(dev.location||'').replace(/'/g, "\\'")}')" title="Editar nombre/tipo/ubicación">
+          <button class="btn btn-outline btn-sm" onclick="editDevice(${dev.id}, '${escAttr(dev.name)}', '${escAttr(dev.device_type)}', '${escAttr(dev.location)}')" title="Editar nombre/tipo/ubicación">
             <svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2;vertical-align:middle;margin-right:3px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Editar
           </button>
           &nbsp;
-          <button class="btn btn-red btn-sm" onclick="confirmAction('¿Eliminar ${dev.name} (${dev.ip}) del monitoreo?', ()=>deleteDevice(${dev.id}))">
+          <button class="btn btn-red btn-sm" onclick="confirmAction('¿Eliminar ${escAttr(dev.name)} (${escAttr(dev.ip)}) del monitoreo?', ()=>deleteDevice(${dev.id}))">
             <svg viewBox="0 0 24 24" style="width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:2;vertical-align:middle;margin-right:3px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>Eliminar
           </button>
         </td>
@@ -497,9 +506,17 @@ tr:last-child td { border-bottom:none; }
             if (tcpEl) tcpEl.innerHTML = tcpCell(st.tcp_ok, st.tcp_port);
           }
 
-          // Uptime
-          const up = document.getElementById('uptime-' + st.ip);
-          if (up) up.innerHTML = uptimeBadge(st.uptime_24h, st.outages_today);
+          // Uptime — /infra/status es el endpoint "vivo" (Redis-first) y NO
+          // devuelve uptime_24h ni outages_today; solo /infra/devices los
+          // calcula. Antes se repintaba igual con undefined, así que a los
+          // 30s la columna "Uptime 24h" y el badge de caídas se borraban
+          // solos (quedaban en "—") para toda la tabla hasta recargar la
+          // página. Solo se repinta si el dato realmente vino; el refresco
+          // completo de abajo mantiene la columna al día.
+          if (st.uptime_24h !== undefined || st.outages_today !== undefined) {
+            const up = document.getElementById('uptime-' + st.ip);
+            if (up) up.innerHTML = uptimeBadge(st.uptime_24h, st.outages_today);
+          }
         });
         updateStats(statuses);
         document.getElementById('last-poll').textContent = 'Último ping: ' + new Date().toLocaleTimeString('es-ES');
@@ -620,9 +637,24 @@ tr:last-child td { border-bottom:none; }
       return;
     }
 
+    const payload = { name: name.trim(), device_type: type, location: location.trim() };
+
+    // Impresoras/POS: el PC de impresión es lo que habilita el botón "Cola".
+    // Solo se podía fijar al crear el equipo, así que los equipos ya cargados
+    // quedaban sin él para siempre (los 6 de Ópera estaban así).
+    if (PC_IP_TYPES.includes(type)) {
+      const dev = _devices.find(x => x.id === id) || {};
+      const pcIp = prompt(
+        'IP del PC/servidor de impresión (habilita el botón "Cola").\nVacío = sin PC asociado:',
+        dev.pc_server_ip || ''
+      );
+      if (pcIp === null) return;
+      payload.pc_server_ip = pcIp.trim();
+    }
+
     shomerFetch('/infra/devices/' + id, {
       method: 'PATCH',
-      body: JSON.stringify({ name: name.trim(), device_type: type, location: location.trim() })
+      body: JSON.stringify(payload)
     })
       .then(r => r.json().then(d => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
@@ -851,5 +883,9 @@ tr:last-child td { border-bottom:none; }
 
   loadDevices();
   _statusInterval = setInterval(pollStatus, 30000);
+  // Refresco completo espaciado: uptime 24h / caídas / SNMP solo salen de
+  // /infra/devices (calculado, no Redis). Sin esto la columna quedaba
+  // congelada desde la carga de la página hasta un F5 manual.
+  setInterval(loadDevices, 300000);
 </script>
 {% endblock %}
