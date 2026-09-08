@@ -1,6 +1,43 @@
 # Pendientes lab (recordatorio operativo)
 
-Actualizado: **2 sep 2026** · Dueño: Juan Pablo (único operador)
+Actualizado: **8 sep 2026** · Dueño: Juan Pablo (único operador)
+
+---
+
+## 🔴 PENDIENTE CRÍTICO — regla de firewall de Hunter APAGADA en Ópera (8 sep 2026)
+
+**Estado: Hunter detecta pero NO bloquea.** La regla `Shomer-Hunter`
+(chain=forward, drop, src-address-list=shomer-blocked) en el MikroTik
+(192.168.0.1) está deshabilitada a propósito. Las ~106 amenazas reales
+(Spamhaus, Dshield, CINS, Zmap) **no se están cortando** mientras siga así.
+
+**Por qué:** el 8 sep Hunter bloqueó `8.8.8.8` y `8.8.4.4` (DNS de Google),
+Akamai, Canonical y Google → el hotel se quedó sin resolución DNS. El
+proveedor deshabilitó la regla (06:29:21) y apagó el puerto `ether4` del
+espejo SPAN para recuperar el servicio; eso llegó como alerta "interfaz de red
+caída". Causa raíz: `hunter.auto_block_min_severity=3` (en Suricata menor
+número = más severo, así que 3 incluía ET INFO y anomalías de protocolo).
+
+**Ya corregido:** umbral a 2, filtro `NUNCA_AUTOBLOQUEAR` por firma,
+`INFRA_CRITICA` que nunca se autobloquea ni con severidad 1, y las 20 IPs mal
+bloqueadas liberadas (126 → 106). El puerto del espejo ya se reactivó.
+
+**Decisión de Juan Pablo (8 sep):** dejarla apagada 24-48 h como dry-run real
+para juntar evidencia. **Validar a partir del 9-10 sep** con:
+
+```bash
+cd /opt/network_monitor
+sudo PYTHONPATH=/opt/network_monitor ./venv/bin/python \
+    tools/simular_politica_hunter.py --horas 48
+```
+
+**Criterio para activar:** en "SE BLOQUEARÍAN" solo pueden aparecer amenazas
+legítimas. Si aparece cualquier servicio de uso normal → NO activar.
+Con 10 h de tráfico real (18.716 alertas) el resultado fue **0 IPs**.
+
+**Al reactivar:** avisarle antes a Ricardo — él la apagó por una razón válida.
+`/ip firewall filter enable [find comment="Shomer-Hunter"]` y verificar que el
+hotel navegue.
 
 ## Sesión 77 (27 ago 2026) — revisión EXHAUSTIVA COMPLETADA: 112/112 archivos de network_monitor
 
