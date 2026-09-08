@@ -1315,6 +1315,40 @@ v1.29.0 para el detalle línea por línea de cada fix):
   - **Pendiente a propósito**: la contraseña SSH en texto plano en git (misma de Guardian, ya
     documentada) — ninguna decisión nueva aquí, sigue esperando a Juan Pablo.
   - 117/117 pruebas + verificación en vivo de cada fix antes de desplegar en Ópera y los 3 labs.
+- **Auditoría dedicada de Inframonitor (poller, Pulse EWMA, oleadas de status_events) — 3
+  hallazgos reales, corregidos y verificados en vivo** (commits `97a5fab` + `05d60ec`):
+  - `_persist_poll_results` nunca devolvía `pulse_events` en su dict de retorno;
+    `_poll_fast_once` lo leía de una variable que no existía en su propio scope —
+    `NameError` silencioso en **cada ciclo fast** (30s), atrapado por el `except Exception`
+    genérico alrededor de `write_poll_context()`. Efecto: `infra:poll:context` nunca se
+    escribía en Redis, nunca. Verificado en vivo antes (`redis-cli EXISTS
+    infra:poll:context` → `0`, pese al poller corriendo y escribiendo `infra_status`
+    normalmente) y después del fix (existe, con `pulse_events` poblado). Esto también
+    dejaba muerto el handler `exit_degrading` del bot (nunca le llegaba el evento).
+  - Pulse EWMA: un equipo "degradando" que caía del todo a offline se etiquetaba
+    `transition=exit_degrading` / `pulse_state=recovered` — quedaba en `infra_events`
+    como `pulse_recovered` justo cuando en realidad empeoró (caída real, no
+    recuperación). Corregido: una caída total resetea la máquina de estados Pulse sin
+    emitir transición. Con el fix de arriba, la primera vez que `exit_degrading` llega
+    de verdad a `pulse_events` es un recovery genuino.
+  - `compute_outages()` agrupaba oleadas comparando cada evento contra el TS del
+    **primer** evento del cluster (`cluster_start` fijo), no contra el último agregado.
+    Con `CLUSTER_GAP_SEC=3` y decenas de equipos escribiendo su transición en el mismo
+    ciclo (cada fila con su propio `datetime('now')`), una oleada real con pasos de 2s
+    pero >3s de punta a punta quedaba partida en varios "incidentes" en vez de uno solo
+    — justo el tipo de fragmentación que puede sesgar el análisis pendiente de causa
+    raíz de caídas sincronizadas (Sesión 70-72, sigue sin resolver la causa de fondo;
+    esto no la resuelve, evita que el propio reporte la oculte partiéndola). Corregido
+    a ventana rodante (compara contra el último evento del cluster).
+  - Pulse EWMA sigue deshabilitado hoy en Ópera (sin `infra.pulse.enabled`, default
+    `INFRA_PULSE_ENABLED=0`) — los 2 primeros bugs eran latentes, no afectaban alertas
+    reales todavía, pero se habrían disparado en cuanto se activara. Topología LLDP/SNMP
+    (`shomer_topology.py`) no se reauditó a fondo — se reconstruyó por completo hace 2
+    días en esta misma sesión (ver más abajo) con verificación extensa contra hardware
+    real, no se encontraron hallazgos nuevos. `shomer_audit_network.py` (nmap sobre
+    activos Tracker) es funcionalmente de Tracker, no de Inframonitor — no revisado en
+    este pase. 3 tests nuevos, 121/121 pruebas. Reinicio de
+    `shomer-inframonitor-poller` autorizado y hecho en vivo el mismo día.
 - **Auditoría dedicada de Hunter (código + botones + bloqueo/desbloqueo real) — 10 hallazgos +
   1 bonus encontrado probando en vivo, los 11 corregidos y verificados** (commits `799c44e` +
   `8455de4`):
