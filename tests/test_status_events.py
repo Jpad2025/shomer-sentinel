@@ -1,6 +1,6 @@
 """Tests status_events — oleadas, retención y registro."""
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from app.api.shomer_status_events import (
@@ -161,6 +161,43 @@ class TestStatusEvents(unittest.TestCase):
         _mark_report_sent("2026-06-13 14:41:00", "summary")
         self.assertTrue(_report_already_sent("2026-06-13 14:41:00", "summary"))
         self.assertFalse(_report_already_sent("2026-06-13 14:41:00", "repeat"))
+
+    def test_cluster_uses_rolling_gap_not_fixed_start(self):
+        """Sesión 82: compute_outages() comparaba cada evento contra el TS del
+        primer evento del cluster, no contra el último -- una oleada real con
+        pasos de 2s (dentro de CLUSTER_GAP_SEC=3) pero 4s de punta a punta
+        quedaba partida en dos incidentes en vez de uno solo."""
+        from app.api.shomer_common import get_db
+
+        ips = ["192.168.0.95", "192.168.0.96", "192.168.0.97"]
+        base = datetime.now(timezone.utc) - timedelta(minutes=10)
+        timestamps = [
+            (base + timedelta(seconds=off)).strftime("%Y-%m-%d %H:%M:%S")
+            for off in (0, 2, 4)
+        ]
+        with get_db() as conn:
+            conn.execute("DELETE FROM status_events WHERE ip IN (?,?,?)", ips)
+            for ip, ts in zip(ips, timestamps):
+                conn.execute(
+                    "INSERT INTO status_events "
+                    "(ts, source, ip, name, device_type, prev_status, status, reason) "
+                    "VALUES (?, 'infra', ?, ?, 'switch', 'online', 'offline', 'test')",
+                    (ts, ip, ip),
+                )
+            conn.commit()
+
+        outages = compute_outages(hours=48)
+        matching = [o for o in outages if set(ips) & set(o["all_ips"])]
+        self.assertEqual(
+            len(matching), 1,
+            "los 3 eventos (pasos de 2s, 4s de punta a punta) deben quedar en "
+            "una sola oleada, no partidos en varias",
+        )
+        self.assertEqual(set(matching[0]["all_ips"]) & set(ips), set(ips))
+
+        with get_db() as conn:
+            conn.execute("DELETE FROM status_events WHERE ip IN (?,?,?)", ips)
+            conn.commit()
 
 
 if __name__ == "__main__":
