@@ -1392,6 +1392,38 @@ v1.29.0 para el detalle línea por línea de cada fix):
   - **Sin revisar todavía en Inframonitor:** `shomer_audit_network.py` (nmap sobre activos, es
     funcionalmente de Tracker) y la plantilla `noc.html` en sí (se revisó el backend del NOC,
     `_infra_devices`, no el JS de la pantalla).
+- **Auditoría dedicada de Protector (backend + botones + B2 + drill, con prueba en vivo) — 3
+  hallazgos, corregidos y verificados** (commit tras `2ef6cee`):
+  - **El tamaño de cada copia nunca se registró.** `_parse_restic_stats` buscaba
+    `"Added to the repository:"` (redacción de restic 0.14+) pero el binario de Ópera es
+    **0.12.1**, que imprime `"Added to the repo:"` — capturado ejecutando el binario real. La
+    regex no matcheaba nunca: `last_size_mb` quedaba NULL en las 9 copias históricas y ni el
+    panel ni el aviso de Telegram mostraban el tamaño, que es justo la señal que delata un
+    backup encogido porque el origen dejó de escribir. Además `size_mb` pasa a ser el **total
+    procesado** en vez del delta añadido: con deduplicación el delta diario es ~0 aunque la
+    copia esté sana (medido: 0.001 MB de delta contra 1.26 GB respaldados).
+  - **Sin `b2_path` la copia iba a la RAÍZ del bucket**, compartida entre todos los clientes en
+    un repo Restic indistinguible — exactamente lo que prohíbe la norma D.1. Ópera se salvaba
+    solo porque `base.client_name` está puesto y el slug sale de ahí; una instalación nueva sin
+    nombre de cliente (los 3 labs camino a serlo) habría mezclado sus backups con los de otro
+    hotel, legibles entre sí con la misma clave de repo. Los 4 sitios que armaban la URL pasan
+    ahora por `_b2_repo_url()`, que falla con mensaje accionable; el prune se cancela sin tocar
+    el bucket compartido.
+  - UI: nombre, IP, ruta, patrón y `last_status` se inyectaban sin escapar. `last_status`
+    guarda el texto crudo de la excepción (salida de restic o `mount.cifs`).
+  - **Lo que se verificó sano, con datos reales:** el backup del PMS Zeus funciona de verdad
+    (9 snapshots, las 9 bases del PMS, el hotel genera las copias 03:00 y Shomer las toma
+    05:00); el restore drill corre mensual **desde B2** (no solo local) restaurando y
+    comparando el árbol contra el repo local — 1 sep, 1 ago, 1 jul, todos OK; el contrato
+    UI↔backend está sano (`has_password` sale del endpoint individual, que es el que usa
+    `editEquipo`).
+  - **Falso positivo propio, anotado a propósito:** un primer análisis estático marcó "8
+    endpoints sin autenticación" (incluido restaurar y guardar credenciales B2). Era un
+    artefacto de la regex, que se cortaba en los paréntesis anidados de `Body(default={})`.
+    Probado en vivo: los 24 endpoints responden 401 sin sesión, y los proxies del 8000 validan
+    admin dentro de `_proxy_backups`. **No había vulnerabilidad.** Queda escrito porque el
+    reflejo correcto fue probarlo antes de reportarlo.
+  - 9 tests nuevos (`test_protector_audit.py`), 147/147.
 - **Auditoría dedicada de Hunter (código + botones + bloqueo/desbloqueo real) — 10 hallazgos +
   1 bonus encontrado probando en vivo, los 11 corregidos y verificados** (commits `799c44e` +
   `8455de4`):
