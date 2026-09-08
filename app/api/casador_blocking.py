@@ -92,6 +92,39 @@ def _auto_block_policy() -> Dict[str, Any]:
     }
 
 
+# Clases de regla que NUNCA deben autobloquear, venga la severidad que venga.
+# No describen un ataque: son tráfico informativo o anomalías de protocolo que
+# cualquier red real produce sola. Bloquearlas cortó internet legítimo del hotel
+# (Google por "STREAM ESTABLISHED SYNACK resend", Canonical por "HTTP unable to
+# match response", y varias IPs por STUN, que es cómo funciona toda videollamada).
+# El umbral de severidad por sí solo no alcanza: la misma firma puede llegar
+# etiquetada con otra severidad según la fuente (Suricata directo vs Wazuh), así
+# que el filtro va por lo que la regla DICE, no por el número que la acompaña.
+NUNCA_AUTOBLOQUEAR = (
+    "ET INFO",                  # informativas por definición
+    "ET POLICY",                # uso aceptable, no amenaza
+    "SURICATA STREAM",          # anomalías de reensamblado TCP
+    "SURICATA HTTP",            # respuestas que el motor no logró parear
+    "SURICATA TCP",             # opciones TCP raras, no ataque
+    "SURICATA IPV4",
+    "SURICATA UDP",
+    "SURICATA IKEV2",           # parámetros débiles: hallazgo, no intrusión
+    "SURICATA TLS",
+    "STREAM ESTABLISHED",
+)
+
+
+def _firma_es_ruido(alert_signature: Any) -> str:
+    """Devuelve la clase de ruido si la firma no justifica un bloqueo, o ''."""
+    firma = str(alert_signature or "").strip().upper()
+    if not firma:
+        return ""
+    for marca in NUNCA_AUTOBLOQUEAR:
+        if firma.startswith(marca) or marca in firma:
+            return marca
+    return ""
+
+
 def _ip_in_exceptions(ip: str, exceptions: Any) -> bool:
     import ipaddress
 
@@ -231,6 +264,16 @@ async def execute_hunter_block(
                 "success": False,
                 "skipped": True,
                 "detail": "Autobloqueo deshabilitado por política",
+            }
+        ruido = _firma_es_ruido(alert_signature)
+        if ruido:
+            return {
+                "success": False,
+                "skipped": True,
+                "detail": (
+                    f"Regla informativa/de protocolo ({ruido}): no justifica bloquear. "
+                    "Se registra el evento, no se corta el tráfico."
+                ),
             }
         sev_i = _to_int(severity, 3)
         if sev_i > int(policy["min_severity"]):
