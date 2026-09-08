@@ -1310,7 +1310,7 @@ function renderKpi(d) {
      <div class="kpi-card ${infClass}">
        <div class="kpi-label"><span class="kpi-ico">🔀</span> Infraestructura</div>
        <div class="kpi-value" style="color:${infColor}">${inf.online}<span class="kpi-denom">/${inf.total}</span></div>
-       <div class="kpi-sub">${(inf.outages_24h||0) > 0 ? `${inf.outages_24h} caídas 24h` : inf.total === 0 ? 'sin equipos' : 'sin incidencias 24h'}</div>
+       <div class="kpi-sub">${(inf.outages_24h||0) > 0 ? `${inf.outages_24h} ${inf.outages_24h === 1 ? 'equipo con caídas' : 'equipos con caídas'} 24h` : inf.total === 0 ? 'sin equipos' : 'sin incidencias 24h'}</div>
      </div>
      <div class="kpi-card ${hunterClass}">
        <div class="kpi-label"><span class="kpi-ico">🛡️</span> ${hunterLabel}</div>
