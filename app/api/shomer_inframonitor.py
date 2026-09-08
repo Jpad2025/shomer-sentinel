@@ -1290,6 +1290,7 @@ def _persist_poll_results(
                         (pr["ip"], "pulse_degrading"),
                     )
                 elif pulse_snap.get("transition") == "exit_degrading":
+                    pulse_events.append(pulse_snap)
                     conn.execute(
                         "INSERT INTO infra_events (ip, event) VALUES (?, ?)",
                         (pr["ip"], "pulse_recovered"),
@@ -1355,7 +1356,11 @@ def _persist_poll_results(
                 batch_id, devices_written, e,
             )
 
-    return {"telegram_alerts": telegram_alerts, "devices_written": devices_written}
+    return {
+        "telegram_alerts": telegram_alerts,
+        "devices_written": devices_written,
+        "pulse_events": pulse_events,
+    }
 
 
 def _merge_snmp_interfaces(snmp_res: Optional[dict], existing: Dict[str, dict], ip: str) -> Optional[dict]:
@@ -1637,7 +1642,7 @@ async def _poll_fast_once():
                 gateway_ip=gateway_ip,
                 gateway_status=gw_st,
                 blip_skip_count=len(newly_offline_ips),
-                pulse_events=pulse_events,
+                pulse_events=persist_result.get("pulse_events", []),
             )
         except Exception as e:
             logger.debug("pulse correlate context: %s", e)
