@@ -114,6 +114,45 @@ NUNCA_AUTOBLOQUEAR = (
 )
 
 
+# Infraestructura de la que depende que el sitio "tenga internet". Nunca se
+# autobloquea, ni con severidad 1: si un día una regla marca al DNS de Google
+# como amenaza, el error es de la regla, no del DNS. Es el cinturón de
+# seguridad que faltaba el 8 sep 2026, cuando Hunter bloqueó 8.8.8.8 y 8.8.4.4
+# y dejó al hotel sin resolución DNS -- lo que se vivió como "no hay internet".
+# El bloqueo MANUAL sigue permitido: esto solo frena la decisión automática.
+INFRA_CRITICA_IPS = frozenset({
+    "8.8.8.8", "8.8.4.4",              # Google DNS
+    "1.1.1.1", "1.0.0.1",              # Cloudflare DNS
+    "208.67.222.222", "208.67.220.220",  # OpenDNS
+    "9.9.9.9", "149.112.112.112",      # Quad9
+    "208.67.222.220",
+})
+# Rangos de servicios de los que depende la operación diaria (CDN, nube,
+# actualizaciones). Se comparan como prefijo de texto sobre la IP.
+INFRA_CRITICA_REDES = (
+    "142.250.", "142.251.", "172.217.", "216.58.", "216.239.",  # Google
+    "13.107.", "20.190.", "204.79.197.",                        # Microsoft
+    "17.253.", "17.248.",                                       # Apple
+    "185.125.190.", "91.189.",                                  # Canonical/Ubuntu
+    "23.2.", "23.218.", "2.21.", "23.32.", "23.36.",            # Akamai
+    "151.101.",                                                 # Fastly
+    "104.16.", "104.17.", "104.18.",                            # Cloudflare CDN
+)
+
+
+def _es_infra_critica(ip: str) -> str:
+    """Devuelve el nombre del servicio si la IP es infraestructura crítica."""
+    ip = (ip or "").strip()
+    if not ip:
+        return ""
+    if ip in INFRA_CRITICA_IPS:
+        return "DNS público"
+    for pref in INFRA_CRITICA_REDES:
+        if ip.startswith(pref):
+            return "servicio esencial (CDN/nube/actualizaciones)"
+    return ""
+
+
 def _firma_es_ruido(alert_signature: Any) -> str:
     """Devuelve la clase de ruido si la firma no justifica un bloqueo, o ''."""
     firma = str(alert_signature or "").strip().upper()
@@ -264,6 +303,17 @@ async def execute_hunter_block(
                 "success": False,
                 "skipped": True,
                 "detail": "Autobloqueo deshabilitado por política",
+            }
+        critica = _es_infra_critica(ip)
+        if critica:
+            return {
+                "success": False,
+                "skipped": True,
+                "detail": (
+                    f"IP de infraestructura crítica ({critica}): nunca se autobloquea. "
+                    "Cortarla dejaría al sitio sin servicio. Use bloqueo manual si "
+                    "realmente lo requiere."
+                ),
             }
         ruido = _firma_es_ruido(alert_signature)
         if ruido:

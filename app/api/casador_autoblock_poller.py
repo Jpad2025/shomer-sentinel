@@ -8,6 +8,7 @@ from typing import Any, Deque, Dict, Set
 
 from app.api.casador_blocking import (
     _auto_block_policy,
+    _es_infra_critica,
     _firma_es_ruido,
     _ip_in_exceptions,
     execute_hunter_block,
@@ -47,6 +48,10 @@ def _should_auto_block(alert: Dict[str, Any], policy: Dict[str, Any]) -> bool:
         return False
     ip = (alert.get("src_ip") or "").strip()
     if not ip:
+        return False
+    # Infraestructura crítica (DNS públicos, CDN, nube): nunca, ni con
+    # severidad 1. Cortarla es dejar al sitio "sin internet".
+    if _es_infra_critica(ip):
         return False
     # Reglas informativas / de anomalía de protocolo no se bloquean nunca.
     # execute_hunter_block() ya las rechaza, pero descartarlas acá evita el

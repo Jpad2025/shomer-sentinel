@@ -99,5 +99,54 @@ class TestPollerRespetaElFiltro(unittest.TestCase):
         self.assertTrue(_should_auto_block(amenaza, policy))
 
 
+class TestInfraCriticaNuncaSeBloquea(unittest.TestCase):
+    """El cinturón de seguridad: aunque la regla grite 'ataque', si la IP es
+    de la que depende que el sitio tenga internet, no se corta."""
+
+    def test_dns_publicos_protegidos(self):
+        from app.api.casador_blocking import _es_infra_critica
+
+        for ip in ("8.8.8.8", "8.8.4.4", "1.1.1.1", "9.9.9.9", "208.67.222.222"):
+            with self.subTest(ip=ip):
+                self.assertTrue(_es_infra_critica(ip), f"{ip} es un DNS público")
+
+    def test_servicios_esenciales_protegidos(self):
+        from app.api.casador_blocking import _es_infra_critica
+
+        for ip, quien in [
+            ("142.250.218.197", "Google"),
+            ("185.125.190.81", "Canonical"),
+            ("23.218.213.23", "Akamai"),
+            ("151.101.1.69", "Fastly"),
+        ]:
+            with self.subTest(ip=ip):
+                self.assertTrue(_es_infra_critica(ip), f"{ip} es {quien}")
+
+    def test_ip_atacante_normal_no_esta_protegida(self):
+        """La protección no puede ser tan amplia que ampare a un atacante."""
+        from app.api.casador_blocking import _es_infra_critica
+
+        for ip in ("185.220.101.1", "45.83.64.1", "66.228.62.150", "192.73.243.141"):
+            with self.subTest(ip=ip):
+                self.assertFalse(_es_infra_critica(ip))
+
+    def test_ni_siquiera_severidad_1_bloquea_el_dns(self):
+        from app.api.casador_autoblock_poller import _should_auto_block
+
+        policy = {
+            "enabled": True, "min_severity": 2,
+            "only_external": True, "exceptions": [],
+        }
+        ataque_al_dns = {
+            "src_ip": "8.8.8.8",
+            "severity": 1,  # crítica: lo más alto que existe
+            "alert_signature": "ET EXPLOIT Possible CVE-2021-44228 Log4j RCE Attempt",
+        }
+        self.assertFalse(
+            _should_auto_block(ataque_al_dns, policy),
+            "ni una regla crítica debe poder dejar al hotel sin DNS",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
