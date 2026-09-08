@@ -193,12 +193,15 @@ def update_pulse(
         pulse_state = "stable"
 
     if status == "offline":
+        # Caída total, no recuperación -- el equipo pasó de "degradando" a offline
+        # de verdad, empeoró. El aviso de offline/online real ya lo cubre
+        # _send_infra_alert / infra_events aparte; acá solo se resetea la máquina
+        # de estados Pulse sin emitir "exit_degrading" (antes se marcaba como
+        # "recovered" -- reportaba "se recuperó" para un equipo que se cayó del
+        # todo, mal etiquetado en infra_events y potencialmente Telegram).
         degrade_ticks = 0
-        if prev_state == "degrading":
-            pulse_state = "recovered"
-            transition = "exit_degrading"
-        elif prev_state != "stable":
-            pulse_state = "stable"
+        pulse_state = "stable"
+        transition = None
 
     conn.execute(
         """
