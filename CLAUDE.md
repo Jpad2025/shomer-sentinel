@@ -1349,6 +1349,49 @@ v1.29.0 para el detalle línea por línea de cada fix):
     activos Tracker) es funcionalmente de Tracker, no de Inframonitor — no revisado en
     este pase. 3 tests nuevos, 121/121 pruebas. Reinicio de
     `shomer-inframonitor-poller` autorizado y hecho en vivo el mismo día.
+- **Auditoría Inframonitor — SEGUNDO PASE, capa panel/botones/NOC (commits `15cb229` +
+  `dd87181`).** El primer pase (arriba) se quedó solo en el poller; Juan Pablo lo marcó como
+  flojo con razón — no se habían revisado ni los botones de la aplicación ni el NOC. 8
+  hallazgos más, todos verificados contra datos reales de Ópera:
+  - **El contador "caídas 24h" medía el estado ACTUAL, no el historial** — en el panel y en la
+    pantalla NOC. Leía `infra_status` (una fila por IP, `checked_at` reescrito cada 30s, así
+    que la condición de 24h se cumplía siempre). Medido al detectarlo: mostraba **1** cuando en
+    24h hubo **11 caídas reales sobre 10 equipos**, y la misma pantalla ya listaba 10 equipos
+    con badge de caídas por fila. Ahora sale de `infra_events`: header y filas cuadran (10).
+  - **La columna "Uptime 24h" se borraba sola a los 30s.** `pollStatus()` repintaba con
+    `st.uptime_24h`/`st.outages_today`, campos que `/infra/status` no devuelve (verificado en
+    vivo contra los 51 equipos) → `uptimeBadge(undefined)` = "—" para toda la tabla hasta
+    recargar la página. Guard + refresco completo cada 5 min.
+  - **Nombre/ubicación sin escapar** en la tabla y dentro de 3 `onclick` (Eliminar, Cola,
+    Stream): un equipo llamado `POS D'Angelo` rompía esos botones de su fila (JS inválido), y
+    un nombre con HTML se inyectaba tal cual. Hoy no hay nombres así en Ópera — era latente.
+    Helpers `esc()`/`escAttr()` siguiendo el patrón ya usado en `noc_cliente.html`.
+  - **El botón "Cola" no aparecía nunca en producción**: los 6 printer/pos tienen
+    `pc_server_ip` vacío y ese campo solo se podía fijar al CREAR el equipo. Ahora editable
+    (mismo bug de fondo que ya se había corregido para `device_type` el 3 sep), con
+    revalidación de `monitor_profile` cuando cambian `device_type`/`tcp_port`/`snmp_community`.
+  - **`checked_at` tenía dos formatos en la misma columna**: los 30 APs en ISO
+    (`.isoformat()`, vía `_sync_ap_status_from_guardian`) y los 21 equipos Infra en formato
+    SQL. SQLite los compara como texto y la `T` (0x54) ordena por encima del espacio (0x20),
+    así que dentro del mismo día un AP siempre parecía más reciente que cualquier umbral.
+    Normalizado; verificado 51/51 en un solo formato tras desplegar.
+  - **`stream_url` daba una URL que no abre**: ruta fija `rtsp://{ip}:554/stream1`
+    (genérica/TP-Link) contra NVR Hikvision reales, que usan `/Streaming/Channels/101` y piden
+    credenciales — además de violar la norma B.1 (cero hardcoding de topología cliente). Nueva
+    columna `rtsp_path` por equipo, editable desde el panel con las rutas de Hikvision/Dahua/
+    genérica como guía; sin ruta configurada responde 400 explicando qué falta en vez de
+    entregar una URL que falla en silencio. Probado end-to-end contra el NVR `.111` real y
+    revertido al estado original.
+  - **`snmp_reboot` eliminada** (decisión de Juan Pablo): inalcanzable — sin botón en la UI,
+    `snmp_community_write` vacío en los 51 equipos y no configurable, OID específico de
+    TP-Link EAP cuando los APs TP-Link los reinicia Guardian con `_run_snmp_reboot`. Un solo
+    camino de reinicio, no dos divergentes.
+  - `ago()` estaba definida y sin usar en la plantilla — eliminada.
+  - 17 tests nuevos entre los dos pases (`test_infra_pulse.py`, `test_infra_ui_contract.py`),
+    138/138. Desplegado en Ópera con reinicio autorizado de `shomer-guardian` y del poller.
+  - **Sin revisar todavía en Inframonitor:** `shomer_audit_network.py` (nmap sobre activos, es
+    funcionalmente de Tracker) y la plantilla `noc.html` en sí (se revisó el backend del NOC,
+    `_infra_devices`, no el JS de la pantalla).
 - **Auditoría dedicada de Hunter (código + botones + bloqueo/desbloqueo real) — 10 hallazgos +
   1 bonus encontrado probando en vivo, los 11 corregidos y verificados** (commits `799c44e` +
   `8455de4`):
