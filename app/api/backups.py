@@ -4,6 +4,7 @@ Lista snapshots Restic, salud del repositorio, backup local y sincronización a 
 Cero imports de inventory (8001). Usa solo app.backend.protector.
 """
 import asyncio
+import logging
 import os
 import zipfile
 from typing import Any, Dict
@@ -17,6 +18,8 @@ from app.backend.protector import (
     RESTIC_REPOSITORY as _PROTO_REPO,
     RESTIC_BINARY as _PROTO_BIN,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/backups", tags=["Protector - Backups"])
 
@@ -669,8 +672,30 @@ import re as _re
 import time as _time
 
 
+_SIZE_MULT = {
+    'B': 1 / 1048576, 'KIB': 1 / 1024, 'MIB': 1.0,
+    'GIB': 1024.0, 'TIB': 1048576.0,
+}
+
+
+def _a_mb(valor: str, unidad: str) -> float:
+    return round(float(valor) * _SIZE_MULT.get(unidad.upper(), 1.0), 3)
+
+
 def _parse_restic_stats(output: str) -> dict:
-    """Parsea stdout+stderr de 'restic backup' → snapshot_id, total_files, size_mb."""
+    """Parsea stdout+stderr de 'restic backup' → snapshot_id, total_files, size_mb.
+
+    size_mb es el TOTAL PROCESADO (lo que realmente pesa la copia), no el delta
+    añadido al repo: con deduplicación el delta diario es casi siempre ~0 aunque
+    la copia esté sana, así que no sirve para notar que un backup se encogió --
+    justo la señal que delata un origen que dejó de escribir archivos.
+
+    Se aceptan las dos redacciones de restic para el delta: "Added to the repo:"
+    (0.12, la instalada en Ópera) y "Added to the repository:" (0.14+). La
+    versión vieja fue la razón por la que last_size_mb quedaba NULL en todas las
+    copias: la única regex que había buscaba la redacción nueva, así que el
+    técnico nunca veía el tamaño ni en el panel ni en el aviso de Telegram.
+    """
     result: dict = {}
     m = _re.search(r'snapshot\s+([0-9a-f]+)\s+saved', output)
     if m:
@@ -678,11 +703,18 @@ def _parse_restic_stats(output: str) -> dict:
     m = _re.search(r'processed\s+([\d,]+)\s+files', output)
     if m:
         result['total_files'] = int(m.group(1).replace(',', ''))
-    m = _re.search(r'Added to the repository:\s+([\d.]+)\s+(B|KiB|MiB|GiB|TiB)', output, _re.IGNORECASE)
+    m = _re.search(
+        r'processed\s+[\d,]+\s+files,\s+([\d.]+)\s+(B|KiB|MiB|GiB|TiB)',
+        output, _re.IGNORECASE,
+    )
     if m:
-        val, unit = float(m.group(1)), m.group(2).upper()
-        mult = {'B': 1/1048576, 'KIB': 1/1024, 'MIB': 1.0, 'GIB': 1024.0, 'TIB': 1048576.0}
-        result['size_mb'] = round(val * mult.get(unit, 1.0), 3)
+        result['size_mb'] = _a_mb(m.group(1), m.group(2))
+    m = _re.search(
+        r'Added to the repo(?:sitory)?:\s+([\d.]+)\s+(B|KiB|MiB|GiB|TiB)',
+        output, _re.IGNORECASE,
+    )
+    if m:
+        result['added_mb'] = _a_mb(m.group(1), m.group(2))
     return result
 
 
@@ -772,7 +804,11 @@ def _prune_b2() -> bool:
     if not remote_pass:
         return False
     b2_path = _effective_b2_path()
-    b2_repo = f"b2:{bucket}:{b2_path}" if b2_path else f"b2:{bucket}"
+    try:
+        b2_repo = _b2_repo_url(bucket, b2_path)
+    except ValueError as e:
+        logger.error("Protector: prune B2 cancelado — %s", e)
+        return False
     days = _get_b2_retention_days()
     env = {
         **os.environ,
@@ -1088,6 +1124,31 @@ def _effective_b2_path() -> str:
     return explicit if explicit else _client_slug()
 
 
+B2_PATH_FALTANTE = (
+    "Falta el b2_path del cliente: sin él la copia iría a la RAÍZ del bucket, "
+    "mezclada con la de otros hoteles en un repositorio Restic indistinguible "
+    "(norma D.1). Configúralo en Protector → B2, o define el nombre del cliente "
+    "en el wizard del sitio (base.client_name)."
+)
+
+
+def _b2_repo_url(bucket: str, b2_path: str) -> str:
+    """URL del repo B2 del cliente. Nunca la raíz del bucket.
+
+    Antes cada sitio hacía `f"b2:{bucket}:{path}" if path else f"b2:{bucket}"`,
+    o sea: sin b2_path escribía en la raíz compartida, en silencio. Ópera se
+    salvaba solo porque base.client_name está puesto y el slug sale de ahí, pero
+    una instalación nueva sin nombre de cliente (los labs camino a serlo) habría
+    mandado sus backups al mismo repo que los demás: snapshots de varios hoteles
+    mezclados y legibles entre sí con la misma clave de repo. Mejor fallar con un
+    mensaje claro que mezclar clientes.
+    """
+    path = (b2_path or "").strip().strip("/")
+    if not path:
+        raise ValueError(B2_PATH_FALTANTE)
+    return f"b2:{bucket}:{path}"
+
+
 async def _scheduler_loop() -> None:
     """Revisa cada 60s si algún equipo tiene schedule_time == hora local del sitio."""
     global _scheduler_fired
@@ -1217,7 +1278,10 @@ def _b2_sync_blocking(account_id: str, app_key: str, bucket: str, b2_path: str, 
             "No es la Application Key; es la frase que cifra el backup en B2.",
         }
 
-    b2_repo = f"b2:{bucket}:{b2_path}" if b2_path else f"b2:{bucket}"
+    try:
+        b2_repo = _b2_repo_url(bucket, b2_path)
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
 
     # Comandos con solo -r b2:... usan RESTIC_PASSWORD para ESE repo (clave B2), no la del staging local.
     env_b2_only = {
@@ -1277,7 +1341,10 @@ def _b2_sync_blocking(account_id: str, app_key: str, bucket: str, b2_path: str, 
 
 def _b2_test_blocking(account_id: str, app_key: str, bucket: str, b2_path: str, b2_password: str) -> dict:
     """Comprueba acceso al repo Restic en B2 con `restic snapshots` (sin init ni copy)."""
-    b2_repo = f"b2:{bucket}:{b2_path}" if b2_path else f"b2:{bucket}"
+    try:
+        b2_repo = _b2_repo_url(bucket, b2_path)
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
     pwd = (b2_password or get_restic_password() or "").strip()
     if not pwd:
         return {"success": False, "message": "Configura password del repo B2 (Restic) o RESTIC_PASSWORD en el servidor."}
@@ -1320,7 +1387,7 @@ def _b2_env_and_repo() -> tuple:
     b2_pass    = (cfg.get("b2_password")   or get_restic_password() or "").strip()
     if not (account_id and app_key and bucket and b2_pass):
         raise ValueError("Configuración B2 incompleta — verifica bucket, Account ID, App Key y contraseña repo.")
-    b2_repo = f"b2:{bucket}:{b2_path}" if b2_path else f"b2:{bucket}"
+    b2_repo = _b2_repo_url(bucket, b2_path)
     env = {
         **os.environ,
         "RESTIC_PASSWORD": b2_pass,
