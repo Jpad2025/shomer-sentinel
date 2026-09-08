@@ -6,7 +6,12 @@ import logging
 from collections import deque
 from typing import Any, Deque, Dict, Set
 
-from app.api.casador_blocking import _auto_block_policy, _ip_in_exceptions, execute_hunter_block
+from app.api.casador_blocking import (
+    _auto_block_policy,
+    _firma_es_ruido,
+    _ip_in_exceptions,
+    execute_hunter_block,
+)
 from app.api.casador_support import _is_external_ip
 from app.api.casador_support_state import _is_blocked
 from app.api.casador_support_suricata import _read_suricata_recent_alerts
@@ -42,6 +47,11 @@ def _should_auto_block(alert: Dict[str, Any], policy: Dict[str, Any]) -> bool:
         return False
     ip = (alert.get("src_ip") or "").strip()
     if not ip:
+        return False
+    # Reglas informativas / de anomalía de protocolo no se bloquean nunca.
+    # execute_hunter_block() ya las rechaza, pero descartarlas acá evita el
+    # viaje completo por algo que nunca debió cortar tráfico.
+    if _firma_es_ruido(alert.get("alert_signature") or alert.get("signature")):
         return False
     sev_i = int(alert.get("severity") or 3)
     if sev_i > int(policy.get("min_severity") or 2):
