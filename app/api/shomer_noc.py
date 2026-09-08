@@ -99,12 +99,20 @@ def _infra_devices() -> tuple:
     """Returns (devices list, outages_24h count)."""
     try:
         with get_db() as conn:
+            # Sin los APs: los monitorea Guardian y ya vienen en d.guardian.
+            # infra_devices los refleja (_sync_guardian_aps) solo para que el
+            # panel los liste, pero contarlos acá los duplicaba en la misma
+            # pantalla del NOC: el KPI "Infraestructura" decía 50/51 mientras la
+            # lista de abajo dibujaba 21 (renderInfraSections no tiene grupo
+            # 'ap'), y el contador de nodos de la IA sumaba 30+51=81 sobre un
+            # total real de 51. infra_events tampoco tiene APs (el poller los
+            # saltea), así que esto deja las tres cifras en la misma base.
             rows = conn.execute(
                 """SELECT d.ip, d.name, d.device_type, d.location,
                           s.status, s.latency_ms, s.checked_at, s.snmp_ok, s.snmp_data
                    FROM infra_devices d
                    LEFT JOIN infra_status s ON s.ip = d.ip
-                   WHERE d.active = 1
+                   WHERE d.active = 1 AND d.device_type != 'ap'
                    ORDER BY CASE WHEN s.status='offline' THEN 0 ELSE 1 END, d.name"""
             ).fetchall()
 
