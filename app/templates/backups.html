@@ -936,6 +936,15 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
     });
   }
 
+  // Mismo patrón que noc_cliente.html / inframonitor.html. Importa sobre todo
+  // para last_status: guarda el texto crudo de la excepción (salida de restic o
+  // de mount.cifs recortada a 100 chars), que no es contenido controlado.
+  function escP(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
   function loadEquipos() {
     shomerFetch('/backups/devices')
     .then(r => r.json())
@@ -949,18 +958,18 @@ td { padding:10px 14px; font-size:13px; color:var(--text); }
       el.innerHTML = devs.map(e => `
         <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:6px;">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-            <span style="font-size:13px;font-weight:600;color:var(--text);">${e.name}</span>
-            <span style="font-size:11px;font-family:monospace;color:#06b6d4;">${e.ip}</span>
-            <span style="font-size:11px;background:rgba(13,110,110,0.15);color:var(--teal);border-radius:4px;padding:2px 7px;">${e.device_type}</span>
-            <span style="font-size:11px;color:var(--muted);">${e.source_path || '—'}</span>
-            ${e.include_pattern ? `<span style="font-size:11px;background:rgba(245,158,11,0.12);color:#fbbf24;border-radius:4px;padding:2px 7px;" title="Filtro diario">🔍 ${e.include_pattern}</span>` : ''}
+            <span style="font-size:13px;font-weight:600;color:var(--text);">${escP(e.name)}</span>
+            <span style="font-size:11px;font-family:monospace;color:#06b6d4;">${escP(e.ip)}</span>
+            <span style="font-size:11px;background:rgba(13,110,110,0.15);color:var(--teal);border-radius:4px;padding:2px 7px;">${escP(e.device_type)}</span>
+            <span style="font-size:11px;color:var(--muted);">${escP(e.source_path) || '—'}</span>
+            ${e.include_pattern ? `<span style="font-size:11px;background:rgba(245,158,11,0.12);color:#fbbf24;border-radius:4px;padding:2px 7px;" title="Filtro diario">🔍 ${escP(e.include_pattern)}</span>` : ''}
             ${e.schedule_time ? (e.schedule_enabled
               ? `<span style="font-size:11px;background:rgba(139,92,246,0.15);color:#a78bfa;border-radius:4px;padding:2px 7px;">⏰ ${_utcToLocal(e.schedule_time)} (${_tzLabel()})</span>`
               : `<span style="font-size:11px;background:rgba(100,116,139,0.15);color:#94a3b8;border-radius:4px;padding:2px 7px;">⏸ Pausado — ${_utcToLocal(e.schedule_time)}</span>`)
               : ''}
             ${e.schedule_b2_enabled ? `<span style="font-size:11px;background:rgba(59,130,246,0.15);color:#93c5fd;border-radius:4px;padding:2px 7px;">☁ B2</span>` : ''}
-            ${e.last_status ? `<span style="font-size:11px;color:${e.last_status==='ok'?'var(--online)':'var(--offline)'};">${e.last_status}</span>` : ''}
-            ${e.last_backup_at ? `<span style="font-size:11px;color:var(--muted);">${e.last_backup_at}</span>` : ''}
+            ${e.last_status ? `<span style="font-size:11px;color:${e.last_status==='ok'?'var(--online)':'var(--offline)'};">${escP(e.last_status)}</span>` : ''}
+            ${e.last_backup_at ? `<span style="font-size:11px;color:var(--muted);">${escP(e.last_backup_at)}</span>` : ''}
             ${e.last_size_mb != null ? `<span style="font-size:11px;color:var(--muted);">${e.last_size_mb >= 1024 ? (e.last_size_mb/1024).toFixed(1)+' GB' : e.last_size_mb.toFixed(1)+' MB'}</span>` : ''}
             ${e.last_files_count != null ? `<span style="font-size:11px;color:var(--muted);">${e.last_files_count.toLocaleString()} archivos</span>` : ''}
           </div>
