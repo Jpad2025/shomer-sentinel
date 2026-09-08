@@ -511,8 +511,16 @@ def compute_outages(hours: int = 48) -> List[Dict[str, Any]]:
         if not current:
             current = [ev]
             cluster_start = ts
+        # Ventana respecto al ÚLTIMO evento del cluster, no al primero -- con
+        # CLUSTER_GAP_SEC=3 y decenas de equipos escribiéndose en el mismo
+        # ciclo, una oleada real puede tardar más de 3s en insertarse entera
+        # (cada fila usa datetime('now') propio). Comparar siempre contra el
+        # primer evento partía una sola oleada en varias si se extendía más
+        # allá de 3s desde su inicio, aunque cada paso individual estuviera
+        # dentro de la ventana.
         elif cluster_start and (ts - cluster_start).total_seconds() <= CLUSTER_GAP_SEC:
             current.append(ev)
+            cluster_start = ts
         else:
             _flush(current)
             current = [ev]
