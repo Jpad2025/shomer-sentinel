@@ -150,5 +150,50 @@ class TestDeviceEditCoversPrinterPc(unittest.TestCase):
         self.assertIn("payload.pc_server_ip", html)
 
 
+class TestStreamUrlIsPerDevice(unittest.TestCase):
+    """La ruta RTSP no puede venir hardcodeada (norma B.1)."""
+
+    def test_no_hardcoded_stream_path(self):
+        import inspect
+
+        from app.api import shomer_inframonitor as mod
+
+        src = inspect.getsource(mod.device_action)
+        self.assertNotIn(
+            '554/stream1', src,
+            "la ruta RTSP no puede estar fija: depende del fabricante y del canal",
+        )
+        self.assertIn("rtsp_path", src)
+
+    def test_rtsp_path_editable(self):
+        from app.api.shomer_inframonitor import DeviceEdit, DeviceIn
+
+        self.assertIn("rtsp_path", DeviceIn.model_fields)
+        self.assertIn("rtsp_path", DeviceEdit.model_fields)
+
+    def test_ui_prompts_for_rtsp_on_cameras(self):
+        html = _tpl()
+        self.assertIn("payload.rtsp_path", html)
+        self.assertIn("Streaming/Channels/101", html)
+
+
+class TestSnmpRebootRemoved(unittest.TestCase):
+    def test_action_gone_from_inframonitor(self):
+        import inspect
+
+        from app.api import shomer_inframonitor as mod
+
+        src = inspect.getsource(mod.device_action)
+        self.assertNotIn(
+            'action == "snmp_reboot"', src,
+            "snmp_reboot era inalcanzable y duplicaba la ruta de Guardian",
+        )
+
+    def test_guardian_still_owns_snmp_reboot(self):
+        from app.api import shomer_guardian_lib
+
+        self.assertTrue(hasattr(shomer_guardian_lib, "_run_snmp_reboot"))
+
+
 if __name__ == "__main__":
     unittest.main()
