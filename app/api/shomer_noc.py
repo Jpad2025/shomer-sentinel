@@ -108,9 +108,14 @@ def _infra_devices() -> tuple:
                    ORDER BY CASE WHEN s.status='offline' THEN 0 ELSE 1 END, d.name"""
             ).fetchall()
 
+            # Caídas reales de 24h -> infra_events (historial). Antes se leía
+            # infra_status, que es el estado ACTUAL (una fila por IP con
+            # checked_at reescrito cada ciclo): la pantalla del NOC mostraba
+            # "equipos caídos ahora" bajo la etiqueta de 24h. Mismo origen que
+            # el contador del panel /infra/devices.
             outages = conn.execute(
-                """SELECT COUNT(DISTINCT ip) FROM infra_status
-                   WHERE status='offline' AND checked_at > datetime('now', '-24 hours')"""
+                """SELECT COUNT(DISTINCT ip) FROM infra_events
+                   WHERE event='offline' AND ts > datetime('now', '-24 hours')"""
             ).fetchone()[0]
 
         result = []

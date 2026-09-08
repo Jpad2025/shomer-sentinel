@@ -372,10 +372,19 @@ def _sync_ap_status_from_guardian() -> int:
                 last_change = now
                 if prev and prev_status == status and prev["last_state_change"]:
                     last_change = prev["last_state_change"]
+                # checked_at con datetime('now') igual que _persist_poll_results.
+                # Antes se escribía con .isoformat() ('2026-09-08T04:16:17+00:00')
+                # mientras el poller usaba el formato SQL ('2026-09-08 04:16:19'):
+                # los 30 APs quedaban con un formato y los 21 equipos Infra con
+                # otro en la MISMA columna. Como SQLite compara estas fechas como
+                # texto, la 'T' (0x54) ordena por encima del espacio (0x20), así
+                # que dentro del mismo día un AP siempre parecía "más reciente"
+                # que cualquier umbral. last_state_change sí queda en ISO, igual
+                # que en el poller (lo lee fromisoformat, no SQL).
                 conn.execute(
                     """
                     INSERT INTO infra_status (ip, status, latency_ms, checked_at, last_state_change)
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, datetime('now'), ?)
                     ON CONFLICT(ip) DO UPDATE SET
                         status = excluded.status,
                         latency_ms = excluded.latency_ms,
@@ -385,7 +394,7 @@ def _sync_ap_status_from_guardian() -> int:
                             ELSE infra_status.last_state_change
                         END
                     """,
-                    (ip, status, latency, now, last_change),
+                    (ip, status, latency, last_change),
                 )
                 updated += 1
             conn.commit()
@@ -1949,9 +1958,17 @@ async def list_devices(user=Depends(get_current_user)):
             )
             for d in devices
         ]
+        # Caídas REALES de las últimas 24h -> historial (infra_events), no el
+        # estado actual. La versión anterior consultaba infra_status, que tiene
+        # UNA fila por IP con el estado de AHORA y un checked_at reescrito en
+        # cada ciclo (30s): la condición de 24h se cumplía siempre, así que el
+        # número no era "caídas en 24h" sino "equipos caídos en este instante".
+        # Medido en Ópera al detectarlo: mostraba 1 cuando en 24h hubo 11
+        # caídas reales sobre 10 equipos distintos. Se cuenta por equipo
+        # distinto para que cuadre con el badge por fila (mismo origen).
         row = conn.execute(
-            "SELECT COUNT(DISTINCT ip) FROM infra_status "
-            "WHERE status='offline' AND checked_at > datetime('now', '-24 hours')"
+            "SELECT COUNT(DISTINCT ip) FROM infra_events "
+            "WHERE event='offline' AND ts > datetime('now', '-24 hours')"
         ).fetchone()
         outages_24h = row[0] if row else 0
     poll_context = {}
@@ -2037,14 +2054,24 @@ class DeviceEdit(BaseModel):
     name: Optional[str] = None
     device_type: Optional[str] = None
     location: Optional[str] = None
+    # Editables desde Sesión 82: sin esto, un campo que solo se podía fijar al
+    # CREAR el equipo quedaba congelado para siempre. Caso real en Ópera: los 6
+    # equipos printer/pos tenían pc_server_ip vacío, así que el botón "Cola"
+    # (limpiar cola de impresión) no aparecía en ninguna fila y no había forma
+    # de arreglarlo sin borrar y recrear el equipo (perdiendo su historial) o
+    # editar la BD a mano.
+    pc_server_ip: Optional[str] = None
+    tcp_port: Optional[int] = None
+    snmp_community: Optional[str] = None
 
 
 @router.patch("/infra/devices/{device_id}")
 async def edit_device(device_id: int, body: DeviceEdit, user=Depends(get_current_user)):
-    """Editar nombre/tipo/ubicación de un equipo ya existente -- pedido Juan
-    Pablo (3 sep 2026): antes solo se podía fijar el tipo al crear el equipo,
-    sin forma de corregirlo después (necesario para marcar criticidad de
-    negocio, Tarea pendiente 2 opción 4, sin depender de editar la BD a mano)."""
+    """Editar nombre/tipo/ubicación/PC de impresión/puerto TCP/comunidad SNMP de
+    un equipo ya existente -- pedido Juan Pablo (3 sep 2026): antes solo se podía
+    fijar el tipo al crear el equipo, sin forma de corregirlo después (necesario
+    para marcar criticidad de negocio, Tarea pendiente 2 opción 4, sin depender
+    de editar la BD a mano)."""
     if body.device_type is not None and body.device_type not in DEVICE_ICONS:
         raise HTTPException(status_code=400, detail=f"Tipo inválido. Opciones: {list(DEVICE_ICONS.keys())}")
 
@@ -2058,8 +2085,34 @@ async def edit_device(device_id: int, body: DeviceEdit, user=Depends(get_current
         campos.append("device_type = ?"); valores.append(body.device_type)
     if body.location is not None:
         campos.append("location = ?"); valores.append(body.location.strip())
+    if body.pc_server_ip is not None:
+        pc_ip = body.pc_server_ip.strip()
+        if pc_ip:
+            import ipaddress
+            try:
+                ipaddress.ip_address(pc_ip)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="IP del PC de impresión inválida")
+        campos.append("pc_server_ip = ?"); valores.append(pc_ip or None)
+    if body.tcp_port is not None:
+        # 0 = limpiar el puerto (JSON no distingue "no enviado" de "borrar")
+        if body.tcp_port == 0:
+            campos.append("tcp_port = ?"); valores.append(None)
+        elif not (1 <= body.tcp_port <= 65535):
+            raise HTTPException(status_code=400, detail="Puerto TCP inválido (1-65535)")
+        else:
+            campos.append("tcp_port = ?"); valores.append(body.tcp_port)
+    if body.snmp_community is not None:
+        campos.append("snmp_community = ?"); valores.append(body.snmp_community.strip())
     if not campos:
         raise HTTPException(status_code=400, detail="Nada para actualizar")
+
+    # monitor_profile se deriva de device_type/tcp_port/snmp_community: si
+    # cambió alguno, hay que recalcularlo o el equipo sigue evaluándose con el
+    # perfil viejo (ej. pasar un genérico a switch con SNMP y que igual se
+    # decida su estado solo por ping).
+    if any(f.startswith(("device_type", "tcp_port", "snmp_community")) for f in campos):
+        campos.append("monitor_profile = ''")
 
     _init_tables()
     valores.append(device_id)
