@@ -1170,6 +1170,92 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   - Desplegado en Ópera (commit `e868812`, reiniciado y verificado sin errores) + sincronizado
     a los 3 labs vía `fleet_sync.sh`.
 
+## Sesión 83 (8-9 sep 2026) — Hunter cortaba el internet del hotel + auditoría del bot y del cerebro
+
+### ⚠️ Incidente: Hunter bloqueó los DNS de Google y el hotel se quedó sin internet
+
+**Cómo llegó:** una alerta de Telegram decía "interfaz de red caída —
+`enx9c69d33bc55f` DOWN". Eso era el síntoma final de una cadena, no la causa.
+
+**La cadena real, reconstruida con el log del router:**
+
+1. `hunter.auto_block_min_severity` estaba en **3**. En Suricata **menor número =
+   más severo**, así que 3 incluye la franja donde caen `ET INFO` y las anomalías
+   de protocolo (`SURICATA STREAM/HTTP/TCP/IKEv2`), que no describen ataques.
+2. Hunter acumuló **126 IPs bloqueadas**, 20 de ellas legítimas: **`8.8.8.8` y
+   `8.8.4.4`** (DNS de Google — causa directa de "no hay internet": sin
+   resolución DNS da igual que el enlace funcione), más Google, Akamai,
+   Canonical y varias IPs del ISP colombiano. Una de las firmas culpables:
+   `ET INFO ... STUN`, que es cómo funciona cualquier videollamada.
+3. El proveedor (`admin` desde `172.16.1.99` vía Winbox) entró al MikroTik,
+   **deshabilitó la regla de firewall** de Shomer (`filter set *10A
+   disabled=yes`, 06:29:21) y **apagó el puerto `ether4`** — el `mirror-target`
+   del espejo SPAN — para recuperar el servicio. Eso dejó a Hunter ciego y
+   generó la alerta con la que empezó todo.
+
+**Diagnóstico del puerto (importante para la próxima):** la config del espejo
+NUNCA se perdió (`switch2 mirror-source=ether3 mirror-target=ether4`). El puerto
+estaba `X` = DISABLED con 0 bytes, y `ether3` (la fuente) seguía `R` = RUNNING.
+Como en RouterOS ese estado es persistente, sobrevivió al reinicio: fue una
+acción deliberada, no un efecto del reboot. Reactivado con
+`/interface ethernet enable ether4`; Suricata volvió a procesar tráfico real en
+segundos (verificado en `eve.json`, no solo que la interfaz estuviera UP).
+
+**Correcciones (commits `6c151f8` + `cabe937`):**
+
+- **Umbral a 2** (solo critical y high). Spamhaus, Dshield, CINS y los escaneos
+  se siguen bloqueando igual.
+- **Filtro por firma** (`NUNCA_AUTOBLOQUEAR`): `ET INFO`, `ET POLICY` y las
+  anomalías `SURICATA STREAM/HTTP/TCP/IPV4/UDP/IKEV2/TLS` no bloquean nunca,
+  venga la severidad que venga — la misma firma puede llegar etiquetada distinto
+  según la fuente (Suricata directo vs Wazuh), así que el umbral solo no basta.
+  Va en `execute_hunter_block()`, el camino compartido por panel, Wazuh y el
+  poller, y en el pre-filtro del poller.
+- **`INFRA_CRITICA` nunca se autobloquea, ni con severidad 1**: DNS públicos,
+  Google, Microsoft, Apple, Canonical, Akamai, Fastly, Cloudflare. Si una regla
+  marca al DNS de Google como amenaza, el error es de la regla. Esto convierte
+  el arreglo de "depende de la configuración" a "imposible por construcción".
+- **20 IPs liberadas** (126 → 106) con la lógica del sistema: firewall primero,
+  BD solo si el router confirma. Verificado en el router real.
+- El **bloqueo manual no se tocó**: el técnico sigue pudiendo bloquear lo que
+  decida. Los 3 labs nunca tuvieron el problema (usan el default 2 del código).
+
+**`tools/simular_politica_hunter.py`** — responde "¿qué cortaría si lo activo?"
+ANTES de activar: pasa la política sobre el tráfico REAL registrado (eve.json +
+rotados) con la misma cadena de decisión del autobloqueo, sin tocar el firewall,
+y termina en semáforo que falla si alguna IP a bloquear es un servicio esencial.
+Con 24 h reales: **22.440 alertas → 0 IPs bloqueadas**, 🟢.
+
+**🔴 PENDIENTE:** la regla de firewall sigue **apagada** por decisión de Juan
+Pablo (dry-run de 24-48 h antes de reactivar). Mientras tanto Hunter detecta
+pero no corta. Ver `PENDIENTES_LAB.md` para el criterio de validación y el
+comando exacto. **Avisarle a Ricardo antes de reactivar.**
+
+### Auditoría del bot y del cerebro (ver `CHANGELOG.md` de shomer-agent v1.31.0)
+
+Misma metodología que los demás módulos; en el bot los "botones" son los
+comandos y los callbacks inline. 3 bugs reales, todos de los que no dan error:
+
+- **El botón "🔓 Desbloquear" de las alertas de Hunter nunca funcionó** —
+  mandaba `block_unblock_<ip>` y el handler espera `unblock_confirm:<ip>`.
+  Por eso, durante el incidente de arriba, el técnico no pudo liberar los DNS
+  desde Telegram y hubo que entrar al router.
+- **Un cluster con error atascaba el cerebro y repetía el gasto del modelo**:
+  el cursor `last_incident_id` avanzaba después del bucle, así que una
+  excepción lo dejaba sin mover y el ciclo siguiente repagaba las mismas
+  llamadas, en bucle. Ahora `try/except` por cluster y cursor en `finally`.
+- **`/monitores` mostraba 37 de los 39 reales** — faltaban `watch_brain` y
+  `watch_poller_heartbeat`, y este último es el que detecta "Guardian
+  congelado".
+
+Cuatro herramientas nuevas en `shomer-agent/tools/` para los contratos que se
+desincronizan solos sin dar error: `auditar_callbacks.py`, `auditar_comandos.py`,
+`auditar_monitores.py` y `auditar_endpoints.py` (esta última lee `app.routes` de
+la app FastAPI real — un parser por texto daba 8 falsos positivos porque los
+routers se componen anidados con prefijo).
+
+---
+
 ## Sesión 82 (5-7 sep 2026) — KB CompTIA completa + auditoría de seguridad + topología LLDP real + Fases 5-8 del cerebro + Guardian: causa raíz del reinicio automático
 
 Sesión larga, varios días. Resumen por bloques (ver `CHANGELOG.md` de shomer-agent v1.20.0 a
