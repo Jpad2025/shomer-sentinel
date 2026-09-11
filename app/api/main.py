@@ -63,6 +63,7 @@ from app.api.shomer_status_events import (
     start_outage_report_loop,
 )
 from app.api.shomer_topology import router as topology_router
+from app.api.shomer_wan_hotel import router as wan_hotel_router
 
 _APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _STATIC_DIR = os.path.join(_APP_DIR, "static")
@@ -165,6 +166,7 @@ app.include_router(technician_router)
 # Historial transiciones red + oleadas (Guardian + Infra)
 app.include_router(status_events_router)
 app.include_router(topology_router)
+app.include_router(wan_hotel_router)
 # Web UI — templates Jinja2 (todas las vistas del panel)
 app.include_router(web_router)
 
