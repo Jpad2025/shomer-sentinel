@@ -4,7 +4,23 @@ Actualizado: **8 sep 2026** · Dueño: Juan Pablo (único operador)
 
 ---
 
-## 🔴 PENDIENTE CRÍTICO — regla de firewall de Hunter APAGADA en Ópera (8 sep 2026)
+## ✅ RESUELTO (11 sep 2026) — regla de firewall de Hunter reactivada en Ópera
+
+Tras **72 h de dry-run** el simulacro dio verde: de 22.440+ alertas reales solo
+bloquearía 1 IP, y era una amenaza real (CINS Poor Reputation). Antes de
+activar se auditaron las 107 IPs que se cortarían — todas amenazas legítimas
+(Spamhaus, Dshield, CINS, escaneo SNMP, SIPvicious), ninguna infraestructura
+crítica. Activada con autorización de Juan Pablo: dropeó 3.921 paquetes en los
+primeros segundos y se verificó que el hotel navega (los tres DNS responden,
+Google/Apple/Microsoft 200).
+
+**Conservar el método:** `tools/simular_politica_hunter.py` debe usarse antes de
+activar o endurecer el autobloqueo en cualquier sitio, incluidos clientes
+nuevos. Un falso positivo que corta el servicio hace que el cliente apague la
+protección entera, y ahí se pierde más que con el ruido.
+
+<details>
+<summary>Contexto original del incidente (8 sep) — se conserva por su valor</summary>
 
 **Estado: Hunter detecta pero NO bloquea.** La regla `Shomer-Hunter`
 (chain=forward, drop, src-address-list=shomer-blocked) en el MikroTik
@@ -38,6 +54,8 @@ Con 10 h de tráfico real (18.716 alertas) el resultado fue **0 IPs**.
 **Al reactivar:** avisarle antes a Ricardo — él la apagó por una razón válida.
 `/ip firewall filter enable [find comment="Shomer-Hunter"]` y verificar que el
 hotel navegue.
+
+</details>
 
 ## Sesión 77 (27 ago 2026) — revisión EXHAUSTIVA COMPLETADA: 112/112 archivos de network_monitor
 
