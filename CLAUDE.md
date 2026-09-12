@@ -1170,6 +1170,79 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   - Desplegado en Ópera (commit `e868812`, reiniciado y verificado sin errores) + sincronizado
     a los 3 labs vía `fleet_sync.sh`.
 
+## Sesión 86 (12 sep 2026) — Que la flota no pueda desincronizarse en silencio + Shomer deja de hablar de sí mismo
+
+### El procedimiento era el error, no el descuido
+
+El agente ya tenía `fleet_sync.sh`, pero el core se sincronizaba **a mano**,
+tecleando la lista de archivos en cada rsync. Lo que no se teclea, no viaja: así
+se quedaron nueve archivos sin llegar a los labs durante días, vivos en
+producción y fuera de git. Un procedimiento que depende de que alguien recuerde
+la lista completa va a fallar siempre.
+
+**`tools/fleet_estado.py`** compara el **contenido** archivo por archivo contra
+el maestro y separa tres cosas: lo que corre sin commitear, lo que le falta a un
+sitio y lo que solo tiene el sitio. Comparar `git log` entre servidores no
+sirve — cada uno reconcilia con commits propios, así que los hashes difieren
+siempre aunque el contenido sea idéntico; por eso la deriva nunca se vio.
+
+Mientras se escribía cometió el error que ahora vigila: el guion iba dentro de
+la línea de comando de `ssh`, el shell **local** expandía el `$(git rev-parse)`
+antes de que viajara y cada sitio contestaba con datos del maestro. Salía "todo
+al día" sin haber mirado nada. Va por entrada estándar, y hay una prueba que
+falla si alguien lo devuelve a un argumento.
+
+**`tools/fleet_sync_core.sh`** propaga el árbol completo, reinicia, comprueba
+salud, corre las pruebas y revierte solo si algo falla — sin lista que recordar.
+Y **se niega a sincronizar si el maestro tiene código sin commitear**: propagar
+un árbol sucio reparte un estado que no existe en ningún historial. En su
+primera corrida frenó a quien lo escribió, que es exactamente el punto.
+
+Un temporizador diario lo revisa solo. En una instalación de un solo hotel no
+hay flota y la herramienta sale sin hacer nada.
+
+Encontró de paso dos archivos borrados a propósito en Ópera hace semanas que
+seguían vivos en los tres labs, porque el rsync manual nunca usó `--delete`.
+
+### Shomer hablaba de Shomer
+
+Con la flota consolidada, se midió el tráfico real: 1.013 mensajes en 30 días.
+El bloque identificable más grande **no era del hotel, era del propio Shomer**:
+
+- **55 mensajes** "✅ SHOMER operativo — todos los sistemas OK", tres veces al
+  día. No dicen nada, y además ya estaba dicho: el resumen diario publica CPU,
+  RAM, disco y servicios con **más** detalle. Duplicación pura. Un técnico con
+  2-3 hoteles recibía unos 9 al día, todos iguales.
+- **32 mensajes** "SISTEMA REINICIADO", casi todos despliegues nuestros. Que
+  Shomer se reinicie no es un hecho del hotel.
+
+El riesgo real del cambio era perder la prueba de vida, así que el latido se
+sigue **registrando** y el resumen diario ya lo publica; lo único que traía y no
+estaba allí era el estado de la WAN, que bajó al resumen. Y el reinicio ahora
+cuenta los arranques de la última hora: uno es un despliegue, varios son un
+servicio que no levanta — eso sí se avisa, con el número, que es el dato útil.
+Umbral configurable por sitio (`guardian.reinicios_para_avisar`), y
+`guardian.heartbeat_telegram` devuelve el latido a quien lo quiera.
+
+**87 mensajes menos al mes sin perder una sola señal real.**
+
+### Lo que se midió y NO se tocó
+
+Las oleadas de Pulse (10 equipos avisando "degradando" en 40 segundos con la
+misma latencia, y "estable" tres minutos después: 20 mensajes para un solo
+hecho, con el gateway en la lista delatando la causa compartida) son solo el
+**6%** del tráfico: agruparlas ahorraría unos 36 mensajes al mes. Está medido y
+anotado, pero no se tocó — primero lo grande.
+
+### Estado
+
+189/189 pruebas del core y 99/99 del agente en los cuatro servidores; agente
+v1.36.0. `fleet_estado.py` da salida 0 por primera vez: toda la flota con el
+mismo código y nada fuera de git.
+
+**Ópera tiene el código pero sigue con el comportamiento anterior**: aplicarlo
+exige reiniciar servicios en producción (norma B.3).
+
 ## Sesión 85 (11 sep 2026) — Consolidación de flota y el secreto que la consola no veía
 
 ### Lo que estaba corriendo fuera de git
