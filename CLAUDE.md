@@ -1170,6 +1170,70 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   - Desplegado en Ópera (commit `e868812`, reiniciado y verificado sin errores) + sincronizado
     a los 3 labs vía `fleet_sync.sh`.
 
+## Sesión 85 (11 sep 2026) — Consolidación de flota y el secreto que la consola no veía
+
+### Lo que estaba corriendo fuera de git
+
+Nueve archivos del core llevaban días vivos en Ópera **sin commitear**: los
+arreglos de las auditorías de Tracker y Guardian nunca se confirmaron, así que
+los tres labs no los tenían y una reinstalación los habría perdido. Lo que
+recuperan: cancelar un escaneo durante su ventana de arranque decía "cancelado"
+sin matar nada (el PID de `scanner.py` todavía no es visible para `pgrep`, así
+que se borraba el candado del escaneo que seguía arrancando); un status file
+ilegible dejaba el escaneo marcado como corriendo para siempre; y
+`tracker.subnets`, que termina en el argv de un `sudo nmap`, no se validaba como
+IP/CIDR. Va también el arreglo de sintaxis de `discover_macs.py`.
+
+Comparar por hash el árbol de Ópera contra un lab, en vez de fiarse de los
+commits, fue lo que los sacó a la luz: los labs reconcilian con commits propios,
+así que `git diff` entre hashes no dice nada.
+
+### La alarma falsa que sí escondía una falla real
+
+Cualquier script lanzado a mano imprimía **"JWT_SECRET usa valor por defecto —
+definir JWT_SECRET en producción"**. Parecía que los cuatro servidores firmaban
+sesiones con un literal publicado en el repositorio. No era así: cada sitio
+tiene su propio secreto y systemd se lo pasa a los servicios por
+`EnvironmentFile`. El aviso salía de **mi propio proceso de consola**, que no
+hereda ese entorno — el mismo error de método de otras veces: medir fuera del
+entorno real y creerle al resultado.
+
+Pero debajo había una falla de verdad. La clave de cifrado de las credenciales
+de Protector se **deriva** de ese valor, así que toda herramienta de
+mantenimiento trabajaba con la clave equivocada: `_decrypt_device_password`
+fallaba con `ValueError` sobre la contraseña de **SRV Zeus PMS**, el servidor
+del PMS, cuyo respaldo de las 05:00 sí corre bien desde el servicio. Un aviso
+que el técnico aprende a ignorar tapaba una rotura silenciosa.
+
+Y el instalador la sembraba en **toda instalación nueva**: creaba
+`shomer-runtime.env` como `640 root:$SERVICE_USER` pero `/etc/shomer` como
+`root:root 750`, de modo que el usuario del servicio no podía entrar al
+directorio a leer el archivo que era suyo. Permiso muerto.
+
+`auth_api` resuelve ahora el secreto en orden — entorno, archivo de runtime, y
+solo entonces el default — con la ruta configurable vía `SHOMER_RUNTIME_ENV`.
+El entorno mantiene la prioridad, así que **el servicio ve exactamente lo mismo
+que antes**: no se rota ningún secreto ni hace falta reiniciar producción.
+`backups.py` toma el valor ya resuelto en vez de leer el entorno por su cuenta,
+para no dejar dos fuentes de verdad. Verificado en vivo: la credencial que
+fallaba ahora descifra desde consola.
+
+### Estado de la flota
+
+Ópera y los tres labs con 163/163 pruebas del core y 99/99 del agente, agente
+v1.35.0 (`256207e`) en los cuatro, y `/etc/shomer` en `750 root:<usuario del
+servicio>` (shomer205 estaba en 755, más abierto de lo debido).
+
+**Internet del hotel, verificado en esta sesión**: WAN arriba, 0% de pérdida a
+8.8.8.8 y 1.1.1.1 — las mismas IPs que Hunter había bloqueado —, 1.099 sesiones
+NAT y 11 clientes en hotspot.
+
+### Pendiente
+
+El reporte de caídas de POS sigue **sin enviar**: falta la cuenta de correo de
+Shomer. Juan Pablo pidió expresamente **no aplicar todavía** la configuración de
+puertos que el reporte recomienda.
+
 ## Sesión 84 (11 sep 2026) — Menos ruido sin perder información + el internet de los huéspedes
 
 **Contexto que define el diseño** (Juan Pablo): el sistema lo administra un
