@@ -32,7 +32,7 @@ from app.api.inventory_discovery import (
     SCANNER_PATH,
     build_deep_scan_environment,
     get_scan_status,
-    kill_scan,
+    kill_scan_with_retry,
     run_inventory_deep_scan_background,
     run_inventory_quick_scan_background,
 )
@@ -140,7 +140,7 @@ async def scan_status(_user: Dict[str, Any] = Depends(get_current_user)):
 
 @router.post("/scan/cancel")
 async def scan_cancel(_user: Dict[str, Any] = Depends(get_current_user)):
-    killed = kill_scan()
+    killed = await kill_scan_with_retry()
     return JSONResponse(content={"success": True, "killed": killed})
 
 

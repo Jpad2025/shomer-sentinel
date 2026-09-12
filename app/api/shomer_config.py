@@ -148,6 +148,28 @@ async def get_system_config(user=Depends(require_admin)):
 
         # 7 sep 2026 (auditoría Hunter): campos que exigen admin -- ver
         # docstring de save_system_config más abajo para el porqué.
+def _valid_subnet_or_ip(s: Any) -> bool:
+    """True si s es una IP o red CIDR válida.
+
+    7 sep 2026: tracker.subnets llega hasta un argv de `sudo nmap` (ver
+    get_targets() en scripts/tracker/discovery.py, que ahora también valida
+    en el sumidero) -- se valida acá también para rechazar temprano con un
+    error claro en vez de silenciosamente descartar el valor en el scanner.
+    """
+    import ipaddress
+    s = str(s or "").strip()
+    if not s:
+        return False
+    try:
+        if "/" in s:
+            ipaddress.ip_network(s, strict=False)
+        else:
+            ipaddress.ip_address(s)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 _ADMIN_ONLY_FIELDS = {
     ("hunter", "firewall_ip"),
     ("hunter", "firewall_user"),
@@ -224,10 +246,15 @@ async def save_system_config(payload: Dict[str, Any] = Body(...), user=Depends(g
 
     tracker = payload.get("tracker", {})
     if "subnets" in tracker:
-        if set_config("tracker.subnets", tracker["subnets"]):
-            saved.append("tracker.subnets")
+        raw_subnets = tracker["subnets"] if isinstance(tracker["subnets"], list) else [tracker["subnets"]]
+        bad = [s for s in raw_subnets if not _valid_subnet_or_ip(s)]
+        if bad:
+            errors.append(f"tracker.subnets: valores inválidos (no son IP/CIDR): {bad!r}")
         else:
-            errors.append("tracker.subnets")
+            if set_config("tracker.subnets", tracker["subnets"]):
+                saved.append("tracker.subnets")
+            else:
+                errors.append("tracker.subnets")
 
     hunter = payload.get("hunter", {})
     autoblock_prev = None

@@ -58,6 +58,7 @@ async def tracker_assets(request: Request, user=Depends(get_current_user)):
 @router.post("/tracker/scan")
 async def tracker_scan(request: Request, user=Depends(get_current_user)):
     """Proxy: lanza discovery_scan en 8001 con subnet leída de system_state."""
+    require_module("tracker")
     token = request.headers.get("Authorization", "")
     # 7 sep 2026 (auditoría Tracker): antes solo se usaba subnets[0] -- el
     # operador podía agregar varias subredes en el panel, verlas guardadas,
@@ -225,6 +226,7 @@ async def tracker_deep_scan(request: Request, user=Depends(get_current_user)):
     en segundo plano via puerto 8001.
     Lee subnet de system_state si no viene en el payload.
     """
+    require_module("tracker")
     token = request.headers.get("Authorization", "")
     try:
         body = await request.json()

@@ -20,6 +20,14 @@ NODE_DATA_PREFIX = "node:"
 LAST_REBOOT_KEY_PREFIX = "last_reboot:"
 # Tras intento fallido: espera corta anti-spam SSH/Telegram (no sustituye cooldown 5 min de éxito)
 LAST_REBOOT_ATTEMPT_KEY_PREFIX = "last_reboot_attempt:"
+# 7 sep 2026 (auditoría Guardian, hallazgo H1): cuenta reinicios preventivos
+# CONSECUTIVOS (éxito o fallo) por IP -- sin tope, un AP crónicamente
+# degradado (nunca offline, ej. ~75% de pérdida sostenida) se reiniciaba
+# cada ~11-18 min para siempre, sin avisar nunca a un humano si cada
+# reinicio "funcionaba" (silencioso por diseño). Se resetea cuando el
+# equipo vuelve a online.
+PREVENTIVE_REBOOT_COUNT_PREFIX = "preventive_reboot_count:"
+PREVENTIVE_REBOOT_ESCALATED_PREFIX = "preventive_reboot_escalated:"
 ALERT_THRESHOLD = int(os.environ.get("SHOMER_ALERT_THRESHOLD", "2"))
 AUTO_REBOOT_COOLDOWN_SEC = int(os.environ.get("SHOMER_REBOOT_COOLDOWN_SEC", "360"))
 FAIL_RETRY_SEC_DEFAULT = int(os.environ.get("SHOMER_REBOOT_FAIL_RETRY_SEC", "150"))

@@ -206,12 +206,31 @@ def guess_asset_type_from_vendor(vendor: str) -> str:
     return ""
 
 
+def _valid_scan_target(t: str) -> bool:
+    """True si t es una IP o red CIDR válida (nunca un flag/argumento nmap)."""
+    import ipaddress
+    t = (t or "").strip()
+    if not t:
+        return False
+    try:
+        if "/" in t:
+            ipaddress.ip_network(t, strict=False)
+        else:
+            ipaddress.ip_address(t)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 def get_targets() -> List[str]:
     import os
     raw = os.environ.get("INVENTORY_SCAN_TARGETS", "")
     parts = [p.strip() for p in raw.split() if p.strip()]
     if parts:
-        return parts
+        valid = [p for p in parts if _valid_scan_target(p)]
+        if valid:
+            return valid
+        _log().warning("get_targets: INVENTORY_SCAN_TARGETS no tenía objetivos válidos (%r), se descarta", raw[:200])
     # Detectar subred dinámicamente
     try:
         from app.scripts.network_context import get_network_context
@@ -406,17 +425,34 @@ def discovery_nmap(targets: List[str], use_pn: bool = False) -> List[Dict[str, A
     return hosts
 
 
+_NMAP_XML_TIMEOUT_SEC = 800
+# 7 sep 2026 (auditoría Tracker): shomer-nmap-cleanup.timer mata con SIGKILL
+# cualquier nmap con etimes>900s, chequeando cada 15min -- con el timeout
+# interno anterior (1800s) casi empatado con esa ventana, un nmap colgado
+# podía terminar en SIGKILL externo (returncode negativo) en vez de en
+# nuestro propio TimeoutExpired, cayendo en el "exit %s" de abajo a nivel
+# INFO -- el escaneo terminaba "con éxito" y 0 datos de SO sin ningún aviso.
+# 800s deja margen bajo el umbral de 900s para que sea SIEMPRE nuestro
+# propio timeout (con warning explícito) el que dispare primero.
+
+
 def _run_nmap_xml(cmd: List[str], label: str) -> Optional["ET.Element"]:
     """Corre nmap con -oX - y devuelve el root del XML, o None si falla."""
     import xml.etree.ElementTree as ET
     log = _log()
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_NMAP_XML_TIMEOUT_SEC)
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        log.warning("%s: timeout o nmap no encontrado", label)
+        log.warning("%s: timeout (%ss) o nmap no encontrado", label, _NMAP_XML_TIMEOUT_SEC)
         return None
     if proc.returncode not in (0, 1):
-        log.info("[INFO] %s finished: 0 results (exit %s)", label, proc.returncode)
+        if proc.returncode < 0:
+            log.warning(
+                "%s: nmap terminado por señal %s (posible kill externo por exceder 900s)",
+                label, -proc.returncode,
+            )
+        else:
+            log.info("[INFO] %s finished: 0 results (exit %s)", label, proc.returncode)
         return None
     try:
         return ET.fromstring(proc.stdout or "")
@@ -461,7 +497,15 @@ def os_detection_aggressive(ip_list: List[str]) -> Dict[str, Dict[str, str]]:
             if os_el is not None:
                 match = os_el.find("osmatch")
                 name = (match.get("name") or "").strip() if match is not None else ""
-                if name:
+                try:
+                    accuracy = int(match.get("accuracy") or 0) if match is not None else 0
+                except (TypeError, ValueError):
+                    accuracy = 0
+                # 7 sep 2026: --osscan-guess hace que nmap emita <osmatch> hasta
+                # con matches de baja confianza (ej. "FreeBSD 6.2-RELEASE" para
+                # un OUI de PC de escritorio, visto en datos reales) -- sin este
+                # piso, esos guesses quedaban guardados como si fueran un hecho.
+                if name and accuracy >= 85:
                     result[ip]["os_detected"] = name[:400]
     log.info("[INFO] OS detection finished: %d IPs con SO detectado",
               sum(1 for v in result.values() if "os_detected" in v))
