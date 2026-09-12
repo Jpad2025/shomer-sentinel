@@ -91,22 +91,41 @@ def _sample_latency(
     loss_pct: float,
     status: str,
     timeout_ms: float,
-) -> float:
+) -> Optional[float]:
+    """La latencia medida, o None cuando no hubo medición.
+
+    12 sep 2026: acá se devolvía `timeout_ms` cuando el equipo no contestaba, y
+    ese número entraba al EWMA de latencia como si fuera una medición. En los
+    equipos que fallan pings a diario —los cuatro POS de Ópera, 32 caídas al mes
+    cada uno— el promedio quedaba envenenado de forma permanente: Pulse los
+    reportaba "degradando, latencia 401 ms (normal ~0 ms)" mientras respondían en
+    0,3 ms. Un aviso falso, repetido, y encima con un "normal" de 0 ms que no le
+    dice nada a nadie.
+
+    No se pierde la señal: que un equipo deje de contestar ya lo mide
+    `ewma_loss`, que es su canal correcto, y la caída total la avisa el evento
+    de offline aparte. Mezclar las dos cosas convertía un problema de respuesta
+    en uno de lentitud, que es otro problema y lleva al técnico a otro lado.
+    """
     if latency_ms is not None and status != "offline":
         return float(latency_ms)
-    if status == "offline" or loss_pct >= 100.0:
-        return timeout_ms
-    return float(latency_ms) if latency_ms is not None else timeout_ms
+    return None
 
 
 def _degrade_trigger(
-    ewma_lat: float,
+    ewma_lat: Optional[float],
     ewma_loss: float,
     baseline: Optional[float],
     status: str,
     cfg: Dict[str, Any],
 ) -> Tuple[bool, str]:
     if status == "offline":
+        return False, ""
+    # Un equipo que nunca dio una medición válida no tiene latencia que juzgar:
+    # su problema es de respuesta y lo cuenta el EWMA de pérdida, más abajo.
+    if ewma_lat is None:
+        if ewma_loss is not None and ewma_loss >= cfg["loss_ewma_pct"]:
+            return True, f"pérdida EWMA {ewma_loss:.0f}%"
         return False, ""
     reasons = []
     floor = cfg["latency_floor_ms"]
@@ -166,10 +185,13 @@ def update_pulse(
     prev_state = (row["pulse_state"] or "stable") if row else "stable"
     last_alert_at = row["last_alert_at"] if row else None
 
-    ewma_lat = ewma(prev_lat, sample_lat, alpha)
+    # Sin medición no se inventa una: el promedio anterior se mantiene tal cual
+    # y la ausencia de respuesta queda contada en el EWMA de pérdida.
+    ewma_lat = ewma(prev_lat, sample_lat, alpha) if sample_lat is not None else prev_lat
     ewma_loss = ewma(prev_loss, sample_loss, alpha)
 
-    if prev_state in ("stable", "recovered") and status in ("online", "degraded"):
+    if (sample_lat is not None and prev_state in ("stable", "recovered")
+            and status in ("online", "degraded")):
         baseline = ewma(baseline, sample_lat, _BASELINE_ALPHA)
 
     firing, reason = _degrade_trigger(ewma_lat, ewma_loss, baseline, status, cfg)
