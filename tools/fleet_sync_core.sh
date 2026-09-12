@@ -97,7 +97,11 @@ for h in "${hosts[@]}"; do
   " 2>/dev/null)
   stash_v="${stash_v:-ninguno}"
 
-  if rsync -az "${RSYNC_EXCLUDES[@]}" -e "ssh -o ConnectTimeout=15" \
+  # --no-owner/--no-group: preservar el propietario exige root en el remoto, y
+  # basta un archivo viejo de otro grupo (respaldos .bak de una migracion) para
+  # que rsync termine en error 23 y el sitio se quede sin sincronizar. El
+  # contenido es lo que debe viajar; los permisos son de cada maquina.
+  if rsync -az --no-owner --no-group "${RSYNC_EXCLUDES[@]}" -e "ssh -o ConnectTimeout=15" \
       "$REPO_DIR/" "$h:$REPO_DIR/" >/tmp/fleet_core_rsync_"$h".log 2>&1; then
     rsync_v="ok"
   else
