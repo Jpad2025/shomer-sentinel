@@ -670,6 +670,35 @@ Unit=shomer-health-watchdog.service
 WantedBy=timers.target
 SVC
 
+# ─── Verificación diaria de consistencia de flota ────────────────────────────
+# Solo tiene sentido en el servidor maestro (el que tiene lista de flota y
+# acceso SSH a los demás). En una instalación de un solo hotel no hay flota:
+# el temporizador se crea igual pero la herramienta sale sin hacer nada.
+cat > /etc/systemd/system/shomer-fleet-estado.service << SVC
+[Unit]
+Description=Shomer — verifica que toda la flota tenga el mismo código
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=${SERVICE_USER}
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=/bin/sh -c '${INSTALL_DIR}/venv/bin/python ${INSTALL_DIR}/tools/fleet_estado.py >> ${LOG_DIR}/fleet_estado.log 2>&1; echo "  (salida \$?) \$(date)" >> ${LOG_DIR}/fleet_estado.log'
+SVC
+
+cat > /etc/systemd/system/shomer-fleet-estado.timer << SVC
+[Unit]
+Description=Shomer — consistencia de flota, una vez al día
+
+[Timer]
+OnCalendar=*-*-* 07:30:00
+Persistent=true
+Unit=shomer-fleet-estado.service
+
+[Install]
+WantedBy=timers.target
+SVC
+
 if [[ "$SKIP_DOCKER" != "yes" ]]; then
 cat > /etc/systemd/system/shomer-agent.service << SVC
 [Unit]
@@ -699,7 +728,7 @@ log "Unidades systemd instaladas"
 info "Habilitando e iniciando servicios..."
 
 systemctl enable --quiet redis-server nginx suricata
-systemctl enable --quiet shomer-guardian shomer-tools shomer-health-watchdog.timer
+systemctl enable --quiet shomer-guardian shomer-tools shomer-health-watchdog.timer shomer-fleet-estado.timer
 
 systemctl restart redis-server
 systemctl restart nginx
@@ -707,6 +736,7 @@ systemctl start shomer-guardian || warn "shomer-guardian no arrancó — revisar
 sleep 3
 systemctl start shomer-tools || warn "shomer-tools no arrancó — revisar: journalctl -u shomer-tools -n 30"
 systemctl start shomer-health-watchdog.timer
+systemctl start shomer-fleet-estado.timer
 
 log "Servicios iniciados"
 
