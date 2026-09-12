@@ -151,7 +151,13 @@ mkdir -p "$SSL_DIR"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$STORAGE_DIR"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$LOG_DIR"
-chown root:root "$CONF_DIR"
+# El directorio va al grupo del usuario del servicio: shomer-runtime.env se
+# crea 640 root:$SERVICE_USER (mas abajo), pero con el directorio en
+# root:root 750 ese permiso quedaba muerto -- nadie salvo root podia
+# entrar a leerlo, asi que las herramientas de consola corrian con el
+# JWT por defecto en vez del del sitio. Sigue siendo 750: solo root y el
+# usuario del servicio.
+chown root:"$SERVICE_USER" "$CONF_DIR"
 chmod 750 "$CONF_DIR"
 chown -R "$SERVICE_USER:$SERVICE_USER" "/srv/shomer_backups"
 chown -R "$SERVICE_USER:$SERVICE_USER" "/srv/shomer_restore"

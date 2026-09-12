@@ -26,7 +26,38 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 security = HTTPBearer(auto_error=False)
 
 _DEFAULT_JWT = "shomer-secret-change-in-production"
-JWT_SECRET = os.environ.get("JWT_SECRET", _DEFAULT_JWT)
+
+# Ruta del archivo de entorno que systemd le pasa a los servicios. Configurable
+# para no clavar una ruta: cada instalacion puede moverlo.
+_RUNTIME_ENV_FILE = os.environ.get("SHOMER_RUNTIME_ENV", "/etc/shomer/shomer-runtime.env")
+
+
+def _secret_del_runtime_env() -> str:
+    """El JWT del sitio, leido del archivo que systemd le da a los servicios.
+
+    11 sep 2026: los servicios reciben JWT_SECRET por EnvironmentFile, pero una
+    herramienta lanzada a mano desde la consola no lo tiene en su entorno y caia
+    al literal por defecto. No era solo el aviso enganoso "JWT_SECRET usa valor
+    por defecto" apareciendo en un sitio bien configurado: como la clave de
+    cifrado de credenciales de Protector se deriva de este valor, cualquier
+    script de mantenimiento fallaba de verdad al descifrar la contrasena
+    guardada del equipo de respaldo.
+
+    Si el archivo no se puede leer se devuelve vacio y el llamador decide: sin
+    poder confirmar el secreto no se inventa uno.
+    """
+    try:
+        with open(_RUNTIME_ENV_FILE, "r", encoding="utf-8", errors="replace") as fh:
+            for linea in fh:
+                linea = linea.strip()
+                if linea.startswith("JWT_SECRET="):
+                    return linea.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        return ""
+    return ""
+
+
+JWT_SECRET = os.environ.get("JWT_SECRET") or _secret_del_runtime_env() or _DEFAULT_JWT
 
 
 def _resolve_jwt_expire_hours() -> int:
