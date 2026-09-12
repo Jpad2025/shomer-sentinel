@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
 import os
 import re
@@ -61,6 +62,13 @@ WAN_FAIL_START_KEY = "shomer:wan_fail_start"
 WAN_LAST_ALERT_KEY = "shomer:wan_last_alert"
 HEARTBEAT_REPORT_KEY = "shomer:heartbeat_last_hour"
 STARTUP_SENT_KEY = "shomer:startup_sent"
+# Último latido con todo en orden: se guarda en vez de mandarse por Telegram.
+# El resumen diario lo lee de acá, así el técnico sigue teniendo la prueba
+# de vida una vez al día en lugar de tres veces.
+HEARTBEAT_STATE_KEY = "shomer:heartbeat_ultimo"
+# Reinicios en la última hora: uno solo es un despliegue, varios son un
+# servicio que no levanta.
+RESTART_COUNT_KEY = "shomer:reinicios_ultima_hora"
 
 _server_health_task: Optional[asyncio.Task] = None
 _heartbeat_report_task: Optional[asyncio.Task] = None
@@ -157,6 +165,13 @@ def _get_server_health_config() -> Dict[str, Any]:
         "heartbeat_hours": _parse_int_list(
             _cfg_str("guardian.heartbeat_hours", _HEARTBEAT_HOURS_DEFAULT)
         ),
+        # Un sitio puede querer el latido por Telegram; por defecto no va, se
+        # guarda y sale en el resumen diario.
+        "heartbeat_telegram": _cfg_str("guardian.heartbeat_telegram", "0")
+        in ("1", "true", "yes", "si"),
+        # Cuántos reinicios en una hora dejan de ser un despliegue y pasan a ser
+        # un problema que hay que avisar.
+        "reinicios_para_avisar": _cfg_int("guardian.reinicios_para_avisar", 3),
     }
 
 
@@ -252,8 +267,19 @@ def _persist_server_metrics(cpu: Optional[float], ram: Optional[float], temp: Op
         logger.warning("persist_server_metrics: %s", e)
 
 
-def _send_startup_message_once() -> None:
-    """Envía 🔄 SISTEMA REINICIADO — sólo una vez por arranque (clave Redis con TTL 1h)."""
+def _send_startup_message_once(minimo_para_avisar: int = 3) -> None:
+    """Avisa de los reinicios solo cuando dejan de ser normales.
+
+    12 sep 2026: esto mandaba un mensaje por cada arranque — 32 en 30 días
+    medidos en Ópera, casi todos despliegues nuestros. Que Shomer se reinicie no
+    es un hecho del hotel y el técnico no puede hacer nada con ese aviso; lo que
+    sí necesita saber es que Shomer NO está levantando, y eso se ve cuando se
+    reinicia varias veces seguidas.
+
+    Se cuentan los arranques de la última hora. Uno solo se registra en silencio
+    (el resumen diario lo menciona); a partir del umbral se avisa una vez, con el
+    número, que es la información útil.
+    """
     if not _STARTUP_TELEGRAM:
         return
     r = get_redis()
@@ -263,8 +289,21 @@ def _send_startup_message_once() -> None:
         if r.get(STARTUP_SENT_KEY):
             return
         r.set(STARTUP_SENT_KEY, "1", ex=3600)
+        try:
+            reinicios = int(r.incr(RESTART_COUNT_KEY))
+            if reinicios == 1:
+                r.expire(RESTART_COUNT_KEY, 3600)
+        except Exception:
+            reinicios = 1
+        if reinicios < max(1, minimo_para_avisar):
+            logger.info(
+                "arranque %d en la ultima hora: no se avisa (umbral %d)",
+                reinicios, minimo_para_avisar,
+            )
+            return
         send_telegram_safe(
-            "🔄 <b>SALUD DE NODOS</b> SISTEMA REINICIADO — Shomer Sentinel activo y operativo"
+            f"🔴 <b>SALUD DE NODOS</b> Shomer se reinició {reinicios} veces en la "
+            "última hora — el servicio no está quedando estable"
         )
     except Exception:
         pass
@@ -387,6 +426,30 @@ def _heartbeat_report_tick_sync(cfg: Dict[str, Any]) -> None:
     wan = r.get(WAN_STATUS_KEY) or "unknown"
     parts.append(f"WAN {wan}")
     suffix = " | " + ", ".join(parts) if parts else ""
+
+    # 12 sep 2026: esto salía por Telegram 3 veces al día para decir que no
+    # pasaba nada — 55 mensajes en 30 días medidos en Ópera, el bloque
+    # identificable más grande de todo el tráfico. "Todo OK" no es una noticia
+    # y el técnico que atiende 2-3 hoteles recibía ~9 diarios entre todos.
+    #
+    # La prueba de vida no se pierde: el latido se guarda acá y el resumen
+    # diario la publica una vez al día junto con el resto del hotel. Si Shomer
+    # deja de reportar, ese resumen deja de llegar, que es la señal de verdad.
+    # Un sitio que prefiera el aviso por Telegram lo activa con
+    # guardian.heartbeat_telegram.
+    try:
+        r.set(HEARTBEAT_STATE_KEY, json.dumps({
+            "ts": int(time.time()),
+            "cpu": cpu, "ram": ram, "temp": temp, "wan": wan,
+        }), ex=90000)
+    except Exception:
+        pass
+    _failsafe_state_set("last_heartbeat_ok_ts", str(int(time.time())))
+
+    if not cfg.get("heartbeat_telegram"):
+        logger.info("latido registrado sin enviar a Telegram%s", suffix)
+        return
+
     send_telegram_safe(
         f"✅ <b>SALUD DE NODOS</b> SHOMER operativo — todos los sistemas OK{suffix}"
     )
@@ -397,7 +460,15 @@ async def _heartbeat_report_tick(cfg: Dict[str, Any]) -> None:
 
 
 async def _server_health_loop() -> None:
-    _send_startup_message_once()
+    # El umbral de reinicios se lee del sitio: leerlo acá y no dentro de la
+    # función mantiene el aviso de arranque sin tocar la base de datos si la
+    # configuración todavía no está disponible al arrancar.
+    try:
+        _umbral = int((await asyncio.to_thread(_get_server_health_config))
+                      .get("reinicios_para_avisar", 3))
+    except Exception:
+        _umbral = 3
+    _send_startup_message_once(_umbral)
     await asyncio.sleep(5)
     while True:
         try:
