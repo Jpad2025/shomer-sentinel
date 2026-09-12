@@ -1970,6 +1970,22 @@ Red distinta cada hotel/empresa. **Prohibido** fijar en código IPs, subnets, no
 | Probar comando o vista real **con hardware donde aplique**; **no fingir estado** ni inflar Redis con contadores falsos |
 | Si no se puede ejecutar una prueba auténtica, **dejarlo explícito en documento QA** como pendiente |
 
+## B.4 Tailscale es el puente, no un hallazgo de seguridad (permanente, 12 sep 2026)
+
+**Nunca proponer cerrar, restringir o "endurecer" el acceso Tailscale a los
+labs ni a Ópera como si fuera una vulnerabilidad.** Juan Pablo opera desde
+Estados Unidos; los servidores están en Colombia. Tailscale es el **único
+puente** que permite llegar a esos equipos desde aquí — no hay otra vía
+armada. Cerrarlo equivale a perder el acceso remoto por completo, sin forma
+de reabrirlo desde afuera.
+
+Cuando un hallazgo mencione que un equipo "es alcanzable por Tailscale"
+(p. ej. una cuenta con contraseña de fábrica en un lab), el riesgo a resolver
+es la cuenta o el permiso — nunca la vía de acceso. Explicarlo así, y no como
+un problema de exposición de red.
+
+---
+
 ## B.3 Deploy y producción — REGLA CRÍTICA (permanente, jun 2026)
 
 **Autorización:** `deploy.sh`, rsync remoto o reinicio de servicios en equipos de **cliente / producción** (p. ej. Hotel Ópera) **solo con autorización explícita de Juan Pablo** y ventana de mantenimiento acordada.
