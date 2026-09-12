@@ -1170,6 +1170,57 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   - Desplegado en Ópera (commit `e868812`, reiniciado y verificado sin errores) + sincronizado
     a los 3 labs vía `fleet_sync.sh`.
 
+## Sesión 87 (12 sep 2026) — La evidencia del internet + un equipo que no contesta no es un equipo lento
+
+### Extender la vigilancia sin depender de que alguien se acuerde
+
+Juan Pablo pidió cinco días más de verificación del internet del hotel (hasta el
+**17 sep 2026**). El monitor horario existía, pero **no guardaba nada**: la única
+evidencia de que el internet estuvo bien era que no llegaron alertas —
+indistinguible de un monitor atascado, que es el fallo que ya apareció tres
+veces en este sistema.
+
+Cada lectura queda registrada con el uso real (sesiones y huéspedes), purga a
+los 30 días y sin inflarse cuando alguien recarga el panel. El resumen diario
+publica cuántas comprobaciones hubo y cuántas salieron limpias. **Cero lecturas
+se reporta como "no se midió", nunca como "todo bien"** — y hay una prueba que
+falla si alguien lo convierte en un resultado bueno.
+
+### El fallo que Juan Pablo vio en Telegram
+
+Cuatro datáfonos e impresoras POS salieron como *"⚠️ Pulse — degradando —
+latencia EWMA 401 ms (normal ~0 ms)"* mientras respondían al ping en **0,3 ms
+con 0% de pérdida** (medido a mano en ese momento: 0,221 a 0,578 ms los cuatro).
+
+**La causa:** cuando un equipo no contestaba, se metía el valor del TIMEOUT
+—9.000 ms en este sitio— en el promedio de latencia como si fuera una medición.
+Esos cuatro POS fallan pings a diario (32 caídas al mes cada uno: los mismos del
+reporte de POS), así que su promedio quedaba envenenado de forma permanente. Y
+el estado **no tenía salida**: la línea base solo se recalcula cuando el equipo
+está estable, y con el promedio envenenado no podía volver a estarlo nunca.
+
+Peor que el ruido: convertía un problema de **respuesta** en uno de **lentitud**,
+que es otro problema y manda al técnico a buscar donde no es.
+
+Sin medición ya no se inventa una. La señal no se pierde: que un equipo deje de
+contestar lo cuenta el EWMA de pérdida, su canal correcto, y la caída total la
+avisa el evento de offline aparte. Verificado en producción: los cuatro pasaron
+de 225 ms a **0,3-0,6 ms** y de "degrading" a **stable** en minutos.
+
+### El mismo error de método, otra vez
+
+Al diagnosticar, `pulse_config()` desde la consola decía `enabled: False` — Pulse
+apagado. Falso: el servicio recibe `INFRA_PULSE_ENABLED=1` por
+`EnvironmentFile`, y un proceso lanzado a mano no hereda ese entorno. Es el
+tercer caso del mismo patrón hoy (ver Sesión 85, JWT_SECRET). **Medir fuera del
+entorno del servicio y creerle al resultado** es un error recurrente: verificar
+siempre contra el proceso real.
+
+### Estado
+
+208/208 pruebas del core y 99/99 del agente en los cuatro servidores; agente
+v1.37.0. Flota consistente.
+
 ## Sesión 86 (12 sep 2026) — Que la flota no pueda desincronizarse en silencio + Shomer deja de hablar de sí mismo
 
 ### El procedimiento era el error, no el descuido
