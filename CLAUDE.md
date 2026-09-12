@@ -1170,6 +1170,94 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   - Desplegado en Ópera (commit `e868812`, reiniciado y verificado sin errores) + sincronizado
     a los 3 labs vía `fleet_sync.sh`.
 
+## Sesión 84 (11 sep 2026) — Menos ruido sin perder información + el internet de los huéspedes
+
+**Contexto que define el diseño** (Juan Pablo): el sistema lo administra un
+técnico de soporte que atiende **2-3 hoteles** y va a cada uno **1-2 días por
+semana**; el resto lo gestiona en remoto. Necesita información válida,
+verificada, en lenguaje natural, sin basura y sin duplicados. Shomer son sus
+ojos, oídos, cerebro y voz: el técnico no sabe qué está pasando si Shomer no se
+lo dice. Y no puede confundir la caída de un ping con la caída del hotel.
+
+### El diagnóstico, medido
+
+1.009 mensajes en 30 días (**32,5/día**, picos de 92), **58% puramente
+informativos**. Dos fuentes concentraban el 66%. Y el mismo mensaje, palabra por
+palabra: "AP OFC-MANTENIMIENTO" 42 veces, "Nodo recuperado AP OFC-COCINA" 32,
+"todos los sistemas OK" 54, "angy.monroy conectado" 45.
+
+**Dos formas de duplicación**, no una:
+- **Vertical**: un bloqueo de Hunter generaba 3 mensajes en 3 minutos (backend
+  al bloquear, `watch_hunter` a los 64 s, cerebro a los 3 min) — más un ticket
+  que se recordaba 3 veces al día. Un evento falso produjo ~20 mensajes.
+- **Temporal**: lo crónico se trataba como noticia. El AP de mantenimiento
+  avisaba 42 veces lo mismo; el técnico lo supo la segunda.
+
+**La causa de fondo:** Shomer no tiene el concepto de *incidente*. Tiene eventos
+sueltos y cada capa que ve uno avisa por su cuenta; nadie es dueño del hecho ni
+lo cierra. Y no distingue novedad / estado que sigue igual / crónico conocido.
+
+### Lo corregido (ver `CHANGELOG.md` de shomer-agent v1.34.0)
+
+- **Pendientes que se cierran solos** cuando su motivo ya no existe.
+- **VPN**: 217 mensajes/mes → uno diario, pero **un usuario nunca visto avisa al
+  instante**. Sin sembrar datos: ventana de aprendizaje de 14 días por sitio.
+- **Latido "todo OK"**: de 3 al día a 1 (no se elimina: su ausencia es la alarma).
+- **Duplicación de Hunter eliminada** y **el cerebro solo habla si correlaciona**
+  (de 50 conclusiones reales, 11 se enviarían y 39 se guardarían sin interrumpir).
+- **El parte diario se vigila a sí mismo.**
+
+### Un patrón que apareció tres veces y conviene recordar
+
+El digest de VPN existía y no agrupaba (14 de 217); el botón "Desbloquear"
+existía y no enrutaba a ningún handler; la supresión de duplicados existía desde
+la Sesión 80 y su regex **nunca matcheó** el formato real del mensaje. Tres
+mecanismos correctos, bien pensados, que **nunca llegaron a ejecutarse** — y
+ninguno daba error: el síntoma era "se manda de más" o "el botón no hace nada",
+cosas que no aparecen en ningún log. Eso explica por qué el ruido persistía pese
+a varios intentos previos de reducirlo. **Cada arreglo queda con un test que
+falla si vuelve la versión frágil.**
+
+### `watch_internet_hotel` — el internet de los huéspedes
+
+Que el servidor Shomer navegue **no** prueba que el hotel navegue: Shomer vive
+en la LAN de gestión, los huéspedes salen por otras VLAN y por el hotspot, y la
+regla de bloqueo actúa sobre `chain=forward`, o sea sobre el tráfico de ellos.
+El 8 sep el hotel se quedó sin internet mientras el servidor navegaba perfecto.
+
+Nuevo endpoint `GET /api/wan-hotel` (`shomer_wan_hotel.py`) que mide desde el
+gateway: WAN arriba y con IP, pérdida real, y **uso** (sesiones NAT y clientes
+de hotspot) comparado contra la medición anterior — un desplome del uso es la
+señal más honesta de que la gente se quedó sin servicio aunque todo "responda".
+Lo consume el monitor `watch_internet_hotel` del agente. Genérico:
+`base.wan_interface` y `base.wan_test_ips`.
+
+### Principios que quedaron fijos
+
+1. **El código decide, el cerebro redacta.** Nunca un modelo decidiendo qué es
+   crítico: a un hotel hay que darle un servicio predecible y auditable.
+2. **Un hecho, un hilo.** Ninguna capa habla por su cuenta de algo que ya tiene dueño.
+3. **Nada se repite sin cambio de estado.**
+4. **Lo crónico no es alerta, es trabajo de campo** (va al informe, no a Telegram).
+5. **Shomer aprende de los hechos, no de aportes voluntarios** — medido: de 9
+   tickets, 7 seguían abiertos, y en 3 meses hubo 6 acciones de técnico. Esperar
+   que el técnico documente no funciona.
+6. **Nada ad-hoc.** Si algo solo funciona porque alguien sembró datos de un sitio,
+   está mal diseñado: en el cliente siguiente no existiría.
+
+### Pendiente de esta línea de trabajo
+
+- **Informe al coordinador por correo** (separa "actuar" de "supervisar"): el
+  código de envío ya existe en `incident_escalation.py`, falta configurar SMTP.
+- **Fase 2**: perfil por equipo para que las recomendaciones sean de sitio y no
+  de manual — *"este AP falló 42 veces, el reinicio no lo resuelve, revisá la
+  fuente"* en vez de *"revise el cableado"*. La estructura de aprendizaje ya
+  existe (`veces_confirmado`/`veces_refutado` en `conocimiento_general`) y está
+  **vacía**: hay que conectarla, no construirla.
+- **Medir el efecto real** de Fase 0 y 1 contra la línea base de este mes.
+
+---
+
 ## Sesión 83 (8-9 sep 2026) — Hunter cortaba el internet del hotel + auditoría del bot y del cerebro
 
 ### ⚠️ Incidente: Hunter bloqueó los DNS de Google y el hotel se quedó sin internet
