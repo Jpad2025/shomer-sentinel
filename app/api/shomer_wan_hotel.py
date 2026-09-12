@@ -23,6 +23,7 @@ concreto en el código.
 from __future__ import annotations
 
 import json
+import os
 import logging
 import re
 import sqlite3
@@ -177,10 +178,120 @@ async def medir_wan_hotel() -> Dict[str, Any]:
         )
 
     datos["ok"] = not datos["problemas"]
+    _registrar_lectura(datos)
     return datos
+
+
+# ── Historial de lecturas ────────────────────────────────────────────────────
+# 12 sep 2026: el monitor horario avisaba de los problemas pero no guardaba
+# nada, asi que la unica evidencia de que el internet estuvo bien era que NO
+# llegaron alertas -- indistinguible de un monitor atascado. Tampoco se podian
+# ver tendencias: un hotel que pierde huespedes poco a poco no dispara ninguna
+# alerta y no se veria. Cada lectura queda registrada.
+RETENCION_DIAS = int(os.environ.get("WAN_HOTEL_RETENCION_DIAS", "30"))
+# Dos lecturas muy seguidas (el panel abierto, alguien recargando) no son
+# historia: se guarda una cada tanto.
+INTERVALO_MINIMO_SEG = 240
+
+
+def _registrar_lectura(datos: Dict[str, Any]) -> None:
+    try:
+        with get_db() as con:
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS wan_hotel_lecturas ("
+                "ts TEXT, ok INTEGER, wan_arriba INTEGER, wan_ip TEXT, "
+                "perdida_max INTEGER, sesiones INTEGER, hotspot INTEGER, "
+                "problemas TEXT)"
+            )
+            con.execute(
+                "CREATE INDEX IF NOT EXISTS idx_wan_hotel_ts "
+                "ON wan_hotel_lecturas(ts)"
+            )
+            ultima = con.execute(
+                "SELECT ts FROM wan_hotel_lecturas ORDER BY ts DESC LIMIT 1"
+            ).fetchone()
+            if ultima:
+                reciente = con.execute(
+                    "SELECT (julianday('now') - julianday(?)) * 86400 < ?",
+                    (ultima[0], INTERVALO_MINIMO_SEG),
+                ).fetchone()
+                if reciente and reciente[0]:
+                    return
+            con.execute(
+                "INSERT INTO wan_hotel_lecturas (ts, ok, wan_arriba, wan_ip, "
+                "perdida_max, sesiones, hotspot, problemas) "
+                "VALUES (datetime('now'),?,?,?,?,?,?,?)",
+                (
+                    1 if datos.get("ok") else 0,
+                    1 if datos.get("wan_arriba") else 0,
+                    datos.get("wan_ip") or "",
+                    int(datos.get("perdida_max") or 0),
+                    int(datos.get("sesiones") or -1),
+                    int(datos.get("hotspot") or -1),
+                    " | ".join(datos.get("problemas") or []),
+                ),
+            )
+            con.execute(
+                "DELETE FROM wan_hotel_lecturas "
+                "WHERE ts < datetime('now', ?)", ("-%d days" % RETENCION_DIAS,)
+            )
+            con.commit()
+    except Exception as e:
+        logger.debug("wan hotel: registrar lectura: %s", e)
+
+
+def resumen_historial(horas: int = 24) -> Dict[str, Any]:
+    """Cuantas lecturas hubo, cuantas estuvieron bien y que fallo.
+
+    Devuelve `lecturas: 0` cuando no hay nada registrado. Eso NO es lo mismo
+    que "todo bien": significa que nadie midio, y quien lo lea debe decirlo
+    asi en vez de dar por bueno el silencio.
+    """
+    vacio = {"lecturas": 0, "ok": 0, "con_problemas": 0, "problemas": [],
+             "sesiones_min": None, "sesiones_max": None, "desde": None}
+    try:
+        with get_db() as con:
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS wan_hotel_lecturas ("
+                "ts TEXT, ok INTEGER, wan_arriba INTEGER, wan_ip TEXT, "
+                "perdida_max INTEGER, sesiones INTEGER, hotspot INTEGER, "
+                "problemas TEXT)"
+            )
+            desde = "-%d hours" % max(1, int(horas))
+            filas = con.execute(
+                "SELECT ts, ok, sesiones, hotspot, problemas FROM wan_hotel_lecturas "
+                "WHERE ts >= datetime('now', ?) ORDER BY ts", (desde,)
+            ).fetchall()
+    except Exception as e:
+        logger.debug("wan hotel: resumen historial: %s", e)
+        return vacio
+    if not filas:
+        return vacio
+    sesiones = [r[2] for r in filas if r[2] is not None and r[2] >= 0]
+    problemas = []
+    for r in filas:
+        if not r[1] and r[4]:
+            for p in str(r[4]).split(" | "):
+                if p and p not in problemas:
+                    problemas.append(p)
+    return {
+        "lecturas": len(filas),
+        "ok": sum(1 for r in filas if r[1]),
+        "con_problemas": sum(1 for r in filas if not r[1]),
+        "problemas": problemas,
+        "sesiones_min": min(sesiones) if sesiones else None,
+        "sesiones_max": max(sesiones) if sesiones else None,
+        "desde": filas[0][0],
+    }
 
 
 @router.get("/api/wan-hotel")
 async def api_wan_hotel(user=Depends(get_current_user)):
     """Estado del internet del hotel visto desde el gateway."""
     return {"success": True, **(await medir_wan_hotel())}
+
+
+@router.get("/api/wan-hotel/historial")
+async def api_wan_hotel_historial(horas: int = 24, user=Depends(get_current_user)):
+    """Resumen de las lecturas registradas: la evidencia, no solo la alerta."""
+    return {"success": True, "horas": horas, **resumen_historial(horas)}
