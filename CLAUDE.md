@@ -1170,6 +1170,79 @@ Protector, Inframonitor, NOC, Incidents, Audit, Reports, Technician, Topología 
   - Desplegado en Ópera (commit `e868812`, reiniciado y verificado sin errores) + sincronizado
     a los 3 labs vía `fleet_sync.sh`.
 
+## Sesión 88 (12 sep 2026) — Las cuatro pendientes de la línea de ruido
+
+### Oleadas de degradación: 20 mensajes para un hecho
+
+Diez equipos —dos servidores, cinco switches, una impresora y el **propio
+router**— avisaron "degradando" en 40 segundos, todos con 534-538 ms contra su
+normal de ~349, y volvieron solos tres minutos después. El delator estaba en la
+lista: si sube la latencia del router, sube la de todo lo que pasa por él.
+
+La agrupación de oleadas **ya existía** para equipos caídos
+(`format_wave_message`), pero no para los degradados: ahí salía un mensaje por
+equipo. Ahora los eventos del ciclo se juntan antes de decidir y, a partir del
+umbral del sitio, sale uno solo que dice cuántos son, la medida común y —cuando
+el gateway aparece— por dónde empezar. Por debajo del umbral cada equipo
+conserva su aviso detallado: **un equipo con problema propio no puede perderse
+dentro de una agrupación**.
+
+### Informe al coordinador: construido, esperando credenciales
+
+Separa dos trabajos que compartían canal: el técnico actúa con Telegram, el
+coordinador supervisa lo que lleva días sin resolverse. Mandarle las mismas
+alertas no lo informa, lo entierra.
+
+Se arma solo con hechos ya registrados y responde a una pregunta: qué sigue
+pendiente. **Probarlo con datos reales sacó dos fallos que en teoría no se
+veían**: la antigüedad salía vacía porque la columna es `opened_at` y no
+`created_at` —justo el dato que hace decidir al coordinador— y los hallazgos del
+cerebro aparecían como una lista cortada a la mitad, que hace parecer que el
+problema es del primer equipo.
+
+`auditar_monitores.py` cazó que el monitor corría **sin aparecer en
+`/monitores`**: habría quedado invisible, y si deja de salir el coordinador no
+se entera de nada. De paso salió que el contador del log decía "32 tasks" cuando
+corrían 41 — escrito a mano. Una línea así se mira justamente para notar que un
+monitor dejó de arrancar; con el número fijo no servía para nada.
+
+Falta solo la cuenta de correo. Configuración por sitio en el `.env`.
+
+### Los datáfonos: el dato estaba y nadie lo veía
+
+Los dos Ingenico figuraban como "ubicación por confirmar". Se sacaron sus MAC de
+la tabla ARP del router (`38:EF:E3:7B:4B:5E` y `38:EF:E3:9D:E9:D9`, mismo
+fabricante, misma VLAN `LanAdmin`) y se descartaron **4 de los 8 switches**
+consultando sus tablas de direcciones. El puerto exacto no se puede sacar en
+remoto: los switches candidatos no exponen la MIB de reenvío.
+
+Pero lo importante fue otro: **Shomer ya tenía la MAC de 50 de 51 equipos** —las
+recoge el propio sondeo— y el dato no aparecía en ningún lado donde alguien
+fuera a mirarlo. Ahora cada pendiente del informe trae su ubicación y, si no
+hay, la MAC para identificar el aparato por su etiqueta. "Por confirmar
+ubicación" no se presenta como ubicación: mandar al técnico ahí es mandarlo a
+ninguna parte.
+
+### La medición, con lo que se puede afirmar hoy
+
+Base: **1.024 mensajes/30 días = 34,1 por día**. El día de hoy no sirve para
+comparar —se reinició media docena de veces desplegando—, pero dos señales sí:
+
+- **Seis reinicios de servicio, cero mensajes anunciándolos** (antes, seis).
+- **Un solo latido "todo OK"**, el anterior al cambio, contra tres diarios.
+- De los 51 mensajes de hoy, **32 fueron del fallo de Pulse** ya corregido. Sin
+  ellos el día cierra en 19, bastante por debajo de la base.
+
+Una medición limpia necesita 3-4 días sin despliegues.
+
+### Advertencia de método, tercera vez en el día
+
+Diagnosticando los datáfonos, `snmpwalk` desde la consola decía que cuatro
+switches no respondían. Falso: Shomer los consulta sin problema — prueba v2c y
+cae a v1, y mi comando solo usaba v2c. Igual que con `JWT_SECRET` y con
+`pulse_config`. **Medir fuera del entorno real y creerle al resultado** sigue
+siendo el error más caro de esta sesión.
+
 ## Sesión 87 (12 sep 2026) — La evidencia del internet + un equipo que no contesta no es un equipo lento
 
 ### Extender la vigilancia sin depender de que alguien se acuerde
