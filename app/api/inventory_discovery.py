@@ -123,7 +123,12 @@ def _acquire_scan_lock(mode: str) -> bool:
                     with open(SCAN_STATUS_FILE) as sf:
                         started = float(json.load(sf).get("started_at") or 0)
                 except Exception:
-                    started = 0
+                    # 7 sep 2026: si no se puede leer el status file, asumir
+                    # que el otro scan recién empezó (bloquear) en vez de
+                    # asumir que expiró (permitir un segundo scan) -- acá el
+                    # costo de un falso bloqueo (unos segundos de más) es
+                    # mucho menor que el de un doble escaneo concurrente.
+                    started = time.time()
                 if (time.time() - started) < _SCAN_START_GRACE_SEC:
                     return False
             if _pid_alive(old_pid) and not _pid_is_scanner(old_pid):
@@ -146,7 +151,13 @@ def get_scan_status() -> Dict[str, Any]:
     # Fuente de verdad: proceso scanner.py vivo (corrige PID erróneo del worker).
     scanner_pid = _find_scanner_pid()
     mode = "unknown"
-    started_at = time.time()
+    # 7 sep 2026 (auditoría Tracker): si SCAN_STATUS_FILE no existe o no se
+    # puede leer, este default se usaba tal cual para calcular `starting` más
+    # abajo -- con time.time() como default, "starting" siempre daba True
+    # (elapsed ~0), la rama de limpieza nunca corría y running quedaba en
+    # True para siempre. Con 0.0, un status file ilegible ya no se confunde
+    # con "recién arrancó".
+    started_at = 0.0
     if os.path.exists(SCAN_STATUS_FILE):
         try:
             with open(SCAN_STATUS_FILE) as f:
@@ -174,13 +185,16 @@ def get_scan_status() -> Dict[str, Any]:
             if not stored_alive:
                 _clear_scan_status()
         if starting and (os.path.exists(SCAN_STATUS_FILE) or os.path.exists(SCAN_LOCK_FILE)):
-            elapsed = max(0, int(time.time() - started_at))
+            elapsed = max(0, int(time.time() - (started_at or time.time())))
             return {
                 "running": True, "mode": mode or "unknown", "pid": None,
                 "elapsed_sec": elapsed, "elapsed_label": "%dm %ds" % (elapsed // 60, elapsed % 60),
             }
         return {"running": False}
-    elapsed = max(0, int(time.time() - started_at))
+    # started_at puede seguir en el sentinel 0.0 si el status file no se pudo
+    # leer pero igual hay un scanner_pid real vivo -- usar "ahora" para no
+    # mostrar un elapsed de décadas.
+    elapsed = max(0, int(time.time() - (started_at or time.time())))
     return {
         "running": True,
         "mode": mode or "unknown",
@@ -235,6 +249,27 @@ def kill_scan() -> bool:
         pass
     _clear_scan_status()
     return killed
+
+
+async def kill_scan_with_retry() -> bool:
+    """Como kill_scan(), pero espera si el scan está en su ventana de arranque.
+
+    7 sep 2026 (auditoría Tracker): durante _SCAN_START_GRACE_SEC, el PID real
+    de scanner.py todavía no es visible para pgrep (ver _acquire_scan_lock).
+    kill_scan() sin esto: no encuentra PID, borra el candado (del OTRO scan
+    que sigue arrancando, reabriendo la carrera que la ventana de gracia
+    evita) y reporta "cancelado" sin haber matado nada. Acá se espera con
+    asyncio.sleep (no bloquea el event loop) a que el PID real aparezca.
+    """
+    import asyncio
+    status = get_scan_status()
+    if status.get("running") and not status.get("pid"):
+        deadline = time.time() + _SCAN_START_GRACE_SEC
+        while time.time() < deadline:
+            if _find_scanner_pid():
+                break
+            await asyncio.sleep(0.5)
+    return kill_scan()
 
 
 def run_discovery_script(timeout: int = 300) -> bool:

@@ -283,11 +283,13 @@ def _process_one_host(h: Dict[str, Any], idx: int, ctx: Dict[str, Any]) -> Dict[
                 base["visual_details"] = extra.strip()[:2000]
             base.pop("identity_note", None)
             web_title = banner.get("title", "")
-        if web_title:
-            if not base.get("asset_model"):
-                base["asset_model"] = web_title[:200]
-            elif not base.get("os_detected"):
-                base["os_detected"] = web_title[:200]
+        if web_title and not base.get("asset_model"):
+            # 7 sep 2026: antes, si asset_model ya estaba lleno, el título de
+            # la página web se guardaba en os_detected -- un banner HTTP
+            # ("uIP/1.0 http://...") no es un sistema operativo. os_name ya
+            # usa title como último fallback dentro de consolidate_identity,
+            # así que no hace falta duplicarlo acá.
+            base["asset_model"] = web_title[:200]
     except Exception as e:
         import logging
         logging.getLogger("tracker.scanner").debug("Web banner %s: %s", ip, e)

@@ -34,6 +34,50 @@ DEGRADED_NOTIFY_KEY_PREFIX = "degraded_notified:"
 DEGRADED_STREAK_KEY_PREFIX = "degraded_streak:"
 OFFLINE_STREAK_KEY_PREFIX = "offline_streak:"
 
+# 7 sep 2026 (hallazgo M3 auditoría Guardian): dns_probe_host/dns_probe_server/
+# http_probe_url/http_probe_expect vienen de system_state, editables por
+# cualquier usuario autenticado (no admin) vía POST /config/system -- antes se
+# interpolaban directo en un payload ejecutado por el shell REMOTO del AP vía
+# SSH, sin escapar ni validar. Un valor como "x; <lo que sea>" daba ejecución
+# de comandos arbitraria en cada equipo que Guardian probea. Se valida el
+# formato acá (en el punto de uso, no solo al guardar, para cubrir valores ya
+# guardados antes de este fix) y además se aplica shlex.quote como defensa en
+# profundidad.
+_HOSTNAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9\-]{0,62}\.)*[A-Za-z0-9]([A-Za-z0-9\-]{0,62})?$")
+_IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+_HTTP_URL_RE = re.compile(r"^https?://[A-Za-z0-9.\-]+(:\d{1,5})?(/[A-Za-z0-9\-._~%!$&'()*+,;=:@/]*)?$")
+_HTTP_CODE_RE = re.compile(r"^[1-5]\d{2}$")
+_last_warned_bad_probe_cfg: Dict[str, str] = {}
+
+
+def _valid_dns_target(s: Any) -> bool:
+    s = str(s or "").strip()
+    if not s or len(s) > 253:
+        return False
+    return bool(_HOSTNAME_RE.match(s)) or bool(_IPV4_RE.match(s))
+
+
+def _valid_http_url(s: Any) -> bool:
+    s = str(s or "").strip()
+    return bool(s) and len(s) <= 500 and bool(_HTTP_URL_RE.match(s))
+
+
+def _valid_http_code(s: Any) -> bool:
+    return bool(_HTTP_CODE_RE.match(str(s or "").strip()))
+
+
+def _warn_once_bad_probe_cfg(field: str, value: Any) -> None:
+    """Loguea una sola vez por valor inválido distinto (evita spam cada tick)."""
+    v = str(value or "")
+    if _last_warned_bad_probe_cfg.get(field) != v:
+        _last_warned_bad_probe_cfg[field] = v
+        logger.warning(
+            "Guardian health check: %s tiene un valor inválido (%r) — probe deshabilitado "
+            "hasta corregirlo en Configuración de Red",
+            field, v[:200],
+        )
+
+
 _PING_COUNT_DEFAULT = int(os.environ.get("SHOMER_PING_COUNT", "3"))
 _PING_LOSS_DEGRADED_PCT = int(os.environ.get("SHOMER_PING_LOSS_DEGRADED_PCT", "60"))
 _PING_RTT_DEGRADED_MS = int(os.environ.get("SHOMER_PING_RTT_DEGRADED_MS", "400"))
@@ -191,27 +235,37 @@ def _ssh_health_probes(
             "http":      True/False/None,   # None si disabled
         }
     """
+    import shlex
+
     parts = [
         "P=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo 1 || echo 0)",
     ]
-    if cfg["check_dns"]:
+    if cfg["check_dns"] and _valid_dns_target(cfg["dns_probe_host"]) and _valid_dns_target(cfg["dns_probe_server"]):
         parts.append(
             "D=$(nslookup {host} {srv} 2>/dev/null | grep -E '^Address.*:.*\\.' "
             "| grep -v '#' >/dev/null && echo 1 || echo 0)".format(
-                host=cfg["dns_probe_host"], srv=cfg["dns_probe_server"]
+                host=shlex.quote(str(cfg["dns_probe_host"])),
+                srv=shlex.quote(str(cfg["dns_probe_server"])),
             )
         )
     else:
         parts.append("D=-")
-    if cfg["check_http"]:
+        if cfg["check_dns"]:
+            _warn_once_bad_probe_cfg("dns_probe_host/dns_probe_server",
+                                      f'{cfg["dns_probe_host"]!r} / {cfg["dns_probe_server"]!r}')
+    if cfg["check_http"] and _valid_http_url(cfg["http_probe_url"]) and _valid_http_code(cfg["http_probe_expect"]):
         parts.append(
-            "H=$(curl -s -o /dev/null -w '%{{http_code}}' --max-time 5 '{url}' "
+            "H=$(curl -s -o /dev/null -w '%{{http_code}}' --max-time 5 {url} "
             "2>/dev/null | grep -q '^{code}$' && echo 1 || echo 0)".format(
-                url=cfg["http_probe_url"], code=cfg["http_probe_expect"]
+                url=shlex.quote(str(cfg["http_probe_url"])),
+                code=shlex.quote(str(cfg["http_probe_expect"])),
             )
         )
     else:
         parts.append("H=-")
+        if cfg["check_http"]:
+            _warn_once_bad_probe_cfg("http_probe_url/http_probe_expect",
+                                      f'{cfg["http_probe_url"]!r} / {cfg["http_probe_expect"]!r}')
     parts.append("echo \"ping=$P dns=$D http=$H\"")
     payload = "; ".join(parts)
 

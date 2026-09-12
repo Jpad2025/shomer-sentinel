@@ -41,6 +41,8 @@ from app.api.shomer_guardian_lib import (
     NODE_MAINTENANCE_PREFIX,
     MONITOR_RECENT_SEC,
     NODE_DATA_PREFIX,
+    PREVENTIVE_REBOOT_COUNT_PREFIX,
+    PREVENTIVE_REBOOT_ESCALATED_PREFIX,
     log_event,
     send_telegram_safe,
     _get_fail_retry_sec,
@@ -119,17 +121,36 @@ SNMP_SEM = asyncio.Semaphore(4)
 
 
 def _get_devices_for_poll() -> List[Dict]:
-    """Devuelve lista de dispositivos activos con credenciales SSH y SNMP."""
-    try:
-        with get_db() as conn:
-            cur = conn.execute(
-                "SELECT ip_address, name, device_type, reboot_method, "
-                "ssh_user, ssh_password, ssh_port, snmp_community "
-                "FROM devices WHERE is_active=1"
-            )
-            return [dict(row) for row in cur.fetchall()]
-    except Exception:
-        return []
+    """Devuelve lista de dispositivos activos con credenciales SSH y SNMP.
+
+    7 sep 2026 (hallazgo M2 auditoría Guardian): a diferencia de
+    _update_infra_nodes/_sync_devices_status_from_infra_nodes (mismo
+    archivo), esto no reintentaba ante "database is locked" -- con la DB
+    compartida por Guardian/Hunter/Inframonitor/Protector, un choque
+    momentáneo acá devolvía [] silenciosamente y el ciclo entero se saltaba
+    sin refrescar el heartbeat (ver _poller_tick).
+    """
+    import sqlite3
+    import time as _time
+    for attempt in range(4):
+        try:
+            with get_db() as conn:
+                cur = conn.execute(
+                    "SELECT ip_address, name, device_type, reboot_method, "
+                    "ssh_user, ssh_password, ssh_port, snmp_community "
+                    "FROM devices WHERE is_active=1"
+                )
+                return [dict(row) for row in cur.fetchall()]
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 3:
+                _time.sleep(0.15 * (attempt + 1))
+                continue
+            logger.warning("get_devices_for_poll: %s", e)
+            return []
+        except Exception as e:
+            logger.warning("get_devices_for_poll: %s", e)
+            return []
+    return []
 
 
 def _update_infra_nodes(results: List[Dict[str, Any]]) -> None:
@@ -247,14 +268,29 @@ def _redis_scan_keys(r, pattern: str) -> List[str]:
 
 def _cleanup_orphan_guardian_keys(r, all_ips: set) -> None:
     """Elimina claves Redis de nodos ya borrados de `devices` (sync, en hilo)."""
+    # 7 sep 2026 (hallazgo M1 auditoría Guardian): esta es una TERCERA copia
+    # independiente de la lista de prefijos (ver también _clean_redis_for_ip
+    # en discovery.py) -- le faltaba NODE_DATA_PREFIX ("node:"), justo la
+    # clave que ese otro fix quería limpiar. _save_node_data_redis la escribe
+    # SIN TTL, así que sin esto quedaba filtrando para siempre por esta vía.
+    # Además, enumerar solo "status:*" nunca alcanzaba un IP que tuviera un
+    # hash "node:" pero no (todavía, o ya no) una clave "status:" -- se
+    # escanean ambos patrones y se unifica por IP.
+    ips_seen: set = set()
     try:
         for key in _redis_scan_keys(r, "status:*"):
-            ip = key.replace("status:", "", 1)
+            ips_seen.add(key[len("status:"):])
+        for key in _redis_scan_keys(r, f"{NODE_DATA_PREFIX}*"):
+            ips_seen.add(key[len(NODE_DATA_PREFIX):])
+        for ip in ips_seen:
             if ip not in all_ips:
                 for prefix in (
-                    "status:", "failures:", "last_reboot:", "last_reboot_attempt:",
-                    "node_maintenance:",
-                    "degraded_notified:", "degraded_streak:", "offline_streak:",
+                    "status:", FAILURES_KEY_PREFIX, LAST_REBOOT_KEY_PREFIX,
+                    LAST_REBOOT_ATTEMPT_KEY_PREFIX, NODE_DATA_PREFIX,
+                    NODE_MAINTENANCE_PREFIX,
+                    DEGRADED_NOTIFY_KEY_PREFIX, DEGRADED_STREAK_KEY_PREFIX,
+                    OFFLINE_STREAK_KEY_PREFIX,
+                    PREVENTIVE_REBOOT_COUNT_PREFIX, PREVENTIVE_REBOOT_ESCALATED_PREFIX,
                 ):
                     r.delete(f"{prefix}{ip}")
     except Exception:
@@ -275,6 +311,8 @@ def _batch_read_redis_state(r, ips: List[str]) -> Dict[str, Any]:
         pipe.get(f"{NODE_MAINTENANCE_PREFIX}{ip}")
         pipe.get(f"{LAST_REBOOT_KEY_PREFIX}{ip}")
         pipe.get(f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}")
+        pipe.get(f"{PREVENTIVE_REBOOT_COUNT_PREFIX}{ip}")
+        pipe.get(f"{PREVENTIVE_REBOOT_ESCALATED_PREFIX}{ip}")
     pipe.get(MAINTENANCE_KEY)
     raw = pipe.execute()
     per_ip: Dict[str, Dict[str, Any]] = {}
@@ -289,16 +327,40 @@ def _batch_read_redis_state(r, ips: List[str]) -> Dict[str, Any]:
             "node_maint": raw[idx + 5] == "1",
             "last_reboot": raw[idx + 6],
             "last_reboot_attempt": raw[idx + 7],
+            "preventive_count": int(raw[idx + 8] or 0),
+            "preventive_escalated": raw[idx + 9],
         }
-        idx += 8
+        idx += 10
     return {"global_maintenance": raw[idx] == "1", "per_ip": per_ip}
 
 
 def _load_guardian_poll_read() -> Optional[Dict[str, Any]]:
     """Fase lectura del ciclo Guardian (sync — asyncio.to_thread)."""
     devices = _get_devices_for_poll()
-    with get_db() as conn:
-        all_ips = {row[0] for row in conn.execute("SELECT ip_address FROM devices").fetchall()}
+    # 7 sep 2026 (hallazgo M2): esta consulta no tenía try/except -- una DB
+    # bloqueada acá tumbaba toda la fase de lectura sin refrescar el
+    # heartbeat. Reintenta igual que las otras consultas de este archivo; si
+    # de verdad falla, usa los IPs activos como aproximación (la limpieza de
+    # huérfanos de este ciclo puede tratar algún inactivo como huérfano, sin
+    # riesgo real ya que esos no se pollean de todas formas).
+    import sqlite3
+    import time as _time
+    all_ips = None
+    for attempt in range(4):
+        try:
+            with get_db() as conn:
+                all_ips = {row[0] for row in conn.execute("SELECT ip_address FROM devices").fetchall()}
+            break
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 3:
+                _time.sleep(0.15 * (attempt + 1))
+                continue
+            logger.warning("load_guardian_poll_read (all_ips): %s", e)
+        except Exception as e:
+            logger.warning("load_guardian_poll_read (all_ips): %s", e)
+            break
+    if all_ips is None:
+        all_ips = {d["ip_address"] for d in devices}
     threshold, cooldown = _get_guardian_thresholds()
     fail_retry = _get_fail_retry_sec()
     health_cfg = _get_health_config()
@@ -431,6 +493,11 @@ def _build_node_outcome(
             ("delete", fail_key),
             ("delete", streak_key),
             ("delete", offline_streak_key),
+            # 7 sep 2026 (hallazgo H1): el equipo se recuperó de verdad --
+            # resetear el contador de reinicios preventivos consecutivos y
+            # cualquier escalamiento pendiente para este IP.
+            ("delete", f"{PREVENTIVE_REBOOT_COUNT_PREFIX}{ip}"),
+            ("delete", f"{PREVENTIVE_REBOOT_ESCALATED_PREFIX}{ip}"),
         ])
         outcome["tick_result"] = {"ip": ip, "status": "online", "latency_ms": lat_ms}
         return outcome
@@ -480,19 +547,63 @@ def _build_node_outcome(
         # no se toca) para no interferir con esa logica ya probada; mismo
         # cooldown/fail_retry anti-bucle que ya usa el reinicio por offline.
         preventive_ticks = int(health_cfg.get("degraded_preventive_reboot_ticks") or 0)
+        # 7 sep 2026 (hallazgo H1 auditoría Guardian): sin tope, un AP
+        # crónicamente degradado (nunca offline) se reiniciaba cada
+        # `preventive_ticks` ticks para siempre -- si el reinicio fallaba,
+        # alertas cada ~fail_retry_sec indefinidamente; si "funcionaba" pero
+        # el equipo seguía degradado (típico de hardware/firmware fallando),
+        # reinicio silencioso en loop sin que nadie se enterara nunca.
+        preventive_max = int(health_cfg.get("degraded_preventive_reboot_max_attempts") or 3)
+        # 7 sep 2026 (hallazgo M4 auditoría Guardian): para device_type
+        # router/gateway, classify_health devuelve "degraded" cuando fallan
+        # los probes DNS/HTTP -- eso significa que se cayó el INTERNET
+        # (upstream), no el router. Sin este chequeo, un corte de ISP
+        # reiniciaba el/los gateway(s) del sitio justo durante el corte que
+        # un reinicio no puede arreglar. shomer:wan_status ya lo computa
+        # _server_health_tick_sync de forma independiente (quorum de IPs
+        # externas), así que es la señal correcta para distinguir los casos.
+        wan_is_down = is_router and wan_snapshot == "down"
         if (
             preventive_ticks > 0
             and new_streak >= preventive_ticks
             and not global_maint
             and not redis_snap.get("node_maint")
             and not host_network_blip
+            and not wan_is_down
         ):
             now_ts = int(datetime.now(timezone.utc).timestamp())
             last_raw = redis_snap.get("last_reboot")
             last_attempt = redis_snap.get("last_reboot_attempt")
-            cooldown_ok = not (last_raw and now_ts - int(last_raw) < cooldown)
-            retry_ok = not (last_attempt and now_ts - int(last_attempt) < fail_retry)
-            if cooldown_ok and retry_ok:
+            try:
+                cooldown_ok = not (last_raw and now_ts - int(last_raw) < cooldown)
+            except (TypeError, ValueError):
+                cooldown_ok = True
+            try:
+                retry_ok = not (last_attempt and now_ts - int(last_attempt) < fail_retry)
+            except (TypeError, ValueError):
+                retry_ok = True
+            preventive_count = int(redis_snap.get("preventive_count") or 0)
+            if preventive_max > 0 and preventive_count >= preventive_max:
+                # Tope alcanzado: dejar de reiniciar a ciegas y escalar a un
+                # humano una sola vez por ventana (no en cada tick) -- se
+                # limpia solo cuando el equipo vuelve a "online" de verdad.
+                if not redis_snap.get("preventive_escalated"):
+                    alert_cooldown = int(health_cfg.get("degraded_alert_cooldown_sec") or 1800)
+                    outcome["redis_ops"].append((
+                        "setex", f"{PREVENTIVE_REBOOT_ESCALATED_PREFIX}{ip}", "1", alert_cooldown,
+                    ))
+                    outcome["telegrams"].append(
+                        f"🛑 <b>REINICIO PREVENTIVO AGOTADO</b> SHOMER: {dev_name} ({ip}) — "
+                        f"{preventive_count} reinicios preventivos consecutivos sin recuperación "
+                        f"estable. Se detiene el auto-reinicio — requiere revisión manual "
+                        f"(posible falla de hardware/firmware)."
+                    )
+                    outcome["log_events"].append((
+                        "error", "AUTO-REBOOT",
+                        f"{dev_name} ({ip}): tope de reinicios preventivos ({preventive_max}) "
+                        f"alcanzado, se detiene el auto-reinicio hasta revisión manual",
+                    ))
+            elif cooldown_ok and retry_ok:
                 reboot_via = "SNMP" if dev.get("reboot_method") == "snmp" else "SSH"
                 outcome["reboot"] = {
                     "ip": ip,
@@ -504,6 +615,8 @@ def _build_node_outcome(
                     "attempt_key": f"{LAST_REBOOT_ATTEMPT_KEY_PREFIX}{ip}",
                     "now_ts": now_ts,
                     "fail_retry": fail_retry,
+                    "preventive": True,
+                    "preventive_count_key": f"{PREVENTIVE_REBOOT_COUNT_PREFIX}{ip}",
                 }
         outcome["tick_result"] = {"ip": ip, "status": "degraded", "latency_ms": lat_ms}
         return outcome
@@ -661,6 +774,16 @@ def _persist_guardian_tick(
                     datetime.utcnow().isoformat())
         except Exception:
             pass
+        if reboot.get("preventive"):
+            # 7 sep 2026 (hallazgo H1): cuenta el intento ANTES de saber si
+            # funcionó -- tanto un reinicio que falla repetido como uno que
+            # "funciona" pero no resuelve nada de fondo deben acercarse al
+            # tope por igual (ver limpieza al volver a "online").
+            try:
+                r.incr(reboot["preventive_count_key"])
+                r.expire(reboot["preventive_count_key"], 21600)  # 6h: se limpia solo si el equipo se recupera antes
+            except Exception:
+                pass
         ok, msg = _run_ssh_reboot(reboot["ip"])
         if ok:
             # 5 min (cooldown_sec): AP recibió reboot y está arrancando
@@ -789,6 +912,26 @@ async def _probe_guardian_extended(
     }, ssh_ms, snmp_ms
 
 
+def _refresh_guardian_heartbeat_best_effort() -> None:
+    """SETEX del heartbeat sin depender del resto del ciclo (hallazgo M2).
+
+    Los 3 retornos tempranos de _poller_tick (error de lectura, ctx None,
+    sin dispositivos) volvían ANTES de tocar guardian:poller:last_ok -- con
+    el ciclo real corriendo a 13-18s (ver auditoría "ciclo lento") contra un
+    TTL de 40s, 2-3 ciclos fallidos seguidos ya alcanzan para que
+    watch_poller_heartbeat dispare la falsa alerta "Guardian congelado" que
+    el fix original quería evitar. Usa su propio cliente Redis best-effort
+    -- si Redis tampoco responde, no hay nada que hacer acá de todas formas.
+    """
+    try:
+        r = _get_redis_guardian_client()
+        if r is not None:
+            r.setex("guardian:poller:last_ok", GUARDIAN_POLL_INTERVAL_SEC * 4,
+                    datetime.utcnow().isoformat())
+    except Exception:
+        pass
+
+
 async def _poller_tick() -> None:
     t_total = _time.monotonic()
     batch_id = f"g-{int(datetime.now(timezone.utc).timestamp())}"
@@ -797,14 +940,23 @@ async def _poller_tick() -> None:
         ctx = await asyncio.to_thread(_load_guardian_poll_read)
     except Exception as e:
         logger.error("guardian poll: read error: %s", e, exc_info=True)
+        await asyncio.to_thread(_refresh_guardian_heartbeat_best_effort)
         return
 
     if ctx is None:
+        await asyncio.to_thread(_refresh_guardian_heartbeat_best_effort)
         return
 
     devices = ctx["devices"]
     read_ms = int((_time.monotonic() - t_total) * 1000)
     if not devices:
+        def _refresh_with_existing_client() -> None:
+            try:
+                ctx["redis"].setex("guardian:poller:last_ok", GUARDIAN_POLL_INTERVAL_SEC * 4,
+                                    datetime.utcnow().isoformat())
+            except Exception:
+                pass
+        await asyncio.to_thread(_refresh_with_existing_client)
         return
 
     r = ctx["redis"]
