@@ -177,9 +177,17 @@ def _enc_key_material() -> bytes:
     Clave de cifrado para credenciales de backup.
     Prioridad: BACKUP_CRED_SECRET -> JWT_SECRET -> fallback local.
     """
+    # JWT_SECRET se toma de auth_api y no del entorno: alli ya se resuelve el
+    # secreto del sitio aunque el proceso no lo traiga en su entorno (caso de
+    # una herramienta lanzada a mano). Leyendolo del entorno, un script de
+    # consola derivaba otra clave y no podia descifrar lo que el servicio
+    # habia cifrado.
+    from app.api.auth_api import JWT_SECRET as _JWT_DEL_SITIO, _DEFAULT_JWT
+
+    jwt_secret = "" if _JWT_DEL_SITIO == _DEFAULT_JWT else _JWT_DEL_SITIO
     secret = (
         os.environ.get("BACKUP_CRED_SECRET", "").strip()
-        or os.environ.get("JWT_SECRET", "").strip()
+        or jwt_secret.strip()
         or "shomer-backup-cred-default-change-me"
     )
     return hashlib.sha256(secret.encode("utf-8")).digest()
