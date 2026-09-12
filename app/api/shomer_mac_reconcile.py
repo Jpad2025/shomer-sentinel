@@ -33,7 +33,45 @@ from app.api.shomer_common import get_db
 logger = logging.getLogger(__name__)
 
 MAC_RECONCILE_INTERVAL_SEC = int(os.environ.get("MAC_RECONCILE_INTERVAL_SEC", "1800"))
-MAC_RECONCILE_SUBNET = os.environ.get("MAC_RECONCILE_SUBNET", "192.168.0.0/24")
+
+
+def _resolve_subnet() -> str | None:
+    """La subred a barrer: la real del sitio, nunca una fija.
+
+    12 sep 2026: esto era antes un default puesto a mano, "192.168.0.0/24" --
+    la red de Ópera al momento de escribir el módulo. En Ópera funcionaba por
+    coincidencia (su LAN real es esa). En cualquier otro sitio -- o si la
+    propia Ópera cambia de proveedor o de rango algún día -- el barrido
+    quedaría escaneando en silencio una red que no es la real: no da error,
+    simplemente no encuentra nada, y la protección contra "un equipo cambió
+    de IP y queda marcado caído para siempre" deja de actuar sin que nadie lo
+    note (ver CLAUDE.md, hallazgos pre-producción, punto 3).
+
+    Prioridad:
+    1. MAC_RECONCILE_SUBNET -- override explícito por variable de entorno,
+       para el caso raro de querer forzar algo distinto de lo detectado.
+    2. La red real del sitio, vía get_network_context(): lee base.subnet
+       (lo que el propio asistente /setup ya guardó) o, si no hay nada
+       guardado, la detecta en vivo de la interfaz de gestión. Es la MISMA
+       fuente que usa el asistente de instalación -- no una segunda verdad.
+
+    Se resuelve en cada ciclo, no una sola vez al importar el módulo: si el
+    sitio reconfigura su red -- Ópera cambia de proveedor, un cliente migra
+    de rango -- esto lo sigue solo, sin reinicio y sin tocar código.
+
+    Sin ninguna de las dos fuentes, devuelve None: es preferible no barrer
+    nada y decirlo, a barrer una red inventada y fallar en silencio.
+    """
+    override = (os.environ.get("MAC_RECONCILE_SUBNET") or "").strip()
+    if override:
+        return override
+    try:
+        from app.scripts.network_context import get_network_context
+        subnet = (get_network_context() or {}).get("subnet")
+        return subnet or None
+    except Exception as e:
+        logger.debug("mac_reconcile: no se pudo detectar la subred del sitio: %s", e)
+        return None
 
 
 def _ping_sweep(subnet: str) -> None:
@@ -58,8 +96,16 @@ def _ping_sweep(subnet: str) -> None:
 
 def _scan_mac_ip() -> dict[str, str]:
     """Barrido propio -> {MAC: IP} visto ahora mismo en la LAN, vía tabla ARP."""
+    subred = _resolve_subnet()
+    if not subred:
+        logger.warning(
+            "mac_reconcile: sin subred del sitio (ni base.subnet ni detección "
+            "en vivo) -- barrido omitido este ciclo, en vez de escanear una "
+            "red inventada"
+        )
+        return {}
     try:
-        _ping_sweep(MAC_RECONCILE_SUBNET)
+        _ping_sweep(subred)
         out = subprocess.run(
             ["ip", "-j", "neigh", "show"],
             capture_output=True, text=True, timeout=10,
@@ -211,7 +257,12 @@ async def mac_reconcile_loop() -> None:
 def start_mac_reconcile_loop() -> None:
     loop = asyncio.get_event_loop()
     loop.create_task(mac_reconcile_loop())
+    # La subred se resuelve en cada ciclo (ver _resolve_subnet), no una vez al
+    # arrancar -- se muestra la que resolvería AHORA solo como referencia; si
+    # el sitio cambia de red después, este mensaje queda desactualizado pero
+    # el barrido real ya no depende de él.
     logger.info(
-        "mac_reconcile: reconciliación IP-por-MAC iniciada (cada %ds, subred %s)",
-        MAC_RECONCILE_INTERVAL_SEC, MAC_RECONCILE_SUBNET,
+        "mac_reconcile: reconciliación IP-por-MAC iniciada (cada %ds, "
+        "subred del sitio en este momento: %s)",
+        MAC_RECONCILE_INTERVAL_SEC, _resolve_subnet() or "sin detectar aún",
     )
