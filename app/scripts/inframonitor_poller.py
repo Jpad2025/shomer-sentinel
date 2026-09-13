@@ -32,7 +32,9 @@ async def main() -> None:
     loop.add_signal_handler(signal.SIGTERM, _handle_signal, signal.SIGTERM, None)
     loop.add_signal_handler(signal.SIGINT,  _handle_signal, signal.SIGINT,  None)
 
-    from app.api.shomer_inframonitor import (
+    # 12 sep 2026: estas funciones viven en shomer_inframonitor_poller.py --
+    # separado del router HTTP (shomer_inframonitor.py) el mismo dia.
+    from app.api.shomer_inframonitor_poller import (
         _init_tables,
         _poll_fast_once,
         _poll_snmp_once,

@@ -102,7 +102,9 @@ class TestPersistPollResultsReturnsPulseEvents(unittest.TestCase):
         nunca se escribía). Import perezoso: requiere el paquete app completo."""
         import inspect
 
-        from app.api import shomer_inframonitor as mod
+        # 12 sep 2026: _persist_poll_results vive en shomer_inframonitor_poller
+        # (separado del router shomer_inframonitor.py ese mismo dia).
+        from app.api import shomer_inframonitor_poller as mod
 
         src = inspect.getsource(mod._persist_poll_results)
         self.assertIn(
