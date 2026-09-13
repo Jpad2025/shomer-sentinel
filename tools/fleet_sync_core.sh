@@ -136,6 +136,24 @@ for h in "${hosts[@]}"; do
     continue
   fi
 
+  # 13 sep 2026: rsync trae TODO .git (no solo los archivos), asi que el
+  # historial de Opera para docs/sitios/<algo> (excluido de la transferencia
+  # de archivos, nunca del historial) deja a cada lab con ese path marcado
+  # "eliminado" en su propio git status -- resurge en cada sync, ya se
+  # parcheo a mano dos veces. Se reconcilia solo: nunca a ciegas, solo para
+  # rutas bajo docs/sitios/, que es justamente lo que nunca debe vivir fuera
+  # del sitio dueño.
+  ssh -o ConnectTimeout=10 "$h" "
+    cd '$REPO_DIR'
+    borrados=\$(git status --porcelain -- docs/sitios/ | awk '\$1==\"D\"{print \$2}')
+    if [ -n \"\$borrados\" ]; then
+      git add \$borrados
+      git commit -q -m 'Reconciliar: docs/sitios/ no vive fuera de su sitio (auto, fleet_sync_core.sh)
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>'
+    fi
+  " >/dev/null 2>&1
+
   pruebas=$(ssh -o ConnectTimeout=10 "$h" \
     "cd '$REPO_DIR' && venv/bin/python -m pytest tests/ -q 2>&1 | tail -1" 2>/dev/null)
   if grep -q "failed\|error" <<<"$pruebas"; then
