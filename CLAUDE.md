@@ -131,9 +131,12 @@ Si alguno falta, el panel puede abrir igual pero fallan módulos.
 
 **Todo el hardware físico de los labs está conectado y disponible en todo momento.** Cualquier prueba física, de aplicación o en la nube se puede ejecutar sin preguntar al desarrollador. Los labs (`shomer205`/`245`/`243`) hoy son laboratorio de desarrollo; están destinados a convertirse en instalaciones de cliente — antes de eso, cada uno debe pasar por `/setup` con la red real del sitio (ver Parte I).
 
-**Pendientes de campo sin confirmar en esta revisión (13 sep 2026)** — preguntar antes de darlos por cerrados o seguir invirtiendo en ellos:
-- Pruebas no funcionales de carga (CPU/RAM/disco bajo scan+backup simultáneo).
-- Checklist de despliegue en nube externa (5 criterios, nunca ejecutado en bloque).
+**Resuelto (13 sep 2026, confirmado por Juan Pablo y verificado contra el sistema real):**
+carga y despliegue en nube externa ya no son pendientes de mayo — B2 (Backblaze) corre en
+producción real todos los días desde entonces, con Guardian/Hunter/Inframonitor/scans
+corriendo en simultáneo (verificado: sync B2 del 13 sep a las 05:30 hora local, justo
+después del backup local de las 05:00). Eso es carga real sostenida, no una prueba sintética
+de laboratorio — más exigente, no menos.
 
 ---
 
