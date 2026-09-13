@@ -4,6 +4,17 @@ Documento maestro: qué tiene cada appliance y qué configuración es **específ
 
 **Última actualización:** 23 jun 2026 (Sesión 61 — auditoría EN VIVO de los 4 servidores vía SSH directo, no desde notas de sesiones pasadas).
 
+> **Corregido 13 sep 2026 — la dirección del deploy cambió:** hoy **Ópera es el maestro**
+> (produce el código y lo empuja a los 3 labs), no `.205` como dice el resto de este
+> documento. Herramientas reales: `tools/fleet_sync_core.sh` (core) y `tools/fleet_sync.sh`
+> (agente) desde Ópera, verificadas con `tools/fleet_estado.py`. `deploy.sh` (abajo) describe
+> el flujo anterior — se deja como referencia, no como instrucción vigente. Conteos de
+> Inframonitor en Ópera verificados hoy: **51 equipos totales** (30 AP vía Guardian + 21 vía
+> Inframonitor: switch:8, pos:4, camera:3, printer:2, server:2, router:1, controller:1) — no
+> los 23+30=53 de esta tabla. El resto de detalles por sitio (VLANs, excepciones Hunter,
+> estado exacto de cada bot) no se reverificó línea por línea en esta pasada — seguir la
+> regla de arriba: comprobar en vivo antes de afirmar nada.
+
 > **REGLA CRÍTICA:** Deploy o cambios remotos en **producción** (Ópera) **solo con autorización de Juan Pablo**. Deploy = **solo código** de la aplicación; **nunca** BD, `SITE.md`, credenciales ni config del sitio. Ver **`docs/REGLAS_DEPLOY.md`**.
 
 > **REGLA DE VERIFICACIÓN (nueva, 23 jun 2026 — causa de fondo de errores recientes):** Las tablas "Por equipo" de abajo describen el estado la última vez que alguien lo comprobó **en vivo por SSH**, no un estado permanente. Antes de afirmarle a Juan Pablo que algo "falta", "está pendiente" o "necesita instalarse" en cualquier servidor, **volver a comprobar primero** — este documento puede estar desactualizado. Verificación rápida (servicios + si el contenedor del bot existe/corre):

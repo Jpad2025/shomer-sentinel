@@ -1,6 +1,6 @@
 # NOC — pantalla de operaciones (TV)
 
-Actualizado: **28 jul 2026** (noche)
+Actualizado: **28 jul 2026** (noche) · Verificado sin cambios contra código real el **13 sep 2026**.
 
 ## URLs
 

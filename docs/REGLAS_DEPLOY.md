@@ -2,6 +2,15 @@
 
 **Violación de estas reglas puede ser fatal en campo** (credenciales cruzadas, IPs de lab en hotel, panel caído en horario operativo).
 
+> **Corregido 13 sep 2026** — la dirección del deploy cambió desde que se escribió esto:
+> hoy **Ópera es el maestro** (produce el código, GitHub, y empuja hacia los 3 labs), no al
+> revés. Las herramientas reales son `tools/fleet_sync_core.sh` (core) y
+> `tools/fleet_sync.sh` (agente) — verifican salud, corren las pruebas y revierten solas si
+> algo falla; después de sincronizar, `tools/fleet_estado.py` confirma que ningún archivo
+> quedó fuera de git en ningún sitio. `tools/deploy.sh` (abajo) describe un flujo anterior
+> (`.205` como origen) que ya no es el que se usa — se deja como referencia histórica, no
+> como instrucción vigente.
+
 ---
 
 ## 1. Autorización de Juan Pablo
