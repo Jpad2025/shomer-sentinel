@@ -66,6 +66,12 @@ RSYNC_EXCLUDES=(
   --exclude='__pycache__/' --exclude='*.pyc' --exclude='*.pyo'
   --exclude='*.log' --exclude='logs/' --exclude='.pytest_cache/'
   --exclude='venv/' --exclude='.venv/'
+  # 12 sep 2026: docs/ es documentacion GENERICA del producto y por eso viaja
+  # a toda la flota -- pero un reporte con nombres de equipos y hallazgos de
+  # un hotel puntual (docs/sitios/<sitio>/) no lo es. Sin esta exclusion, ese
+  # tipo de reporte ya se propago una vez a los 3 labs el mismo dia que se
+  # escribio. Mismo criterio que .env/SITE.md: nunca de un sitio a otro.
+  --exclude='docs/sitios/'
 )
 
 local_head=$(cd "$REPO_DIR" && git rev-parse --short HEAD)

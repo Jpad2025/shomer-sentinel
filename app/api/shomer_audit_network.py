@@ -112,9 +112,7 @@ _INFO_PORTS = {22, 443, 8443, 53, 67, 68, 123}
 _PORT_RULE_MAP = {r[0]: r for r in _PORT_RULES}
 
 
-# ──────────────────────────────────────────────
-# DB init
-# ──────────────────────────────────────────────
+# ── DB init ──────────────────────────────────────────────────────────────────
 
 _tables_ready = False
 
@@ -164,9 +162,7 @@ def _init_tables():
     _tables_ready = True
 
 
-# ──────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _get_asset_ip_map() -> dict[str, str]:
     """IP → hostname desde inventory.db."""
@@ -361,9 +357,7 @@ def _save_findings(scan_id: int, findings: list[dict], hostname_map: Optional[di
     return count
 
 
-# ──────────────────────────────────────────────
-# Auditoría de parches — SSH/WMI por equipo
-# ──────────────────────────────────────────────
+# ── Auditoría de parches — SSH/WMI por equipo ────────────────────────────────
 
 def _get_patchable_assets(live_ips: set) -> list[dict]:
     """
@@ -648,9 +642,7 @@ def _extract_live_ips(xml_str: str) -> set:
     return ips
 
 
-# ──────────────────────────────────────────────
-# Background scan task
-# ──────────────────────────────────────────────
+# ── Background scan task ─────────────────────────────────────────────────────
 
 async def _do_scan(scan_id: int, triggered_by: str = "manual"):
     global _scan_running
@@ -720,9 +712,7 @@ async def _do_scan(scan_id: int, triggered_by: str = "manual"):
         _scan_running = False
 
 
-# ──────────────────────────────────────────────
-# Endpoints
-# ──────────────────────────────────────────────
+# ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/audit/network/scan")
 async def start_network_scan(user=Depends(get_current_user)):
