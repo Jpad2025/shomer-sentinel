@@ -8,7 +8,7 @@ import json
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.api.inventory_db_schema import ensure_assets_table, ensure_snapshots_table
+from app.api.tracker_db_schema import ensure_assets_table, ensure_snapshots_table
 
 
 def close_and_archive_inventory(

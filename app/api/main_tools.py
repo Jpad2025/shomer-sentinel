@@ -23,8 +23,8 @@ from app.api.security_http import (
     install_proxy_headers_middleware,
     install_trusted_host_middleware,
 )
-from app.api.inventory import router as assets_inventory_router
-from app.api.inventory import export_router, rescan_router, snapshot_router
+from app.api.tracker import router as assets_inventory_router
+from app.api.tracker import export_router, rescan_router, snapshot_router
 from app.api.backups import router as backups_router, start_backup_scheduler
 from app.api.shomer_drill import router as drill_router
 from app.api.shomer_reports import router as reports_router

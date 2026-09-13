@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from app.api.inventory_suricata_eve import (
+from app.api.tracker_suricata_eve import (
     SURICATA_EVE_DEFAULT_PATH,
     enrich_assets_with_suricata_alerts,
     read_suricata_alerts_for_ips,

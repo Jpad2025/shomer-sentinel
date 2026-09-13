@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.backend.db import DB_PATH, connect, get_connection_inventory
-from app.api.inventory_db_schema import ensure_assets_table, ensure_network_credentials
+from app.api.tracker_db_schema import ensure_assets_table, ensure_network_credentials
 
 logger = logging.getLogger(__name__)
 

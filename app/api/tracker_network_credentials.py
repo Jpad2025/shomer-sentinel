@@ -7,7 +7,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Dict, Optional
 
-from app.api.inventory_db_schema import ensure_network_credentials
+from app.api.tracker_db_schema import ensure_network_credentials
 
 
 def fetch_network_credentials(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:

@@ -2,7 +2,7 @@
 import json
 import unittest
 
-from app.api.inventory_excel_export import (
+from app.api.tracker_excel_export import (
     GLOBAL_INVENTORY_COLUMNS,
     SNAPSHOT_INVENTORY_COLUMNS,
     format_snapshot_software_cell,
@@ -115,7 +115,7 @@ class TestColumnsContract(unittest.TestCase):
 
 def normalize_asset(d):
     """Misma forma que normalize_asset_for_frontend mínima para estas pruebas."""
-    from app.api.inventory_asset_model import normalize_asset_for_frontend
+    from app.api.tracker_asset_model import normalize_asset_for_frontend
 
     return normalize_asset_for_frontend(d)
 

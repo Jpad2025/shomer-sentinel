@@ -2,8 +2,8 @@
 import sqlite3
 import unittest
 
-from app.api.inventory_db_schema import ensure_network_credentials
-from app.api.inventory_network_credentials import (
+from app.api.tracker_db_schema import ensure_network_credentials
+from app.api.tracker_network_credentials import (
     fetch_network_credentials,
     save_network_credentials,
 )

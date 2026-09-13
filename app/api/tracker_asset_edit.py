@@ -7,7 +7,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Dict, Optional
 
-from app.api.inventory_db_schema import existing_columns
+from app.api.tracker_db_schema import existing_columns
 
 # mac es PK (URL); estos campos acepta PATCH /inventory/update/{mac}
 ASSET_EDITABLE_FIELDS = frozenset(

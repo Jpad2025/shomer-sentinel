@@ -1,7 +1,7 @@
 """Tests — inventory_discovery (sin subprocess nmap en CI salvo vacío)."""
 import unittest
 
-from app.api.inventory_discovery import (
+from app.api.tracker_discovery import (
     enrich_hostname_nmap,
     vendor_from_oui,
 )

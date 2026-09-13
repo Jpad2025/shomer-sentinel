@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from app.api.inventory_remedies import load_remedies_json
+from app.api.tracker_remedies import load_remedies_json
 
 
 class TestLoadRemedies(unittest.TestCase):

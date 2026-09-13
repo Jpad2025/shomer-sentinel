@@ -2,7 +2,7 @@
 Módulo de Inventario estricto (assets) para SHOMER Suite.
 
 - Base de datos: inventory.db en /storage/db/ (tabla assets). Rutas desde app.backend.db.
-- Lógica repartida en app.api.inventory_*; aquí solo routers FastAPI.
+- Lógica repartida en app.api.tracker_*; aquí solo routers FastAPI.
 """
 
 from __future__ import annotations
@@ -18,16 +18,16 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.api.auth_api import get_current_user, require_admin
-from app.api.inventory_asset_edit import sanitize_asset_updates, upsert_asset_row
-from app.api.inventory_asset_report_pdf import build_asset_report_pdf_bytes
-from app.api.inventory_assets_repo import (
+from app.api.tracker_asset_edit import sanitize_asset_updates, upsert_asset_row
+from app.api.tracker_asset_report_pdf import build_asset_report_pdf_bytes
+from app.api.tracker_assets_repo import (
     delete_asset_by_mac,
     fetch_all_assets_normalized,
     fetch_asset_by_ip_normalized,
     fetch_asset_by_mac_normalized,
 )
-from app.api.inventory_db_schema import ensure_assets_table, ensure_network_credentials
-from app.api.inventory_discovery import (
+from app.api.tracker_db_schema import ensure_assets_table, ensure_network_credentials
+from app.api.tracker_discovery import (
     DISCOVERY_SCRIPT_PATH,
     SCANNER_PATH,
     build_deep_scan_environment,
@@ -36,23 +36,23 @@ from app.api.inventory_discovery import (
     run_inventory_deep_scan_background,
     run_inventory_quick_scan_background,
 )
-from app.api.inventory_excel_export import (
+from app.api.tracker_excel_export import (
     render_global_client_excel_bytes,
     render_single_asset_excel_bytes,
     render_snapshot_archive_excel_bytes,
 )
-from app.api.inventory_label_pdf import build_asset_label_pdf, build_labels_sheet_pdf
-from app.api.inventory_network_credentials import (
+from app.api.tracker_label_pdf import build_asset_label_pdf, build_labels_sheet_pdf
+from app.api.tracker_network_credentials import (
     fetch_network_credentials,
     save_network_credentials,
 )
-from app.api.inventory_remedies import load_remedies_json
-from app.api.inventory_snapshots import (
+from app.api.tracker_remedies import load_remedies_json
+from app.api.tracker_snapshots import (
     close_and_archive_inventory,
     list_snapshot_metadata,
     load_snapshot_assets,
 )
-from app.api.inventory_suricata_eve import enrich_assets_with_suricata_alerts
+from app.api.tracker_suricata_eve import enrich_assets_with_suricata_alerts
 from app.backend.db import PATH_REPORTS, REMEDIES_JSON_PATH, get_connection_inventory
 
 logger = logging.getLogger(__name__)

@@ -2,12 +2,12 @@
 import sqlite3
 import unittest
 
-from app.api.inventory_asset_edit import (
+from app.api.tracker_asset_edit import (
     ASSET_EDITABLE_FIELDS,
     sanitize_asset_updates,
     upsert_asset_row,
 )
-from app.api.inventory_db_schema import ensure_assets_table
+from app.api.tracker_db_schema import ensure_assets_table
 
 
 class TestSanitize(unittest.TestCase):

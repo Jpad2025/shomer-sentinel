@@ -1,5 +1,5 @@
 """
-Unit tests — app.api.inventory_asset_model (sin FastAPI ni BD).
+Unit tests — app.api.tracker_asset_model (sin FastAPI ni BD).
 
 Ejecutar desde /opt/network_monitor:
   PYTHONPATH=/opt/network_monitor ./venv/bin/python -m unittest tests.test_inventory_asset_model -v
@@ -7,7 +7,7 @@ Ejecutar desde /opt/network_monitor:
 import json
 import unittest
 
-from app.api.inventory_asset_model import (
+from app.api.tracker_asset_model import (
     KEYWORDS_RISK,
     compute_risk_observations,
     normalize_asset_for_frontend,

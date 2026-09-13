@@ -7,8 +7,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Dict, List, Optional
 
-from app.api.inventory_asset_model import normalize_asset_for_frontend
-from app.api.inventory_db_schema import ensure_assets_table, ensure_network_credentials
+from app.api.tracker_asset_model import normalize_asset_for_frontend
+from app.api.tracker_db_schema import ensure_assets_table, ensure_network_credentials
 
 
 def fetch_all_assets_normalized(conn: sqlite3.Connection) -> List[Dict[str, Any]]:

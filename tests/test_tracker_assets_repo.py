@@ -2,13 +2,13 @@
 import sqlite3
 import unittest
 
-from app.api.inventory_assets_repo import (
+from app.api.tracker_assets_repo import (
     delete_asset_by_mac,
     fetch_all_assets_normalized,
     fetch_asset_by_ip_normalized,
     fetch_asset_by_mac_normalized,
 )
-from app.api.inventory_db_schema import ensure_assets_table
+from app.api.tracker_db_schema import ensure_assets_table
 
 
 class TestAssetsRepo(unittest.TestCase):

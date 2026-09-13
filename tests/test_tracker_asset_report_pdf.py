@@ -1,7 +1,7 @@
 """Tests — PDF reporte de activo."""
 import unittest
 
-from app.api.inventory_asset_report_pdf import build_asset_report_pdf_bytes
+from app.api.tracker_asset_report_pdf import build_asset_report_pdf_bytes
 
 
 class TestAssetReportPdf(unittest.TestCase):

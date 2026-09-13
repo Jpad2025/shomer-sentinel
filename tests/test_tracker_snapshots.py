@@ -2,8 +2,8 @@
 import sqlite3
 import unittest
 
-from app.api.inventory_db_schema import ensure_assets_table
-from app.api.inventory_snapshots import (
+from app.api.tracker_db_schema import ensure_assets_table
+from app.api.tracker_snapshots import (
     close_and_archive_inventory,
     list_snapshot_metadata,
     load_snapshot_assets,

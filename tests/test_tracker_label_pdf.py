@@ -4,7 +4,7 @@ import unittest
 
 class TestBuildPdfOptional(unittest.TestCase):
     def test_build_pdf_returns_bytes_if_deps(self):
-        from app.api.inventory_label_pdf import build_asset_label_pdf
+        from app.api.tracker_label_pdf import build_asset_label_pdf
 
         b = build_asset_label_pdf(
             {

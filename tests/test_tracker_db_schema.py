@@ -2,7 +2,7 @@
 import sqlite3
 import unittest
 
-from app.api.inventory_db_schema import (
+from app.api.tracker_db_schema import (
     ASSETS_NEW_COLUMNS,
     ensure_assets_table,
     ensure_network_credentials,

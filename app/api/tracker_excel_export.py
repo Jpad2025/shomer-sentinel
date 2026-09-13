@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from app.api.inventory_asset_model import compute_risk_observations
+from app.api.tracker_asset_model import compute_risk_observations
 
 # Excel global “cliente” (mismo orden que export_global_inventory_excel)
 GLOBAL_INVENTORY_COLUMNS = [
