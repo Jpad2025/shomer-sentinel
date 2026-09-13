@@ -29,12 +29,7 @@ Actualizado: **13 sep 2026** · Dueño: Juan Pablo (único operador)
    ráfagas, sin distinguir si era OOM, watchdog, o reinicio manual de una
    sesión de desarrollo. No investigado.
 
-4. **`git filter-repo` pendiente** — un commit viejo (`16be896`) metió BDs al
-   historial; ya se sacaron del árbol actual pero siguen en el historial
-   remoto. Requiere tu autorización explícita + force-push — no es urgente
-   para operar, pero sigue expuesto en el historial de GitHub.
-
-5. **3 hallazgos menores de la Sesión 77, sin reverificar hoy:**
+4. **3 hallazgos menores de la Sesión 77, sin reverificar hoy:**
    `/config/save_nodos` (existe la ruta, no se confirmó si el bug reportado
    sigue); 3 rutas proxy sin autenticación propia (mitigadas por firewall,
    no removido el riesgo de fondo); `/tracker/credentials` accesible a
@@ -47,6 +42,7 @@ Actualizado: **13 sep 2026** · Dueño: Juan Pablo (único operador)
 - Reconciliación de IP por MAC (Sesión 73) — además generalizada el 12 sep (ya no depende de una red fija, ver `CLAUDE.md`).
 - Sync de flota Ópera↔labs — reemplazado por `tools/fleet_estado.py` + `tools/fleet_sync_core.sh`/`fleet_sync.sh` (12-13 sep), que verifican en cada corrida — el WIP sin commitear que tenían los labs en agosto ya no aplica.
 - Regla de firewall Hunter reactivada (11 sep), verificada sana el 13 sep (107→111 IPs bloqueadas, ninguna crítica).
+- `git filter-repo` (13 sep, autorizado por Juan Pablo) — el commit `16be896` que había metido dos bases de datos reales al historial (2.2 MB y 57.5 MB) quedó reescrito: verificado con backup previo (bundle + tar de `.git`, en `/storage/backups/git-filter-repo-13sep2026/`), diff de archivo por archivo idéntico antes/después, clon nuevo desde GitHub sin ningún `.db` en ningún commit, y los 3 labs recibieron el historial limpio (confirmado con `git log --all -- '*.db'` vacío en cada uno) sin perder ningún archivo — `fleet_estado.py` sigue mostrando la flota al día y las 219 pruebas pasan en cada lab.
 
 ## Referencia rápida que sigue vigente
 
