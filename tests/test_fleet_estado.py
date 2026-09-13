@@ -38,6 +38,14 @@ class TestQueEsDelSitioYQueEsDelProducto(unittest.TestCase):
                      "tests/test_x.py", "app/static/panel.html"):
             self.assertFalse(fe.es_del_sitio(ruta), ruta)
 
+    def test_un_reporte_de_sitio_no_es_documentacion_generica(self):
+        """12 sep 2026: un reporte con nombres de equipos de un hotel puntual
+        ya se propago una vez a los 3 labs por vivir en docs/ compartido."""
+        for ruta in ("docs/sitios/opera/REPORTE_CAIDAS_POS.md",
+                     "docs/sitios/hotel-nuevo/notas.md"):
+            self.assertTrue(fe.es_del_sitio(ruta), ruta)
+        self.assertFalse(fe.es_del_sitio("docs/GUIA_PROYECTO_SHOMER.md"))
+
     def test_un_env_de_ejemplo_es_del_producto(self):
         """`.env` es del sitio; `.env.example` se versiona y debe viajar igual."""
         self.assertFalse(fe.es_del_sitio(".env.example"))

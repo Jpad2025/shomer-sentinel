@@ -63,6 +63,11 @@ DIRS_IGNORADOS = (
     # Código muerto que ya no se despliega: está en el maestro por historia,
     # nunca llegó a los labs y no debe ensuciar el informe cada día.
     "_archivo_obsoleto/",
+    # 12 sep 2026: reportes propios de un sitio (nombres de equipos, hallazgos
+    # puntuales de un hotel) -- correcto que cada sitio tenga los suyos y
+    # difieran entre sí. Mismo criterio que fleet_sync_core.sh: nunca se
+    # comparan ni se propagan de un sitio a otro.
+    "docs/sitios/",
 )
 
 TIMEOUT_SSH = 90
