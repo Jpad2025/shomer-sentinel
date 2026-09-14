@@ -414,6 +414,8 @@ Decisiones ya cerradas (retry automático de circuit breaker descartado por UX, 
 
 ### Archivos a descargar (antes de empezar)
 
+**Fuente:** `downloads.openwrt.org` (buscador oficial: `firmware-selector.openwrt.org`, modelo "MikroTik RouterBOARD 760iGS (hEX S)"). El rc3 no aparece en el buscador (es release candidate, no la versión estable) — bajarlo directo de la carpeta `releases/23.05.0-rc3/targets/ramips/mt7621/` del mismo dominio.
+
 | Archivo | Versión | Uso |
 |---|---|---|
 | `openwrt-23.05.0-rc3-ramips-mt7621-mikrotik_routerboard-760igs-initramfs-kernel.bin` | **rc3 obligatorio** | Boot en RAM vía TFTP — las versiones finales no netbootean en este modelo |
@@ -427,7 +429,7 @@ Decisiones ya cerradas (retry automático de circuit breaker descartado por UX, 
 - System → Routerboard → Settings → Boot device: `try ethernet once then NAND`
 - Boot protocol: `DHCP` · Force Backup Booter: ✅ · Shutdown (no reboot)
 
-**Paso 3 — Servidor TFTP en .205** (cable directo .205 → Ether1 del hEX):
+**Paso 3 — Servidor TFTP en .205** (cable directo .205 → Ether1 del hEX). **Verificado 14 sep 2026: `enp2s0` sigue siendo la interfaz correcta** (IP real `192.168.1.205/24`, no es la salida a internet de `.205` — esa va por `wlp3s0` — así que usarla no corta el equipo de la red general, solo el segmento LAN mientras dura el flasheo). `dnsmasq` no está instalado en `.205` hoy — el primer comando de abajo lo instala.
 ```bash
 sudo apt-get install -y dnsmasq
 # Archivo initramfs en directorio actual
