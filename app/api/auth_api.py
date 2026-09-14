@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
-from app.backend.db import connect, STORAGE_DB
+from app.backend.db import connect
 from app.api.security_http import cookie_secure_for_request
 
 # JWT simple (payload base64 + firma). Alternativa: PyJWT si está instalado.
@@ -24,7 +24,6 @@ import secrets
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 security = HTTPBearer(auto_error=False)
-log = logging.getLogger("shomer.auth")
 
 _DEFAULT_JWT = "shomer-secret-change-in-production"
 
@@ -94,21 +93,6 @@ def _get_conn():
     return connect(timeout=10, check_same_thread=False)
 
 
-FACTORY_PASSWORD_FILE = os.path.join(STORAGE_DB, ".factory_root_password")
-
-
-def _write_factory_password_file(password: str) -> None:
-    """Deja la contraseña de fábrica en un archivo local, solo legible por
-    root/el dueño del proceso -- nunca en el log (journalctl la guardaría para
-    siempre) y nunca en git (vive en /storage/db, fuera del repo)."""
-    try:
-        fd = os.open(FACTORY_PASSWORD_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(password + "\n")
-    except Exception as e:
-        log.warning("no se pudo escribir %s: %s", FACTORY_PASSWORD_FILE, e)
-
-
 def _ensure_users_table():
     conn = _get_conn()
     try:
@@ -120,15 +104,6 @@ def _ensure_users_table():
                 role TEXT NOT NULL DEFAULT 'operator'
             )
         """)
-        # Migración: columna para forzar cambio de contraseña -- sin esto no
-        # hay forma de saber "esta cuenta sigue con la contraseña de fábrica"
-        # más que comparar contra un hash fijo, que deja de servir en cuanto
-        # la contraseña de fábrica ya no es la misma para todos los sitios.
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
-        if "must_change_password" not in cols:
-            conn.execute(
-                "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
-            )
         conn.commit()
         cur = conn.execute("SELECT COUNT(*) FROM users")
         n = cur.fetchone()[0]
@@ -138,27 +113,12 @@ def _ensure_users_table():
             # recreando "root" con la contraseña de fábrica en cada acción del
             # panel aunque un admin lo hubiera borrado a propósito -- una
             # puerta trasera de facto. Ahora, si se borra, se queda borrado.
-            #
-            # 14 sep 2026: la contraseña de fábrica dejó de ser un literal fijo
-            # ("shomer2026") -- ese mismo valor viajaba en CADA instalación de
-            # Shomer, así que quien lo conociera una vez lo conocía para
-            # siempre en cualquier sitio nuevo. Ahora se genera al azar por
-            # instalación y se deja en FACTORY_PASSWORD_FILE para que quien
-            # instale la recupere una sola vez.
-            factory_password = secrets.token_urlsafe(9)
-            h_factory = _hash_password(factory_password)
+            h_factory = hashlib.sha256("shomer2026".encode()).hexdigest()
             conn.execute(
-                "INSERT OR IGNORE INTO users (username, password_hash, role, must_change_password) "
-                "VALUES (?, ?, ?, 1)",
+                "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
                 ("root", h_factory, "admin"),
             )
             conn.commit()
-            _write_factory_password_file(factory_password)
-            log.warning(
-                "Cuenta 'root' creada con contraseña de fábrica generada al azar -- "
-                "ver %s (solo la primera vez; cambiarla en /admin la borra de ahí en adelante)",
-                FACTORY_PASSWORD_FILE,
-            )
     finally:
         conn.close()
 
@@ -214,7 +174,7 @@ async def login(request: Request, req: LoginRequest):
     conn = _get_conn()
     try:
         cur = conn.execute(
-            "SELECT username, password_hash, role, must_change_password FROM users WHERE username = ?",
+            "SELECT username, password_hash, role FROM users WHERE username = ?",
             (req.username.strip(),),
         )
         row = cur.fetchone()
@@ -225,7 +185,8 @@ async def login(request: Request, req: LoginRequest):
     if _hash_password(req.password) != row["password_hash"]:
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
     token = _create_token(row["username"], row["role"])
-    _force_setup = bool(row["must_change_password"])
+    _factory_hash = hashlib.sha256("shomer2026".encode()).hexdigest()
+    _force_setup = (row["username"] == "root" and row["password_hash"] == _factory_hash)
     content = {"token": token, "username": row["username"], "role": row["role"]}
     if _force_setup:
         content["redirect"] = "/setup"
@@ -324,8 +285,8 @@ async def create_user(req: CreateUserRequest, user: dict = Depends(require_admin
         raise HTTPException(status_code=400, detail="Rol inválido. Usa: admin | operator")
     if not req.username or len(req.username.strip()) < 3:
         raise HTTPException(status_code=400, detail="Usuario mínimo 3 caracteres")
-    if not req.password or len(req.password) < 8:
-        raise HTTPException(status_code=400, detail="Contraseña mínimo 8 caracteres")
+    if not req.password or len(req.password) < 4:
+        raise HTTPException(status_code=400, detail="Contraseña mínimo 4 caracteres")
     _ensure_users_table()
     conn = _get_conn()
     try:
@@ -344,8 +305,8 @@ async def create_user(req: CreateUserRequest, user: dict = Depends(require_admin
 @router.api_route("/users/{user_id}/password", methods=["PUT", "POST"])
 async def change_user_password(user_id: int, req: ChangePasswordRequest, current: dict = Depends(get_current_user)):
     """Cambia contraseña. PUT o POST (algunos proxies solo dejan pasar POST). Admin: cualquier usuario; operator: solo la suya."""
-    if not req.password or len(req.password) < 8:
-        raise HTTPException(status_code=400, detail="Contraseña mínimo 8 caracteres")
+    if not req.password or len(req.password) < 4:
+        raise HTTPException(status_code=400, detail="Contraseña mínimo 4 caracteres")
     _ensure_users_table()
     conn = _get_conn()
     try:
@@ -357,10 +318,7 @@ async def change_user_password(user_id: int, req: ChangePasswordRequest, current
             raise HTTPException(status_code=403, detail="La contraseña de este usuario no puede modificarse desde el panel")
         if current["role"] != "admin" and target["username"] != current["username"]:
             raise HTTPException(status_code=403, detail="Solo puedes cambiar tu propia contraseña")
-        conn.execute(
-            "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
-            (_hash_password(req.password), user_id),
-        )
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (_hash_password(req.password), user_id))
         conn.commit()
     finally:
         conn.close()
