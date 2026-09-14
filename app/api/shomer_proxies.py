@@ -548,6 +548,16 @@ async def proxy_backups_b2_snapshots(request: Request, user=Depends(get_current_
     return await _proxy_backups(request, "/backups/b2/snapshots", timeout=90)
 
 
+@router.get("/backups/b2/object-lock/status")
+async def proxy_backups_b2_object_lock_status(request: Request, user=Depends(get_current_user)):
+    return await _proxy_backups(request, "/backups/b2/object-lock/status", timeout=30)
+
+
+@router.post("/backups/b2/object-lock/enable")
+async def proxy_backups_b2_object_lock_enable(request: Request, user=Depends(get_current_user)):
+    return await _proxy_backups(request, "/backups/b2/object-lock/enable", method="POST", timeout=60)
+
+
 @router.get("/backups/restore/{snapshot_id}/download")
 async def proxy_backups_restore_download(snapshot_id: str, request: Request):
     if not is_module_enabled("protector"):
