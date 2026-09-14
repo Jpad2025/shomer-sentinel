@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 
 _ASSET_REPORT_HARDWARE_KEYS = frozenset(
     {
@@ -41,9 +42,9 @@ def build_asset_report_pdf_bytes(a: Dict[str, Any]) -> bytes:
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 8, "Reporte de Activo IT", ln=1)
-    pdf.set_font("Arial", "", 10)
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 8, "Reporte de Activo IT", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("Helvetica", "", 10)
     pdf.ln(4)
     header_lines = [
         f"IP: {a.get('ip')}",
@@ -60,21 +61,21 @@ def build_asset_report_pdf_bytes(a: Dict[str, Any]) -> bytes:
         f"Última auditoría: {a.get('last_audit')}",
     ]
     for line in header_lines:
-        pdf.cell(0, 6, _latin1(line or ""), ln=1)
+        pdf.cell(0, 6, _latin1(line or ""), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     pdf.ln(4)
-    pdf.set_font("Arial", "B", 11)
-    pdf.cell(0, 6, "Notas internas:", ln=1)
-    pdf.set_font("Arial", "", 10)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 6, "Notas internas:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("Helvetica", "", 10)
     notes = (a.get("internal_notes") or "").strip() or "(sin notas)"
     for p in notes.splitlines():
         pdf.set_x(pdf.l_margin)
         pdf.multi_cell(0, 5, _latin1(p))
 
     pdf.ln(4)
-    pdf.set_font("Arial", "B", 11)
-    pdf.cell(0, 6, "Campos administrativos:", ln=1)
-    pdf.set_font("Arial", "", 10)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 6, "Campos administrativos:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("Helvetica", "", 10)
     for key in sorted(a.keys()):
         if key in _ASSET_REPORT_HARDWARE_KEYS:
             continue
