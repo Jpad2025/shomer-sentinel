@@ -842,6 +842,7 @@ async def hunter_stats(user=Depends(get_current_user)):
 
     # Bloqueadas activas
     active_blocks = 0
+    total_historico = 0
     by_origin: Dict[str, int] = {"manual": 0, "auto": 0, "wazuh": 0}
     try:
         with get_connection(timeout=10) as conn:
@@ -852,6 +853,14 @@ async def hunter_stats(user=Depends(get_current_user)):
             for r in rows:
                 k = (r["blocked_by"] or "manual").strip().lower()
                 by_origin[k] = by_origin.get(k, 0) + 1
+            # 16 sep 2026: "active_blocks" no responde "cuántos ataques ha
+            # detenido Shomer" -- excluye todo lo que se bloqueó y después se
+            # liberó solo (ej. reglas de ruido ya corregidas). El chat solo
+            # tenía alerts_today (de hoy) y active_blocks (solo lo activo
+            # ahora); ninguno es el total histórico real.
+            total_historico = conn.execute(
+                "SELECT COUNT(*) FROM blocked_ips"
+            ).fetchone()[0]
     except Exception as e:
         # 7 sep 2026 (re-auditoría Hunter): un error real de BD acá quedaba
         # invisible -- el panel mostraba "0 bloqueos activos" (parece buena
@@ -896,6 +905,7 @@ async def hunter_stats(user=Depends(get_current_user)):
         "success": True,
         "alerts_today": alerts_today,
         "active_blocks": active_blocks,
+        "total_blocks_historico": total_historico,
         "blocks_by_origin": by_origin,
         "high_recurrence_ips": high_rec_ips,
     }
