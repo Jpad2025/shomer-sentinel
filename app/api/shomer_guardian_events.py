@@ -52,7 +52,8 @@ async def get_maintenance(user=Depends(get_current_user)):
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute(
-                "CREATE TABLE IF NOT EXISTS system_state (key TEXT PRIMARY KEY, value TEXT)"
+                "CREATE TABLE IF NOT EXISTS system_state (key TEXT PRIMARY KEY, value TEXT, "
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
             )
             conn.commit()
             cur.execute("SELECT value FROM system_state WHERE key = 'maintenance'")
@@ -86,7 +87,8 @@ async def set_maintenance_on(user=Depends(get_current_user)):
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute(
-                "CREATE TABLE IF NOT EXISTS system_state (key TEXT PRIMARY KEY, value TEXT)"
+                "CREATE TABLE IF NOT EXISTS system_state (key TEXT PRIMARY KEY, value TEXT, "
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
             )
             conn.commit()
             cur.execute(
@@ -121,7 +123,8 @@ async def set_maintenance_off(user=Depends(get_current_user)):
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute(
-                "CREATE TABLE IF NOT EXISTS system_state (key TEXT PRIMARY KEY, value TEXT)"
+                "CREATE TABLE IF NOT EXISTS system_state (key TEXT PRIMARY KEY, value TEXT, "
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
             )
             conn.commit()
             cur.execute(

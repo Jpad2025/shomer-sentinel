@@ -60,9 +60,46 @@ def get_db():
         conn.close()
 
 
+_system_state_schema_ok = False
+
+
+def _ensure_system_state_schema(conn) -> None:
+    """17 sep 2026: dos módulos distintos crean `system_state` con
+    CREATE TABLE IF NOT EXISTS -- monitor.py con columna `updated_at`,
+    shomer_guardian_events.py sin ella. El que corre primero en un sitio
+    nuevo define el esquema para siempre (SQLite no migra solo). Verificado
+    en producción: shomer245 y shomer243 quedaron sin `updated_at` --
+    set_config() fallaba en silencio (excepción atrapada, solo log) en
+    CUALQUIER escritura de config, incluida la de excepciones de autobloqueo
+    de Hunter (ver INFRA_CRITICA_IPS en casador_blocking.py) -- una
+    protección de seguridad real no se guardaba y nadie se enteraba. Se
+    autorepara una sola vez por proceso, no en cada llamada."""
+    global _system_state_schema_ok
+    if _system_state_schema_ok:
+        return
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS system_state "
+        "(key TEXT PRIMARY KEY, value TEXT, "
+        "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+    )
+    try:
+        conn.execute("SELECT updated_at FROM system_state LIMIT 1")
+    except Exception:
+        try:
+            conn.execute(
+                "ALTER TABLE system_state ADD COLUMN updated_at "
+                "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            )
+            conn.commit()
+        except Exception:
+            pass
+    _system_state_schema_ok = True
+
+
 def get_config(key: str, default=None):
     try:
         with get_db() as conn:
+            _ensure_system_state_schema(conn)
             row = conn.execute(
                 "SELECT value FROM system_state WHERE key = ?", (key,)
             ).fetchone()
@@ -81,6 +118,7 @@ def set_config(key: str, value) -> bool:
     try:
         import json as _json
         with get_db() as conn:
+            _ensure_system_state_schema(conn)
             conn.execute(
                 "INSERT OR REPLACE INTO system_state (key, value, updated_at) "
                 "VALUES (?, ?, datetime('now'))",
