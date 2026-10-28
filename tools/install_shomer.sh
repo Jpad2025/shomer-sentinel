@@ -609,7 +609,7 @@ EnvironmentFile=${CONF_DIR}/shomer-runtime.env
 Environment=RESTIC_PASSWORD_FILE=${RESTIC_PASS_FILE}
 Restart=always
 RestartSec=10
-MemoryMax=700M
+MemoryMax=2G
 MemorySwapMax=0
 StandardOutput=append:${LOG_DIR}/api.log
 StandardError=append:${LOG_DIR}/api.log
@@ -636,7 +636,7 @@ EnvironmentFile=${CONF_DIR}/shomer-runtime.env
 Environment=RESTIC_PASSWORD_FILE=${RESTIC_PASS_FILE}
 Restart=always
 RestartSec=15
-MemoryMax=800M
+MemoryMax=2G
 MemorySwapMax=0
 StandardOutput=append:${LOG_DIR}/tools_api.log
 StandardError=append:${LOG_DIR}/tools_api.log
