@@ -101,8 +101,8 @@ Registro deploy: `tools/servers.txt`
 | **Pipeline** | **Sin** `SHOMER_LAB_NO_SPAN` — EVE quieto = alerta real |
 | **Hunter firewall** | MikroTik RouterOS `192.168.0.1` (`hunter.firewall_type=routeros`) |
 | **Regla DROP MikroTik** | Obligatoria en `forward` para `shomer-blocked` — aplicada manual 10/jun; verificar en panel Hunter → *Verificar regla DROP* |
-| **`routeros_auto_drop_enabled`** | **`false`** — no aplicar DROP automático desde panel (solo manual en producción) |
-| **IP bloqueada activa** | `190.60.195.10` (`firewall_blocked=1`) |
+| **`routeros_auto_drop_enabled`** | **`true`** (activado a propósito para prueba en producción, confirmado 28 oct 2026 — ya no es solo manual; bloqueos automáticos verificados funcionando contra IPs de listas de amenazas) |
+| **IP bloqueada activa** | ninguna — `190.60.195.10` bloqueada manual 8/jun, desbloqueada 19/jun; excepción permanente desde jun/2026, ver `hunter.auto_block_exceptions` |
 | **Hunter subnets** | 5 VLANs hotel (admin, huéspedes, eventos, WiFi admin, telefonía) — ver `SITE.md` |
 | **`auto_block_enabled`** | **`true`** — Seguro Hunter activo; excepciones WAN/operadores en `hunter.auto_block_exceptions` (19/jun) |
 | **Excepciones Hunter** | `190.60.195.10` (WAN), `190.13.110.0/23` (Movistar), IPs operador CO IKEv2 — ver `SITE.md` Ópera |
